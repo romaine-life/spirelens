@@ -6392,6 +6392,34 @@ public class SchemaLoadingTests
     }
 
     [Fact]
+    public void HistoricalLoad_AcceptsIceCreamRelicFixture()
+    {
+        var loaded = RunStorage.LoadHistorical(
+            FixturePath("ice-cream-relic-run.json"));
+
+        Assert.NotNull(loaded);
+        Assert.True(loaded!.SupportsResume);
+        AssertIceCreamFixture(loaded.Data.RelicAggregates["RELIC.ICE_CREAM"]);
+    }
+
+    [Fact]
+    public void ResumableLoad_AcceptsIceCreamRelicFixture()
+    {
+        var resumed = RunStorage.LoadResumable(
+            FixturePath("ice-cream-relic-run.json"));
+
+        Assert.NotNull(resumed);
+        AssertIceCreamFixture(resumed!.RelicAggregates["RELIC.ICE_CREAM"]);
+    }
+
+    private static void AssertIceCreamFixture(RelicAggregate relicAgg)
+    {
+        Assert.Equal(27, relicAgg.IceCreamEnergyConserved);
+        Assert.Equal(36, relicAgg.IceCreamTurns);
+        Assert.Equal(9, relicAgg.IceCreamCombats);
+    }
+
+    [Fact]
     public void HistoricalLoad_AcceptsPetrifiedToadRelicFixture()
     {
         var loaded = RunStorage.LoadHistorical(

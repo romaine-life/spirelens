@@ -712,6 +712,10 @@ New fixtures added going forward do not need a `v*-` prefix.
 - `card-turns-in-deck-run.json`
   Every card's zero-inclusive turns-in-deck count, plus how many of its
   combats-in-deck that count covers, for the per-turn damage average.
+- `ice-cream-relic-run.json`
+  Adds Ice Cream's conserved-Energy total — the pool the start-of-turn reset
+  would have discarded — and the zero-inclusive held turn/combat denominators
+  for its two averages.
 
 Why these exist:
 

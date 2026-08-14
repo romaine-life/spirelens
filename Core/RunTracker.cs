@@ -3232,6 +3232,9 @@ public static class RunTracker
         target.OrichalcumBlockMissed += source.OrichalcumBlockMissed;
         target.OrichalcumTurns += source.OrichalcumTurns;
         target.OrichalcumCombats += source.OrichalcumCombats;
+        target.IceCreamEnergyConserved += source.IceCreamEnergyConserved;
+        target.IceCreamTurns += source.IceCreamTurns;
+        target.IceCreamCombats += source.IceCreamCombats;
         target.StrengthAdded += source.StrengthAdded;
         target.GiryaStrengthRateAdded += source.GiryaStrengthRateAdded;
         target.GiryaStrengthCombats += source.GiryaStrengthCombats;
@@ -10687,6 +10690,7 @@ public static class RunTracker
     private const string PollinousCoreRelicId = "RELIC.POLLINOUS_CORE";
     private const string JossPaperRelicId = "RELIC.JOSS_PAPER";
     private const string OrichalcumRelicId = "RELIC.ORICHALCUM";
+    private const string IceCreamRelicId = "RELIC.ICE_CREAM";
     private const string PermafrostRelicId = "RELIC.PERMAFROST";
     private const string TuningForkRelicId = "RELIC.TUNING_FORK";
     private const string RippleBasinRelicId = "RELIC.RIPPLE_BASIN";
@@ -12060,6 +12064,60 @@ public static class RunTracker
                 CoreMain.LogDebug($"RecordOrichalcumTurnStarted failed: {e.Message}");
             }
         }
+    }
+
+    /// <summary>
+    /// Score the game's own reset-or-carry decision for one player turn setup.
+    /// The turn counts toward Ice Cream's held-period denominators whenever the
+    /// relic is held, including turn 1 and turns that carry nothing.
+    /// <paramref name="leftoverEnergy"/> is only banked when Ice Cream itself
+    /// suppressed the reset, because that pool is precisely what
+    /// <c>ResetEnergy</c> would have overwritten.
+    /// </summary>
+    public static void RecordIceCreamEnergyDecision(
+        Player player,
+        bool resetSuppressedByIceCream,
+        int leftoverEnergy)
+    {
+        if (player == null) return;
+
+        lock (_lock)
+        {
+            try
+            {
+                if (!IsTrackedPlayer(player)) return;
+                _pendingCombat ??= new PendingCombat();
+                if (!RecordIceCreamTurnForPlayerLocked(player)) return;
+                if (!resetSuppressedByIceCream) return;
+
+                var agg = GetOrCreatePendingRelicAggregateLocked(IceCreamRelicId);
+                RecordIceCreamEnergyConservedForTest(agg, leftoverEnergy);
+            }
+            catch (Exception e)
+            {
+                CoreMain.LogDebug($"RecordIceCreamEnergyDecision failed: {e.Message}");
+            }
+        }
+    }
+
+    internal static void RecordIceCreamTurnForTest(RelicAggregate agg, int count = 1)
+    {
+        if (agg == null) return;
+        agg.IceCreamTurns += Math.Max(0, count);
+    }
+
+    internal static void RecordIceCreamCombatForTest(RelicAggregate agg, int count = 1)
+    {
+        if (agg == null) return;
+        agg.IceCreamCombats += Math.Max(0, count);
+    }
+
+    internal static void RecordIceCreamEnergyConservedForTest(
+        RelicAggregate agg,
+        int leftoverEnergy)
+    {
+        if (agg == null) return;
+        agg.IceCreamEnergyConserved += Math.Max(0, leftoverEnergy);
     }
 
     /// <summary>
@@ -30531,6 +30589,43 @@ public static class RunTracker
         RecordOrichalcumTurnForTest(agg);
     }
 
+    private static void RecordIceCreamCombatForPlayerLocked(Player player)
+    {
+        if (_pendingCombat == null) return;
+        if (!PlayerHasIceCream(player)) return;
+        if (!_pendingCombat.IceCreamCombatCountedPlayers.Add(player)) return;
+
+        var agg = GetOrCreatePendingRelicAggregateLocked(IceCreamRelicId);
+        RecordIceCreamCombatForTest(agg);
+    }
+
+    /// <summary>
+    /// Count one distinct player turn toward Ice Cream's held-period
+    /// denominators. Returns whether this call owns the turn, so the caller
+    /// only banks conserved energy once even if the decision hook is observed
+    /// more than once for the same turn.
+    /// </summary>
+    private static bool RecordIceCreamTurnForPlayerLocked(Player player)
+    {
+        if (_pendingCombat == null) return false;
+        if (!PlayerHasIceCream(player)) return false;
+
+        var turnNumber = player.PlayerCombatState?.TurnNumber ?? 0;
+        if (turnNumber <= 0) return false;
+        if (_pendingCombat.IceCreamTurnCountedTurns.TryGetValue(player, out var recordedTurn)
+            && recordedTurn == turnNumber)
+        {
+            return false;
+        }
+
+        _pendingCombat.IceCreamTurnCountedTurns[player] = turnNumber;
+        RecordIceCreamCombatForPlayerLocked(player);
+
+        var agg = GetOrCreatePendingRelicAggregateLocked(IceCreamRelicId);
+        RecordIceCreamTurnForTest(agg);
+        return true;
+    }
+
     private static void RecordRippleBasinCombatForPlayerLocked(Player player)
     {
         if (_pendingCombat == null) return;
@@ -32090,6 +32185,18 @@ public static class RunTracker
         try
         {
             return player.Relics.Any(r => r is Orichalcum);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool PlayerHasIceCream(Player player)
+    {
+        try
+        {
+            return player.Relics.Any(r => r is IceCream);
         }
         catch
         {
@@ -38468,6 +38575,10 @@ internal class PendingCombat
     public HashSet<Player> OrichalcumCombatCountedPlayers { get; }
         = new(ReferenceEqualityComparer.Instance);
     public Dictionary<Player, int> OrichalcumTurnCountedTurns { get; }
+        = new(ReferenceEqualityComparer.Instance);
+    public HashSet<Player> IceCreamCombatCountedPlayers { get; }
+        = new(ReferenceEqualityComparer.Instance);
+    public Dictionary<Player, int> IceCreamTurnCountedTurns { get; }
         = new(ReferenceEqualityComparer.Instance);
     public HashSet<Player> EmberTeaActivePlayers { get; }
         = new(ReferenceEqualityComparer.Instance);

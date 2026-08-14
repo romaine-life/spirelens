@@ -1576,6 +1576,17 @@ public class RelicAggregate
     // on the preceding turn prevented its energy gain.
     public int ArtOfWarTurns { get; set; }
 
+    // Ice Cream's observed carry-over. The game decides reset-or-carry once per
+    // player turn setup; when Ice Cream suppresses the reset, the pool sitting
+    // on the player at that moment is exactly what the reset would have thrown
+    // away, so EnergyConserved sums that read rather than any card text.
+    // IceCreamTurns and IceCreamCombats are the zero-inclusive held-period
+    // denominators: every player turn the relic was held counts, including
+    // turn 1, where the relic never carries anything by design.
+    public int IceCreamEnergyConserved { get; set; }
+    public int IceCreamTurns { get; set; }
+    public int IceCreamCombats { get; set; }
+
     // Tooltip-only projections populated from the live pending combat.
     // Internal properties are not part of the persisted System.Text.Json shape.
     internal int ArtOfWarEnergyAddedThisCombat { get; set; }

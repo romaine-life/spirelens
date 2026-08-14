@@ -668,6 +668,27 @@ Energy:
 - Prefix captures before value.
 - Postfix computes positive delta and attributes to the currently resolving card owned by that player.
 
+Energy is not cleared at end of turn. It is overwritten at the *start* of the
+next one. `CombatManager.SetupPlayerTurn` asks
+`Hook.ShouldPlayerResetEnergy(state, player)` once per player turn setup and
+then branches: true calls `PlayerCombatState.ResetEnergy()`, which assigns
+`Energy = MaxEnergy` and throws the old pool away; false calls
+`AddMaxEnergyToCurrent()`, which adds to whatever is already there. So the pool
+readable on the player while that hook is answering is exactly the amount the
+reset would have discarded — the marginal value of suppressing it — and reading
+it after either branch measures the refilled total instead. `TurnNumber` has
+already been incremented by the side switch when the hook runs, so turn 1 sees
+`TurnNumber == 1`.
+
+Ice Cream is the only model in the current build that overrides
+`ShouldPlayerResetEnergy`, returning false for its own owner from turn 2 on.
+Attribution still gates on the relic instance's own answer rather than on the
+hook's aggregate result, because `Hook.ShouldPlayerResetEnergy` short-circuits
+on the first listener returning false and never reports which one, and it runs
+for non-owning players in multiplayer. `IceCreamStatsTests` pins the
+one-suppressor assumption so a second one added by an update surfaces as a test
+failure rather than as a silently shared stat.
+
 Stars:
 
 - Hook `PlayerCombatState.GainStars` the same way.

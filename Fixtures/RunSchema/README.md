@@ -724,6 +724,11 @@ New fixtures added going forward do not need a `v*-` prefix.
   verbatim, so the fixture also carries a key this build does not know,
   which must load and survive untouched.
 
+- `energy-wasted-ledger-run.json`
+  The card-side and relic-side halves of the energy provenance ledger, so the
+  new `total_energy_wasted` / `energy_wasted` counters have a checked-in shape
+  alongside the `*_generated` totals they pair with.
+
 Why these exist:
 
 - new shape work should be validated against real checked-in examples, not memory

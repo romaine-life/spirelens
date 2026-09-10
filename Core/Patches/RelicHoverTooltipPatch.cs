@@ -2404,6 +2404,7 @@ public static class RelicHoverShowPatch
         var sb = new StringBuilder();
         RelicActivationRow(sb, agg.Activations.ToString());
         Row3(sb, EnergyLabel("Energy gained"), agg.EnergyGenerated.ToString(), "");
+        AppendEnergyWastedRow(sb, agg);
         return sb.ToString();
     }
 
@@ -2528,6 +2529,7 @@ public static class RelicHoverShowPatch
             : (decimal)agg.ArtOfWarEnergyAddedThisCombat / agg.ArtOfWarTurnsThisCombat;
 
         Row3(sb, EnergyLabel("Total energy gained"), agg.EnergyGenerated.ToString(), "");
+        AppendEnergyWastedRow(sb, agg);
         Row3(sb, EnergyLabel("Avg energy gained per turn"), FormatDecimal(energyPerTurn), "");
         Row3(sb, EnergyLabel("Avg energy gained per combat"), FormatDecimal(energyPerCombat), "");
         Row3(
@@ -2777,6 +2779,7 @@ public static class RelicHoverShowPatch
             AttacksPlayedDescription);
         Row3(sb, "Avg attacks played per combat", FormatDecimal(averageAttacks), "");
         Row3(sb, EnergyLabel("Energy gained total"), agg.EnergyGenerated.ToString(), "");
+        AppendEnergyWastedRow(sb, agg);
         Row3(sb, EnergyLabel("Avg energy gained per combat"), FormatDecimal(averageEnergy), "");
         Row3(sb, "Combats ended on 8 charges", agg.NunchakuCombatsEndedOn8Charges.ToString(), "");
         Row3(sb, "Combats ended on 9 charges", agg.NunchakuCombatsEndedOn9Charges.ToString(), "");
@@ -7102,6 +7105,7 @@ public static class RelicHoverShowPatch
         bool includeCombatsHeld = false)
     {
         Row3(sb, EnergyLabel(totalLabel), agg.EnergyGenerated.ToString(), "");
+        AppendEnergyWastedRow(sb, agg);
         var combats = combatCount ?? agg.Activations;
         if (includeCombatsHeld)
             Row3(sb, "Combats held", combats.ToString(), "");
@@ -7112,6 +7116,25 @@ public static class RelicHoverShowPatch
             ? 0m
             : (decimal)agg.EnergyGenerated / combats;
         Row3(sb, EnergyLabel(averageLabel), FormatDecimal(average), "");
+    }
+
+    /// <summary>
+    /// The counterpart to every "energy generated" row: how much of it the
+    /// player energy ledger saw expire unspent. Suppressed at zero so relics
+    /// whose energy always got used stay uncluttered.
+    /// </summary>
+    private static void AppendEnergyWastedRow(StringBuilder sb, RelicAggregate agg)
+    {
+        if (agg.EnergyWasted <= 0) return;
+
+        var wastedPct = agg.EnergyGenerated <= 0
+            ? 0m
+            : 100m * agg.EnergyWasted / agg.EnergyGenerated;
+        Row3(
+            sb,
+            EnergyLabel("Energy wasted"),
+            agg.EnergyWasted.ToString(),
+            $"{FormatDecimal(wastedPct)}%");
     }
 
     private static string FormatDecimal(decimal value)

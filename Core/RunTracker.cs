@@ -3068,8 +3068,11 @@ public static partial class RunTracker
 
         // Surviving player block at combat end never absorbed future
         // damage, so treat any remaining ledger as wasted before
-        // promoting the combat aggregates into the run.
+        // promoting the combat aggregates into the run. Energy left in the
+        // pool when combat ends is wasted for the same reason: there is no
+        // later turn to spend it on.
         AttributeUnusedBlockLocked(TotalTrackedPlayerBlockLocked());
+        AttributeUnusedEnergyLocked(TotalTrackedPlayerEnergyLocked());
 
         PromotePendingCombatIntoRun(_pendingCombat, _currentRun);
     }
@@ -3466,6 +3469,7 @@ public static partial class RunTracker
         target.DoomDeathTriggers += source.DoomDeathTriggers;
         target.DoomKills += source.DoomKills;
         target.EnergyGenerated += source.EnergyGenerated;
+        target.EnergyWasted += source.EnergyWasted;
         target.PumpkinCandleCombatStartChargeTotal +=
             source.PumpkinCandleCombatStartChargeTotal;
         target.PumpkinCandleCombatStartChargeSamples +=
@@ -4393,27 +4397,27 @@ public static partial class RunTracker
     /// resolving card's owner matches the PlayerCombatState being modified.
     /// This keeps relic / power / start-of-turn gains out of the card stat.
     /// </summary>
-    public static void RecordEnergyGained(MegaCrit.Sts2.Core.Entities.Players.PlayerCombatState combatState, int amount)
+    public static string? RecordEnergyGained(MegaCrit.Sts2.Core.Entities.Players.PlayerCombatState combatState, int amount)
     {
-        if (amount <= 0) return;
+        if (amount <= 0) return null;
 
         lock (_lock)
         {
             try
             {
-                if (!ShouldTrackCardStatsDuringCombatLocked()) return;
+                if (!ShouldTrackCardStatsDuringCombatLocked()) return null;
 
                 var targetPlayer = combatState._player;
                 if (TryCreditEffectFrameLocked(targetPlayer?.Creature, EffectOutcomeKeys.Energy, amount))
                     return;
 
                 var causingPlay = FindCurrentlyResolvingCardPlay();
-                if (causingPlay?.Card == null) return;
+                if (causingPlay?.Card == null) return null;
 
                 var sourceCard = causingPlay.Card;
                 if (targetPlayer != null && sourceCard.Owner != null
                     && !ReferenceEquals(sourceCard.Owner, targetPlayer))
-                    return;
+                    return null;
 
                 _pendingCombat ??= new PendingCombat();
                 var instanceId = GetOrAssignInstanceId(sourceCard);
@@ -4427,11 +4431,15 @@ public static partial class RunTracker
                     CardId = instanceId,
                     EnergyGained = amount,
                 });
+
+                return instanceId;
             }
             catch (Exception e)
             {
                 CoreMain.LogDebug($"RecordEnergyGained failed: {e.Message}");
             }
+
+            return null;
         }
     }
 
@@ -25345,7 +25353,16 @@ public static partial class RunTracker
                 // guard rejects unrelated partner gains.
                 if (_pendingCombat != null
                     && TryRecordPlasmaOrbEnergyLocked(owner, amount))
+                {
+                    // Orb energy enters the ledger untagged: it belongs to the
+                    // orb's own aggregate, not to whichever card evoked it. The
+                    // chunk still has to exist, or LIFO waste at the turn-start
+                    // refill would fall through onto an older card chunk that
+                    // was in fact spent.
+                    if (IsTrackedPlayer(owner))
+                        LedgerTrackedPlayerEnergyGainLocked(combatState, null, null, amount);
                     return;
+                }
                 // Co-op: any otherwise-unclaimed partner energy is not ours.
                 if (!IsTrackedPlayer(owner)) return;
                 if (_pendingCombat == null) { RecordEnergyGained(combatState, amount); return; }
@@ -25357,10 +25374,14 @@ public static partial class RunTracker
                     // Relic energy windows all use EnergyGenerated; the window
                     // key identifies the specific relic aggregate.
                     agg.EnergyGenerated += amount;
+                    LedgerTrackedPlayerEnergyGainLocked(combatState, null, key, amount);
                     return;
                 }
                 // No relic window: credit the resolving card play as before.
-                RecordEnergyGained(combatState, amount);
+                // A null instance id means no card was resolving, so the gain
+                // is ledgered untagged rather than dropped.
+                var creditedCard = RecordEnergyGained(combatState, amount);
+                LedgerTrackedPlayerEnergyGainLocked(combatState, creditedCard, null, amount);
             }
             catch (Exception e)
             {
@@ -36487,6 +36508,226 @@ public static partial class RunTracker
         _pendingPlayerBlockClearArmed = false;
     }
 
+    /// <summary>
+    /// Record energy leaving the player's pool. Called from
+    /// <see cref="Patches.PlayerLoseEnergyPatch"/> with the ACTUAL post-clamp
+    /// delta, which covers card costs, X-cost payments and enemy drains alike
+    /// — every route the game has to remove energy funnels through
+    /// <c>PlayerCombatState.LoseEnergy</c>.
+    ///
+    /// This has to observe the real mutation rather than infer the spend from
+    /// a finished card play. A card that gains energy mid-resolution would
+    /// otherwise reconcile against a pool already short by its own cost, and
+    /// the ledger would waste that energy LIFO instead of consuming it FIFO.
+    /// </summary>
+    public static void DispatchPlayerEnergySpend(PlayerCombatState combatState, int spent)
+    {
+        if (spent <= 0 || combatState == null) return;
+
+        lock (_lock)
+        {
+            try
+            {
+                if (!IsTrackedPlayer(combatState._player)) return;
+                if (_pendingCombat == null) return;
+
+                ConsumePlayerEnergyLocked(spent);
+                ReconcilePlayerEnergyLedgerLocked(combatState);
+            }
+            catch (Exception e)
+            {
+                CoreMain.LogDebug($"DispatchPlayerEnergySpend failed: {e.Message}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// The player's energy pool is about to be overwritten by the turn-start
+    /// refill, so everything still in it expired unspent. Called from
+    /// <see cref="Patches.PlayerResetEnergyPatch"/> as a prefix, which is the
+    /// only moment the leftover is still readable.
+    ///
+    /// Conservation needs no handling here: the game calls
+    /// <c>AddMaxEnergyToCurrent</c> instead of <c>ResetEnergy</c> when
+    /// <c>ShouldPlayerResetEnergy</c> says the pool carries over, so those
+    /// chunks simply survive into the next turn and can still be spent.
+    /// </summary>
+    public static void NotePlayerEnergyReset(PlayerCombatState combatState)
+    {
+        if (combatState == null) return;
+
+        lock (_lock)
+        {
+            try
+            {
+                if (!IsTrackedPlayer(combatState._player)) return;
+                if (_pendingCombat == null) return;
+
+                AttributeUnusedEnergyLocked(TotalTrackedPlayerEnergyLocked());
+            }
+            catch (Exception e)
+            {
+                CoreMain.LogDebug($"NotePlayerEnergyReset failed: {e.Message}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Ledger one arbitrated gain against the tracked player's pool, then
+    /// reconcile. Reconciling on every gain is what keeps an unobserved route
+    /// into the pool from silently shifting later waste onto the wrong chunk.
+    /// </summary>
+    private static void LedgerTrackedPlayerEnergyGainLocked(
+        PlayerCombatState combatState,
+        string? cardInstanceId,
+        string? relicId,
+        int amount)
+    {
+        if (_pendingCombat == null) return;
+
+        AppendPlayerEnergyChunkLocked(cardInstanceId, relicId, amount);
+        ReconcilePlayerEnergyLedgerLocked(combatState);
+    }
+
+    private static void AppendPlayerEnergyChunkLocked(
+        string? cardInstanceId,
+        string? relicId,
+        int amount)
+    {
+        if (_pendingCombat == null || amount <= 0) return;
+
+        _pendingCombat.PlayerEnergyLedger.Add(new EnergyChunk
+        {
+            CardInstanceId = cardInstanceId,
+            RelicId = relicId,
+            Remaining = amount,
+        });
+    }
+
+    /// <summary>
+    /// Spend the pool oldest-first. Consumed energy needs no counter of its
+    /// own: generated minus wasted is what a source actually bought you.
+    /// </summary>
+    private static void ConsumePlayerEnergyLocked(int spent)
+    {
+        if (_pendingCombat == null || spent <= 0) return;
+
+        int remainingToConsume = spent;
+        for (int i = 0; i < _pendingCombat.PlayerEnergyLedger.Count && remainingToConsume > 0; i++)
+        {
+            var chunk = _pendingCombat.PlayerEnergyLedger[i];
+            if (chunk.Remaining <= 0) continue;
+
+            int consumed = Math.Min(chunk.Remaining, remainingToConsume);
+            chunk.Remaining -= consumed;
+            remainingToConsume -= consumed;
+        }
+
+        _pendingCombat.PlayerEnergyLedger.RemoveAll(chunk => chunk.Remaining <= 0);
+    }
+
+    private static void AttributeUnusedEnergyLocked(int unusedEnergyToRemove)
+    {
+        if (_pendingCombat == null || unusedEnergyToRemove <= 0) return;
+
+        for (int i = _pendingCombat.PlayerEnergyLedger.Count - 1; i >= 0 && unusedEnergyToRemove > 0; i--)
+        {
+            var chunk = _pendingCombat.PlayerEnergyLedger[i];
+            if (chunk.Remaining <= 0) continue;
+
+            int wasted = Math.Min(chunk.Remaining, unusedEnergyToRemove);
+            chunk.Remaining -= wasted;
+            unusedEnergyToRemove -= wasted;
+
+            if (chunk.CardInstanceId != null)
+            {
+                var agg = GetOrCreateAggregate(_pendingCombat, chunk.CardInstanceId);
+                agg.TotalEnergyWasted += wasted;
+            }
+            else if (chunk.RelicId != null)
+            {
+                var agg = GetOrCreatePendingRelicAggregateLocked(chunk.RelicId);
+                agg.EnergyWasted += wasted;
+            }
+        }
+
+        _pendingCombat.PlayerEnergyLedger.RemoveAll(chunk => chunk.Remaining <= 0);
+    }
+
+    private static int TotalTrackedPlayerEnergyLocked()
+    {
+        return _pendingCombat?.PlayerEnergyLedger.Sum(chunk => chunk.Remaining) ?? 0;
+    }
+
+    /// <summary>
+    /// Keep the ledger honest against the pool the game actually holds rather
+    /// than trying to observe every mutation. A shortfall means energy arrived
+    /// by a route we do not attribute — the turn-start refill above all — and
+    /// enters untagged; a surplus means energy left by such a route and is
+    /// charged off as waste.
+    /// </summary>
+    private static void ReconcilePlayerEnergyLedgerLocked(PlayerCombatState combatState)
+    {
+        if (_pendingCombat == null) return;
+
+        int actualEnergy = Math.Max(0, combatState.Energy);
+        int trackedEnergy = TotalTrackedPlayerEnergyLocked();
+
+        if (trackedEnergy > actualEnergy)
+        {
+            AttributeUnusedEnergyLocked(trackedEnergy - actualEnergy);
+        }
+        else if (trackedEnergy < actualEnergy)
+        {
+            AppendPlayerEnergyChunkLocked(
+                cardInstanceId: null,
+                relicId: null,
+                amount: actualEnergy - trackedEnergy);
+        }
+    }
+
+    /// <summary>
+    /// Test seam for the energy ledger, mirroring
+    /// <see cref="RunBlockLedgerWithAllSourcesForTest"/>: runs the real
+    /// gain -> spend -> refill sequence against a throwaway pending combat so
+    /// the FIFO-spend / LIFO-waste invariant can be pinned without a live
+    /// combat.
+    /// </summary>
+    internal static PendingCombat RunEnergyLedgerForTest(
+        IEnumerable<(string? cardInstanceId, string? relicId, int amount)> gains,
+        int spent,
+        int leftoverDiscardedAtRefill)
+    {
+        lock (_lock)
+        {
+            var previous = _pendingCombat;
+            try
+            {
+                var scratch = new PendingCombat();
+                _pendingCombat = scratch;
+                foreach (var (cardInstanceId, relicId, amount) in gains)
+                {
+                    // Mirror the production gain pairing: the owner aggregate
+                    // receives the generated total while the source-bearing
+                    // ledger chunk later receives the wasted remainder.
+                    if (cardInstanceId != null)
+                        GetOrCreateAggregate(scratch, cardInstanceId).TotalEnergyGenerated += amount;
+                    else if (relicId != null)
+                        GetOrCreatePendingRelicAggregateLocked(relicId).EnergyGenerated += amount;
+
+                    AppendPlayerEnergyChunkLocked(cardInstanceId, relicId, amount);
+                }
+                ConsumePlayerEnergyLocked(spent);
+                AttributeUnusedEnergyLocked(leftoverDiscardedAtRefill);
+                return scratch;
+            }
+            finally
+            {
+                _pendingCombat = previous;
+            }
+        }
+    }
+
     private static void RecordDamageFromCard(DamageReceivedEntry entry)
     {
         var result = entry.Result;
@@ -36870,6 +37111,7 @@ public static partial class RunTracker
         target.TotalEffective += source.TotalEffective;
         target.Kills += source.Kills;
         target.TotalEnergySpent += source.TotalEnergySpent;
+        target.TotalEnergyWasted += source.TotalEnergyWasted;
         target.TotalEnergyGenerated += source.TotalEnergyGenerated;
         target.TotalStarsSpent += source.TotalStarsSpent;
         target.TotalStarsGenerated += source.TotalStarsGenerated;
@@ -38083,6 +38325,7 @@ internal class PendingCombat
     public Dictionary<string, RelicAggregate> RelicAggregates { get; } = new();
     public Dictionary<string, EnemyAggregate> EnemyAggregates { get; } = new();
     public List<BlockChunk> PlayerBlockLedger { get; } = new();
+    public List<EnergyChunk> PlayerEnergyLedger { get; } = new();
     public List<BufferChargeChunk> PlayerBufferLedger { get; } = new();
     public List<GoldAttributionChunk>? GoldAttributionLedger { get; set; }
     public Dictionary<AbstractModel, PlayerPowerOwnershipShare> PlayerPowerOwnershipByModifier { get; }
@@ -38658,6 +38901,23 @@ internal sealed class BlockChunk
     public string? CardInstanceId { get; init; }
     public string? RelicId { get; init; }
     public int? PotionSequence { get; init; }
+    public int Remaining { get; set; }
+}
+
+/// <summary>
+/// One energy gain and who produced it. Energy is a single fungible pool, so
+/// the same provenance model <see cref="BlockChunk"/> uses applies: the pool
+/// is spent oldest-first and expires newest-first, which is a stated
+/// convention rather than something the game exposes.
+///
+/// The player's own per-turn refill enters the ledger untagged, so it absorbs
+/// waste without blaming a card — a turn where you spend nothing wastes your
+/// base energy, not the Prepared you played two turns ago.
+/// </summary>
+internal sealed class EnergyChunk
+{
+    public string? CardInstanceId { get; init; }
+    public string? RelicId { get; init; }
     public int Remaining { get; set; }
 }
 

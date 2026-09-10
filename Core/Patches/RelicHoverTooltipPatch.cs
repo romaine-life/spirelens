@@ -7120,8 +7120,17 @@ public static class RelicHoverShowPatch
 
     /// <summary>
     /// The counterpart to every "energy generated" row: how much of it the
-    /// player energy ledger saw expire unspent. Suppressed at zero so relics
-    /// whose energy always got used stay uncluttered.
+    /// player energy ledger saw expire unspent.
+    ///
+    /// Deliberately NOT folded into the generated row as a generated/wasted
+    /// pair the way the card tooltip does it. Only relics whose gain runs
+    /// through a PlayerEnergyGain attribution window put an owned chunk in the
+    /// ledger — Happy Flower, Nunchaku, Booming Conch, Gremlin Horn and the
+    /// turn-energy relics. Art of War, Seal of Gold and the max-energy relics
+    /// reach the pool by routes that ledger untagged, so a pair would print
+    /// "0 wasted" for them and assert something we never measured. Suppressing
+    /// the row at zero says "not attributed" instead of claiming none was
+    /// wasted; pair it here only once those routes are ledgered too.
     /// </summary>
     private static void AppendEnergyWastedRow(StringBuilder sb, RelicAggregate agg)
     {

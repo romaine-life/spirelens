@@ -437,17 +437,18 @@ public static class CardHoverShowPatch
         // stat, independent of the existing energy-spent cost tracking.
         if (agg.TotalEnergyGenerated > 0)
         {
-            // Used/wasted mirrors the block rows above, and for the same
-            // reason: a raw "gained" number reads as pure profit until you
-            // can see how much of it expired in the pool unspent.
+            // One gained/wasted row rather than the two the pair would cost,
+            // following the offered/picked convention: a bare "gained" number
+            // reads as pure profit until the same row says how much of it
+            // expired in the pool unspent.
             float avgGenerated = agg.Plays > 0 ? (float)agg.TotalEnergyGenerated / agg.Plays : 0f;
-            int energyUsed = Math.Max(0, agg.TotalEnergyGenerated - agg.TotalEnergyWasted);
-            float usedPct = 100f * energyUsed / agg.TotalEnergyGenerated;
             float wastedPct = 100f * agg.TotalEnergyWasted / agg.TotalEnergyGenerated;
-            Row3(sb, GetEnergyStatLabel("gained"), agg.TotalEnergyGenerated.ToString(), "");
+            Row3(
+                sb,
+                GetEnergyStatLabel("gained/wasted"),
+                $"{agg.TotalEnergyGenerated}/{agg.TotalEnergyWasted}",
+                $"{wastedPct:F0}%");
             Row3(sb, GetEnergyStatLabel("avg gained"), $"{avgGenerated:F1}", "");
-            Row3(sb, GetEnergyStatLabel("used"), energyUsed.ToString(), $"{usedPct:F0}%");
-            Row3(sb, GetEnergyStatLabel("wasted"), agg.TotalEnergyWasted.ToString(), $"{wastedPct:F0}%");
         }
 
         if (agg.TotalStarsGenerated > 0)
@@ -688,10 +689,11 @@ public static class CardHoverShowPatch
         AppendAppliedEffects(sb, agg, compact: true, excludePoison: hasDedicatedPoison);
 
         if (agg.TotalEnergyGenerated > 0)
-            Row3(sb, GetEnergyStatLabel("gained"), agg.TotalEnergyGenerated.ToString(), "");
-
-        if (agg.TotalEnergyWasted > 0)
-            Row3(sb, GetEnergyStatLabel("wasted"), agg.TotalEnergyWasted.ToString(), "");
+            Row3(
+                sb,
+                GetEnergyStatLabel("gained/wasted"),
+                $"{agg.TotalEnergyGenerated}/{agg.TotalEnergyWasted}",
+                "");
 
         if (agg.TotalStarsGenerated > 0)
             Row3(sb, GetStarStatLabel("gained"), agg.TotalStarsGenerated.ToString(), "");

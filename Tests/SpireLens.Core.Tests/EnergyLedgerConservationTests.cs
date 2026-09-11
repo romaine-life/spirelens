@@ -83,6 +83,46 @@ public class EnergyLedgerConservationTests
     }
 
     [Fact]
+    public void DecomposedRefill_ChargesWasteToTheMaxEnergyRelicBeforeTheBaseAllowance()
+    {
+        // The turn refill is appended as ordered chunks rather than one
+        // ownerless block: the character's own 3 first, then Prismatic Gem's
+        // +1. Nothing is spent and all 4 expire, so LIFO charges the Gem's
+        // point first and the ownerless base credits nobody. Without the
+        // decomposition the Gem could never be charged at all.
+        var pending = RunTracker.RunEnergyLedgerForTest(
+            gains: new (string?, string?, int)[]
+            {
+                (null, null, 3),
+                (null, "RELIC.PRISMATIC_GEM", 1),
+            },
+            spent: 0,
+            leftoverDiscardedAtRefill: 4);
+
+        var gem = pending.RelicAggregates["RELIC.PRISMATIC_GEM"];
+        Assert.Equal(1, gem.EnergyWasted);
+        Assert.Empty(pending.CombatAggregates);
+    }
+
+    [Fact]
+    public void DecomposedRefill_SparesTheMaxEnergyRelicWhenThePoolIsMostlySpent()
+    {
+        // Same 3 + 1 refill, but 3 of the 4 are spent. FIFO takes the base
+        // allowance first, so the single wasted point is the Gem's — which is
+        // the honest reading: you used your own energy and floated the extra.
+        var pending = RunTracker.RunEnergyLedgerForTest(
+            gains: new (string?, string?, int)[]
+            {
+                (null, null, 3),
+                (null, "RELIC.PRISMATIC_GEM", 1),
+            },
+            spent: 3,
+            leftoverDiscardedAtRefill: 1);
+
+        Assert.Equal(1, pending.RelicAggregates["RELIC.PRISMATIC_GEM"].EnergyWasted);
+    }
+
+    [Fact]
     public void RelicOwnedChunk_CreditsOnlyThatRelicsWastedEnergy()
     {
         var pending = RunTracker.RunEnergyLedgerForTest(

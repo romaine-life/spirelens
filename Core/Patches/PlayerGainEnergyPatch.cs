@@ -82,15 +82,16 @@ public static class PlayerLoseEnergyPatch
 }
 
 /// <summary>
-/// The waste side of the player energy ledger. <c>ResetEnergy</c> overwrites
-/// the pool with the turn's fresh allowance, so whatever it still holds at
-/// this instant expired unspent — the energy equivalent of block being
-/// cleared. A prefix is required: after the call the leftover is gone.
+/// The waste side of the player energy ledger, and where the turn's fresh
+/// allowance enters it. <c>ResetEnergy</c> OVERWRITES the pool, so whatever it
+/// still holds at this instant expired unspent — the energy equivalent of
+/// block being cleared. A prefix is required: after the call the leftover is
+/// gone.
 ///
-/// Conservation needs no handling. <c>CombatManager.SetupPlayerTurn</c> asks
-/// <c>Hook.ShouldPlayerResetEnergy</c> first and calls
-/// <c>AddMaxEnergyToCurrent</c> instead when the pool carries over, so a
-/// conserved pool never reaches this method and its chunks stay spendable.
+/// <c>CombatManager.SetupPlayerTurn</c> picks this path only when
+/// <c>Hook.ShouldPlayerResetEnergy</c> says so, and calls
+/// <c>AddMaxEnergyToCurrent</c> otherwise, so a conserved pool never reaches
+/// here and its chunks stay spendable.
 /// </summary>
 [HarmonyPatch(typeof(PlayerCombatState), nameof(PlayerCombatState.ResetEnergy))]
 public static class PlayerResetEnergyPatch
@@ -100,11 +101,36 @@ public static class PlayerResetEnergyPatch
     {
         try
         {
-            RunTracker.NotePlayerEnergyReset(__instance);
+            RunTracker.NotePlayerEnergyRefill(__instance, discardsLeftover: true);
         }
         catch (Exception e)
         {
             CoreMain.Logger.Error($"PlayerResetEnergyPatch failed: {e.Message}");
+        }
+    }
+}
+
+/// <summary>
+/// The conserving half of the same boundary. When
+/// <c>Hook.ShouldPlayerResetEnergy</c> returns false the game ADDS the turn
+/// allowance to the pool instead of replacing it, so nothing is wasted and the
+/// surviving chunks stay spendable — but the incoming allowance still has to
+/// be split across its sources, or it would reach the ledger later as one
+/// ownerless block and leave max-energy relics unattributable.
+/// </summary>
+[HarmonyPatch(typeof(PlayerCombatState), nameof(PlayerCombatState.AddMaxEnergyToCurrent))]
+public static class PlayerAddMaxEnergyToCurrentPatch
+{
+    [HarmonyPrefix]
+    public static void Prefix(PlayerCombatState __instance)
+    {
+        try
+        {
+            RunTracker.NotePlayerEnergyRefill(__instance, discardsLeftover: false);
+        }
+        catch (Exception e)
+        {
+            CoreMain.Logger.Error($"PlayerAddMaxEnergyToCurrentPatch failed: {e.Message}");
         }
     }
 }

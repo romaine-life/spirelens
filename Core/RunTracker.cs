@@ -36542,17 +36542,18 @@ public static class RunTracker
     }
 
     /// <summary>
-    /// The player's energy pool is about to be overwritten by the turn-start
-    /// refill, so everything still in it expired unspent. Called from
-    /// <see cref="Patches.PlayerResetEnergyPatch"/> as a prefix, which is the
-    /// only moment the leftover is still readable.
+    /// The turn's energy allowance is arriving. Called as a prefix from both
+    /// refill paths: <c>ResetEnergy</c>, which overwrites the pool, and
+    /// <c>AddMaxEnergyToCurrent</c>, which adds to it when
+    /// <c>ShouldPlayerResetEnergy</c> says the pool carries over.
     ///
-    /// Conservation needs no handling here: the game calls
-    /// <c>AddMaxEnergyToCurrent</c> instead of <c>ResetEnergy</c> when
-    /// <c>ShouldPlayerResetEnergy</c> says the pool carries over, so those
-    /// chunks simply survive into the next turn and can still be spent.
+    /// <paramref name="discardsLeftover"/> is the only difference between
+    /// them: an overwrite means everything still in the pool expired unspent,
+    /// while a carry-over leaves those chunks spendable.
     /// </summary>
-    public static void NotePlayerEnergyReset(PlayerCombatState combatState)
+    public static void NotePlayerEnergyRefill(
+        PlayerCombatState combatState,
+        bool discardsLeftover)
     {
         if (combatState == null) return;
 
@@ -36563,12 +36564,83 @@ public static class RunTracker
                 if (!IsTrackedPlayer(combatState._player)) return;
                 if (_pendingCombat == null) return;
 
-                AttributeUnusedEnergyLocked(TotalTrackedPlayerEnergyLocked());
+                if (discardsLeftover)
+                    AttributeUnusedEnergyLocked(TotalTrackedPlayerEnergyLocked());
+
+                AppendRefillChunksLocked(combatState);
             }
             catch (Exception e)
             {
-                CoreMain.LogDebug($"NotePlayerEnergyReset failed: {e.Message}");
+                CoreMain.LogDebug($"NotePlayerEnergyRefill failed: {e.Message}");
             }
+        }
+    }
+
+    /// <summary>
+    /// Split the turn allowance into one chunk per source instead of a single
+    /// ownerless block.
+    ///
+    /// The refill reaches the pool as one number — <c>Energy = MaxEnergy</c> —
+    /// but it is not one thing. <c>PlayerCombatState.MaxEnergy</c> is the
+    /// character's own allowance folded through <c>Hook.ModifyMaxEnergy</c>,
+    /// which runs each combat hook listener in turn and hands the running
+    /// total to the next. Replaying that same fold here recovers exactly what
+    /// each source added, so a max-energy relic such as Prismatic Gem owns its
+    /// point of the pool the way a card that gains energy owns its own.
+    ///
+    /// That matters because the alternative is inventing a rule. Left as one
+    /// ownerless block, waste could only be split across max-energy relics by
+    /// some made-up convention — proportional shares, or an arbitrary
+    /// preference for spending the "extra" point first. Ordered chunks need no
+    /// such rule: they inherit the FIFO-spend / LIFO-waste convention every
+    /// other chunk already follows, and the order is the game's own listener
+    /// order rather than one we chose.
+    ///
+    /// Quantising per step rather than at the end keeps the chunks summing to
+    /// the integer the pool actually receives. If the replay throws part-way,
+    /// the shortfall is simply left for the next reconcile to pick up as an
+    /// ownerless chunk, which is the pre-existing behaviour.
+    /// </summary>
+    private static void AppendRefillChunksLocked(PlayerCombatState combatState)
+    {
+        var player = combatState._player;
+        if (player == null) return;
+
+        decimal running = player.MaxEnergy;
+        int previous = Math.Max(0, (int)running);
+
+        // The character's own allowance belongs to no relic, so it stays
+        // ownerless — and being first, it is spent first and wasted last.
+        AppendPlayerEnergyChunkLocked(cardInstanceId: null, relicId: null, amount: previous);
+
+        var hookState = player.Creature?.CombatState;
+        if (hookState == null) return;
+
+        try
+        {
+            foreach (var model in hookState.IterateHookListeners())
+            {
+                if (model == null) continue;
+
+                running = model.ModifyMaxEnergy(player, running);
+                int now = (int)running;
+                int delta = now - previous;
+                previous = now;
+                if (delta <= 0) continue;
+
+                // Only the generated side is recorded elsewhere (the
+                // max-energy relics count their benefit once per reset from
+                // Hook.AfterEnergyReset). Adding to EnergyGenerated here would
+                // double it; the chunk supplies the wasted half of the pair.
+                AppendPlayerEnergyChunkLocked(
+                    cardInstanceId: null,
+                    relicId: (model as RelicModel)?.Id.ToString(),
+                    amount: delta);
+            }
+        }
+        catch (Exception e)
+        {
+            CoreMain.LogDebug($"AppendRefillChunksLocked replay failed: {e.Message}");
         }
     }
 

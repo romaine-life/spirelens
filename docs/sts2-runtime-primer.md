@@ -658,11 +658,22 @@ card say how much of what it handed you expired unspent.
   mid-resolution gain would reconcile that shortfall as LIFO *waste* rather
   than FIFO *spend*, and blame the wrong card.
 - `PlayerCombatState.ResetEnergy` is the waste point, patched as a prefix
-  because the leftover is unreadable afterwards. Conservation needs no
-  handling: `CombatManager.SetupPlayerTurn` asks `Hook.ShouldPlayerResetEnergy`
-  first and calls `AddMaxEnergyToCurrent` instead when the pool carries over,
-  so conserved chunks never reach the waste path. `Hook.AfterEnergyReset` fires
-  on BOTH branches and cannot tell them apart — do not use it for this.
+  because the leftover is unreadable afterwards. `CombatManager.SetupPlayerTurn`
+  calls `AddMaxEnergyToCurrent` instead when `Hook.ShouldPlayerResetEnergy`
+  says the pool carries over, so conserved chunks never reach the waste path.
+  `Hook.AfterEnergyReset` fires on BOTH branches and cannot tell them apart —
+  do not use it for this.
+- The turn allowance is split into one chunk per source rather than entering as
+  one ownerless block. `PlayerCombatState.MaxEnergy` is the character's own
+  allowance folded through `Hook.ModifyMaxEnergy`, which runs each combat hook
+  listener in turn; replaying that fold at both refill points recovers exactly
+  what each source added, so a max-energy relic owns its point of the pool.
+  This is what keeps attribution from needing an invented rule: left as one
+  block, splitting waste across max-energy relics would take a made-up
+  convention, whereas ordered chunks inherit the FIFO/LIFO convention every
+  other chunk follows, in the game's own listener order. Quantise per step so
+  the chunks sum to the integer the pool receives, and let a failed replay fall
+  through to the next reconcile rather than guessing.
 - Energy still in the pool when combat ends is wasted too; there is no later
   turn to spend it on.
 - Reconcile against `PlayerCombatState.Energy` after every observed mutation

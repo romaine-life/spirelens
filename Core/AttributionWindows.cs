@@ -5,8 +5,19 @@ namespace SpireLens.Core;
 
 /// <summary>Event kinds an armed window may claim. Multiple windows MAY be armed
 /// for one kind (e.g. Orichalcum + Cloak Clasp both gain block in one
-/// BeforeSideTurnEnd); arbitration is FIFO at consume time.</summary>
-internal enum AttributionEventKind { PlayerBlockGain, PlayerEnergyGain, CardDraw }
+/// BeforeSideTurnEnd); arbitration is FIFO at consume time.
+///
+/// PlayerEnergyLedgerOwner names who OWNS an energy gain without crediting any
+/// counter for it, which PlayerEnergyGain does. Relics that already measure
+/// their own gain from a before/after pool delta need the first and must not
+/// have the second, or the generated total would be counted twice.</summary>
+internal enum AttributionEventKind
+{
+    PlayerBlockGain,
+    PlayerEnergyGain,
+    PlayerEnergyLedgerOwner,
+    CardDraw,
+}
 
 internal sealed class AttributionWindow
 {

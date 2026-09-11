@@ -90,7 +90,7 @@ public class HappyFlowerStatsTests
         Assert.Contains("Energy generated", body);
         Assert.Contains("Combats held", body);
         Assert.Contains("Avg energy generated per combat", body);
-        Assert.Contains("[b]3[/b]", body);
+        Assert.Contains("[b]3/0[/b]", body);
         Assert.Contains("[b]2[/b]", body);
         Assert.Contains("[b]1.5[/b]", body);
     }

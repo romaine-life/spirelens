@@ -676,10 +676,23 @@ card say how much of what it handed you expired unspent.
   through to the next reconcile rather than guessing.
 - Energy still in the pool when combat ends is wasted too; there is no later
   turn to spend it on.
+- Three relics measure their own gain from a before/after pool delta rather
+  than through an attribution window: Art of War, Seal of Gold and Venerable
+  Tea Set. They arm an `AttributionEventKind.PlayerEnergyLedgerOwner` window
+  instead, which names the chunk's owner and credits no counter. An ordinary
+  `PlayerEnergyGain` window would tag the chunk AND add the amount to
+  `EnergyGenerated` a second time, and removing their own counting instead
+  would strip the headless coverage those stats have today.
 - Reconcile against `PlayerCombatState.Energy` after every observed mutation
   rather than trying to catch every route into the pool. A shortfall enters
   untagged, a surplus is charged off as waste. Skipping this lets an
   unobserved gain shift later waste onto the wrong chunk.
+
+Every route into the player's energy pool is owned by one of those three
+mechanisms, which is what lets the relic tooltip print generated/wasted as a
+single paired row: the zero means zero rather than "not measured". A new energy
+relic must be given a chunk owner too, or that row starts quietly asserting
+something untrue for it.
 
 As with block, say plainly that effective/wasted energy is ledger attribution
 under a stated convention, not a game-native per-source truth.

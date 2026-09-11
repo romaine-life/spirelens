@@ -53,6 +53,8 @@ public static class SealOfGoldStatsPatch
             int intendedGoldLoss = Math.Max(0, __instance.DynamicVars.Gold.IntValue);
             if (owner.Gold < intendedGoldLoss) return;
 
+            RunTracker.NoteSealOfGoldActivationStarted(owner);
+
             __state = new SealOfGoldState(
                 __instance,
                 owner,

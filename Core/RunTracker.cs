@@ -24256,6 +24256,11 @@ public static class RunTracker
                 _pendingCombat ??= new PendingCombat();
                 RecordArtOfWarCombatForPlayerLocked(player);
                 RecordArtOfWarTurnForPlayerLocked(player);
+                // The relic is about to gain its energy inside this same
+                // callback. It counts the amount itself from the pool delta,
+                // so claim ownership only — see
+                // ArmRelicEnergyLedgerOwnership.
+                ArmRelicEnergyLedgerOwnershipLocked(ArtOfWarRelicId, player);
                 return true;
             }
             catch (Exception e)
@@ -24280,7 +24285,14 @@ public static class RunTracker
         if (!ReferenceEquals(relic.Owner, combatState._player)) return;
 
         var energyGained = Math.Max(0, finalEnergy - startingEnergy);
-        if (energyGained <= 0) return;
+        if (energyGained <= 0)
+        {
+            // Art of War stays silent on a turn you attacked, so the claim
+            // armed at the callback has to go or it would drift onto an
+            // unrelated later gain.
+            DisarmRelicEnergyLedgerOwnership(ArtOfWarRelicId, relic.Owner);
+            return;
+        }
 
         lock (_lock)
         {
@@ -25531,10 +25543,18 @@ public static class RunTracker
                     return;
                 }
                 // No relic window: credit the resolving card play as before.
-                // A null instance id means no card was resolving, so the gain
-                // is ledgered untagged rather than dropped.
                 var creditedCard = RecordEnergyGained(combatState, amount);
-                LedgerTrackedPlayerEnergyGainLocked(combatState, creditedCard, null, amount);
+                // No card either, so look for a relic that measured this gain
+                // itself and only needs the ledger to know whose it was. A
+                // live card play still wins — that would be a real card gain.
+                var ledgerOwner = creditedCard == null
+                    ? _pendingCombat.Windows.TryConsume(
+                        AttributionEventKind.PlayerEnergyLedgerOwner,
+                        CurrentHistoryCountLocked(),
+                        ownerId: owner)
+                    : null;
+                LedgerTrackedPlayerEnergyGainLocked(
+                    combatState, creditedCard, ledgerOwner, amount);
             }
             catch (Exception e)
             {
@@ -26788,6 +26808,20 @@ public static class RunTracker
     /// that the relic triggered; before/after snapshots preserve the actual
     /// energy gained and gold lost.
     /// </summary>
+    /// <summary>
+    /// Seal of Gold is about to grant its energy and then charge its gold.
+    /// Like Art of War it measures the energy itself from the pool delta, so
+    /// this claims ledger ownership without crediting anything. Called from
+    /// the prefix that already captures the relic's before-state.
+    /// </summary>
+    public static void NoteSealOfGoldActivationStarted(Player? owner)
+    {
+        lock (_lock)
+        {
+            ArmRelicEnergyLedgerOwnershipLocked(SealOfGoldRelicId, owner);
+        }
+    }
+
     public static void RecordSealOfGoldActivation(
         SealOfGold relic,
         Player? owner,
@@ -26805,6 +26839,12 @@ public static class RunTracker
             {
                 if (!IsTrackedRelic(relic) || !IsTrackedPlayer(owner)) return;
                 if (relic.Owner != null && !ReferenceEquals(relic.Owner, owner)) return;
+
+                if (finalEnergy - initialEnergy <= 0)
+                    _pendingCombat?.Windows.Disarm(
+                        SealOfGoldRelicId,
+                        AttributionEventKind.PlayerEnergyLedgerOwner,
+                        ownerId: owner);
 
                 var agg = GetOrCreateRelicAggregateLocked(SealOfGoldRelicId);
                 AccumulateSealOfGoldActivation(
@@ -27018,6 +27058,22 @@ public static class RunTracker
     /// energy-pool delta observed around its owner-specific callback.
     /// Counterfeit and revealed Tea Sets remain separate relic aggregates.
     /// </summary>
+    /// <summary>
+    /// Venerable Tea Set is the third relic that measures its own energy gain
+    /// from a pool delta, alongside Art of War and Seal of Gold. Its prefix
+    /// already gates on GainEnergyInNextCombat, so the claim is armed only on
+    /// a trigger that will actually grant something.
+    /// </summary>
+    public static void NoteVenerableTeaSetActivationStarted(string? relicId, Player? owner)
+    {
+        if (!IsVenerableTeaSetRelicId(relicId)) return;
+
+        lock (_lock)
+        {
+            ArmRelicEnergyLedgerOwnershipLocked(relicId!, owner);
+        }
+    }
+
     public static void RecordVenerableTeaSetActivation(
         string? relicId,
         RelicModel? relic,
@@ -27035,6 +27091,12 @@ public static class RunTracker
                 var owner = combatState._player;
                 if (!IsTrackedRelic(relic) || !IsTrackedPlayer(owner)) return;
                 if (relic.Owner != null && !ReferenceEquals(relic.Owner, owner)) return;
+
+                if (finalEnergy - initialEnergy <= 0)
+                    _pendingCombat?.Windows.Disarm(
+                        relicId!,
+                        AttributionEventKind.PlayerEnergyLedgerOwner,
+                        ownerId: owner);
 
                 AccumulateVenerableTeaSetActivation(
                     GetOrCreateRelicAggregateLocked(relicId!),
@@ -36659,6 +36721,72 @@ public static class RunTracker
 
         AppendPlayerEnergyChunkLocked(cardInstanceId, relicId, amount);
         ReconcilePlayerEnergyLedgerLocked(combatState);
+    }
+
+    /// <summary>
+    /// Claim ownership of the next player energy gain for a relic that counts
+    /// its own generated total from a before/after pool delta.
+    ///
+    /// Art of War and Seal of Gold both do exactly that, from a prefix on
+    /// their own owner-specific callback. Routing them through an ordinary
+    /// PlayerEnergyGain window would tag the ledger chunk but ALSO add the
+    /// amount to EnergyGenerated a second time, and taking their own counting
+    /// away instead would strip the headless coverage those stats have today.
+    /// An owner-only window adds the missing half and disturbs neither.
+    /// </summary>
+    public static void ArmRelicEnergyLedgerOwnership(string relicId, Player? owner)
+    {
+        lock (_lock)
+        {
+            ArmRelicEnergyLedgerOwnershipLocked(relicId, owner);
+        }
+    }
+
+    private static void ArmRelicEnergyLedgerOwnershipLocked(string relicId, Player? owner)
+    {
+        if (string.IsNullOrEmpty(relicId) || owner == null) return;
+
+        try
+        {
+            if (!IsTrackedPlayer(owner)) return;
+
+            _pendingCombat ??= new PendingCombat();
+            // maxHistoryAdvance 0 keeps the claim to the gain this relic is
+            // about to make; the disarm paired with it covers a trigger that
+            // grants nothing at all.
+            _pendingCombat.Windows.Arm(
+                relicId,
+                AttributionEventKind.PlayerEnergyLedgerOwner,
+                CurrentHistoryCountLocked(),
+                ownerId: owner,
+                maxHistoryAdvance: 0);
+        }
+        catch (Exception e)
+        {
+            CoreMain.LogDebug($"ArmRelicEnergyLedgerOwnership failed: {e.Message}");
+        }
+    }
+
+    /// <summary>Drop an ownership claim whose trigger granted no energy, so it
+    /// cannot drift onto an unrelated later gain.</summary>
+    public static void DisarmRelicEnergyLedgerOwnership(string relicId, Player? owner)
+    {
+        if (string.IsNullOrEmpty(relicId) || owner == null) return;
+
+        lock (_lock)
+        {
+            try
+            {
+                _pendingCombat?.Windows.Disarm(
+                    relicId,
+                    AttributionEventKind.PlayerEnergyLedgerOwner,
+                    ownerId: owner);
+            }
+            catch (Exception e)
+            {
+                CoreMain.LogDebug($"DisarmRelicEnergyLedgerOwnership failed: {e.Message}");
+            }
+        }
     }
 
     private static void AppendPlayerEnergyChunkLocked(

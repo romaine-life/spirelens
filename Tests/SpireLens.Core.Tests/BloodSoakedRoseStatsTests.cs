@@ -113,7 +113,7 @@ public class BloodSoakedRoseStatsTests
         Assert.Contains("Enthralled discarded", body);
         Assert.Contains("Enthralled played", body);
         Assert.Contains("Enthralled exhausted", body);
-        Assert.Contains("[b]5[/b]", body);
+        Assert.Contains("[b]5/0[/b]", body);
         Assert.Contains("[b]2.5[/b]", body);
         Assert.Contains("[b]7[/b]", body);
         Assert.Contains("[b]4[/b]", body);

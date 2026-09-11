@@ -7094,6 +7094,46 @@ public class SchemaLoadingTests
     }
 
     [Fact]
+    public void HistoricalLoad_AcceptsEnergyWastedLedgerFixture()
+    {
+        var loaded = RunStorage.LoadHistorical(
+            FixturePath("energy-wasted-ledger-run.json"));
+
+        Assert.NotNull(loaded);
+        Assert.True(loaded!.SupportsResume);
+        AssertEnergyWastedLedgerFixture(
+            loaded.Data.Aggregates["CARD.ADRENALINE#1"],
+            loaded.Data.RelicAggregates["RELIC.ART_OF_WAR"]);
+    }
+
+    [Fact]
+    public void ResumableLoad_AcceptsEnergyWastedLedgerFixture()
+    {
+        var resumed = RunStorage.LoadResumable(
+            FixturePath("energy-wasted-ledger-run.json"));
+
+        Assert.NotNull(resumed);
+        AssertEnergyWastedLedgerFixture(
+            resumed!.Aggregates["CARD.ADRENALINE#1"],
+            resumed.RelicAggregates["RELIC.ART_OF_WAR"]);
+    }
+
+    [Fact]
+    public void HistoricalLoad_DefaultsEnergyWastedForOlderFixtures()
+    {
+        // A run saved before the ledger existed has generated totals but no
+        // wasted counterpart, and must read as zero wasted rather than
+        // failing to load.
+        var loaded = RunStorage.LoadHistorical(
+            FixturePath("art-of-war-relic-run.json"));
+
+        Assert.NotNull(loaded);
+        var relicAgg = loaded!.Data.RelicAggregates["RELIC.ART_OF_WAR"];
+        Assert.Equal(4, relicAgg.EnergyGenerated);
+        Assert.Equal(0, relicAgg.EnergyWasted);
+    }
+
+    [Fact]
     public void HistoricalLoad_AcceptsPanachePowerDamageFixture()
     {
         var loaded = RunStorage.LoadHistorical(
@@ -7127,6 +7167,16 @@ public class SchemaLoadingTests
         Assert.Equal(0, agg.TotalIntended);
         Assert.Equal(0, agg.TotalEffective);
         Assert.Equal(0, agg.Kills);
+    }
+
+    private static void AssertEnergyWastedLedgerFixture(
+        CardAggregate cardAgg,
+        RelicAggregate relicAgg)
+    {
+        Assert.Equal(8, cardAgg.TotalEnergyGenerated);
+        Assert.Equal(3, cardAgg.TotalEnergyWasted);
+        Assert.Equal(3, relicAgg.EnergyGenerated);
+        Assert.Equal(2, relicAgg.EnergyWasted);
     }
 
     private static void AssertPanachePowerDamageFixture(PowerAggregate powerAgg)

@@ -643,6 +643,60 @@ Energy:
 - Prefix captures before value.
 - Postfix computes positive delta and attributes to the currently resolving card owned by that player.
 
+Energy generated is paired with energy wasted through a provenance ledger in
+`_pendingCombat.PlayerEnergyLedger`, built on exactly the model the block
+ledger uses. Generated alone reads as pure profit; the ledger is what lets a
+card say how much of what it handed you expired unspent.
+
+- Every arbitrated gain appends an `EnergyChunk` owned by one source: a card
+  instance, a relic id, or nobody. Orb energy and the player's own turn refill
+  are deliberately ownerless, so waste falls on them before it falls on a card.
+- `PlayerCombatState.LoseEnergy` is the single spend point — card costs,
+  X-cost payments and enemy drains all reach it — and consumes the ledger FIFO.
+  Do not infer the spend from a finished card play instead: the pool is already
+  short by the card's cost while the card is still resolving, so a
+  mid-resolution gain would reconcile that shortfall as LIFO *waste* rather
+  than FIFO *spend*, and blame the wrong card.
+- `PlayerCombatState.ResetEnergy` is the waste point, patched as a prefix
+  because the leftover is unreadable afterwards. `CombatManager.SetupPlayerTurn`
+  calls `AddMaxEnergyToCurrent` instead when `Hook.ShouldPlayerResetEnergy`
+  says the pool carries over, so conserved chunks never reach the waste path.
+  `Hook.AfterEnergyReset` fires on BOTH branches and cannot tell them apart —
+  do not use it for this.
+- The turn allowance is split into one chunk per source rather than entering as
+  one ownerless block. `PlayerCombatState.MaxEnergy` is the character's own
+  allowance folded through `Hook.ModifyMaxEnergy`, which runs each combat hook
+  listener in turn; replaying that fold at both refill points recovers exactly
+  what each source added, so a max-energy relic owns its point of the pool.
+  This is what keeps attribution from needing an invented rule: left as one
+  block, splitting waste across max-energy relics would take a made-up
+  convention, whereas ordered chunks inherit the FIFO/LIFO convention every
+  other chunk follows, in the game's own listener order. Quantise per step so
+  the chunks sum to the integer the pool receives, and let a failed replay fall
+  through to the next reconcile rather than guessing.
+- Energy still in the pool when combat ends is wasted too; there is no later
+  turn to spend it on.
+- Three relics measure their own gain from a before/after pool delta rather
+  than through an attribution window: Art of War, Seal of Gold and Venerable
+  Tea Set. They arm an `AttributionEventKind.PlayerEnergyLedgerOwner` window
+  instead, which names the chunk's owner and credits no counter. An ordinary
+  `PlayerEnergyGain` window would tag the chunk AND add the amount to
+  `EnergyGenerated` a second time, and removing their own counting instead
+  would strip the headless coverage those stats have today.
+- Reconcile against `PlayerCombatState.Energy` after every observed mutation
+  rather than trying to catch every route into the pool. A shortfall enters
+  untagged, a surplus is charged off as waste. Skipping this lets an
+  unobserved gain shift later waste onto the wrong chunk.
+
+Every route into the player's energy pool is owned by one of those three
+mechanisms, which is what lets the relic tooltip print generated/wasted as a
+single paired row: the zero means zero rather than "not measured". A new energy
+relic must be given a chunk owner too, or that row starts quietly asserting
+something untrue for it.
+
+As with block, say plainly that effective/wasted energy is ledger attribution
+under a stated convention, not a game-native per-source truth.
+
 Stars:
 
 - Hook `PlayerCombatState.GainStars` the same way.

@@ -710,6 +710,11 @@ New fixtures added going forward do not need a `v*-` prefix.
   in the game that deals damage itself, so these are the first damage fields
   PowerAggregate has carried.
 
+- `energy-wasted-ledger-run.json`
+  The card-side and relic-side halves of the energy provenance ledger, so the
+  new `total_energy_wasted` / `energy_wasted` counters have a checked-in shape
+  alongside the `*_generated` totals they pair with.
+
 Why these exist:
 
 - new shape work should be validated against real checked-in examples, not memory

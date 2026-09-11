@@ -111,7 +111,7 @@ public class NunchakuStatsTests
         Assert.Contains("Avg charge at combat end", body);
         Assert.Contains("[b]18[/b]", body);
         Assert.Contains("[b]4.5[/b]", body);
-        Assert.Contains("[b]3[/b]", body);
+        Assert.Contains("[b]3/0[/b]", body);
         Assert.Contains("[b]0.75[/b]", body);
         Assert.Contains("[b]2[/b]", body);
         Assert.Contains("[b]1[/b]", body);
@@ -130,7 +130,10 @@ public class NunchakuStatsTests
         Assert.Contains("Combats ended on 8 charges", body);
         Assert.Contains("Combats ended on 9 charges", body);
         Assert.Contains("Avg charge at combat end", body);
-        Assert.Equal(7, CountOccurrences(body, "[b]0[/b]"));
+        // The generated total now shares its row with wasted, so it is
+        // one "[b]x/y[/b]" cell rather than a bare zero.
+        Assert.Contains("[b]0/0[/b]", body);
+        Assert.Equal(6, CountOccurrences(body, "[b]0[/b]"));
     }
 
     private static string InvokeTooltipBuilder(RelicAggregate agg)

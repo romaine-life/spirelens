@@ -107,11 +107,15 @@ public class ArtOfWarStatsTests
         agg.ArtOfWarEnergyAddedThisCombat = 3;
         agg.ArtOfWarEnergyAddedThisTurn = 1;
         agg.ArtOfWarTurnsThisCombat = 4;
+        agg.EnergyWasted = 1;
 
         var body = BuildBody(agg);
 
-        Assert.Contains("Total energy gained", body);
-        Assert.Contains("[b]4[/b]", body);
+        // Generated and wasted share one row now, so the relic can never
+        // report the first without the second.
+        Assert.Contains("Total energy gained/wasted", body);
+        Assert.Contains("[b]4/1[/b]", body);
+        Assert.Contains("25%", body);
         Assert.Contains("Avg energy gained per turn", body);
         Assert.Contains("[b]0.5[/b]", body);
         Assert.Contains("Avg energy gained per combat", body);
@@ -132,8 +136,10 @@ public class ArtOfWarStatsTests
     {
         var body = BuildBody(new RelicAggregate { EnergyGenerated = 2 });
 
-        Assert.Contains("Total energy gained", body);
-        Assert.Contains("[b]2[/b]", body);
+        // None of the 2 was wasted, and with every route into the pool owned
+        // that zero is a measurement rather than an absence of one.
+        Assert.Contains("Total energy gained/wasted", body);
+        Assert.Contains("[b]2/0[/b]", body);
         Assert.Contains("Avg energy gained per turn", body);
         Assert.Contains("Avg energy gained per combat", body);
         Assert.Contains("Energy added this combat", body);

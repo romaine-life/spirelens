@@ -450,6 +450,16 @@ public class CardAggregate
     // a no-energy-gain effect correctly records 0.
     public int TotalEnergyGenerated { get; set; }
 
+    // The half of the generated energy that expired unspent. Energy is a
+    // fungible pool, so this comes from an ordered provenance ledger exactly
+    // like TotalBlockWasted: gains append a chunk tagged with their source,
+    // spends consume oldest-first, and whatever the pool still holds when the
+    // game overwrites it at turn start is charged back to the newest chunks.
+    // Generated minus wasted is therefore the energy this card really bought
+    // you, and an unpaired TotalEnergyGenerated no longer implies every point
+    // of it was used.
+    public int TotalEnergyWasted { get; set; }
+
     // M3k: Regent star spend / generation mirrors the energy fields above,
     // but for the character's separate star resource.
     public int TotalStarsSpent { get; set; }
@@ -1460,6 +1470,12 @@ public class RelicAggregate
     // energy purchased with gold). Also used by Nunchaku, whose gained energy
     // is attributed from the observed PlayerCombatState.GainEnergy delta.
     public int EnergyGenerated { get; set; }
+
+    // The relic-owned counterpart to CardAggregate.TotalEnergyWasted: how much
+    // of EnergyGenerated expired unspent, resolved through the same player
+    // energy ledger. Relics that hand you energy on a turn you had nothing to
+    // spend it on show the difference here.
+    public int EnergyWasted { get; set; }
 
     // Pumpkin Candle's zero-inclusive live charge at each combat start plus
     // successful selections of its Kindle campfire option. Initial pickup

@@ -158,6 +158,11 @@ internal static class DeckViewSpireLensSort
             agg => agg.TotalEnergySpent),
         new DeckSortMetric("hp_lost", "HP lost", GroupCost,
             agg => agg.TotalHpLost),
+        // The energy this card handed you that then expired unspent. Sorting
+        // by it finds the ramp cards you keep playing on turns you had
+        // nothing left to spend the energy on.
+        new DeckSortMetric("energy_wasted", "Energy wasted", GroupCost,
+            agg => agg.TotalEnergyWasted),
 
         new DeckSortMetric("times_played", "Times played", GroupFlow,
             agg => agg.Plays),

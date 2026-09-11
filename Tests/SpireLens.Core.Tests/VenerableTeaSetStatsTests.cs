@@ -56,13 +56,23 @@ public class VenerableTeaSetStatsTests
     {
         var body = (string)(BuildBodyMethod.Invoke(
             null,
-            new object[] { new RelicAggregate { Activations = 2, EnergyGenerated = 3 } })
+            new object[]
+            {
+                new RelicAggregate
+                {
+                    Activations = 2,
+                    EnergyGenerated = 3,
+                    EnergyWasted = 1,
+                },
+            })
             ?? throw new InvalidOperationException("BuildVenerableTeaSetBodyBBCode returned null."));
 
         Assert.Contains("Activations", body);
-        Assert.Contains("Energy gained", body);
         Assert.Contains("[b]2[/b]", body);
-        Assert.Contains("[b]3[/b]", body);
+        // The Tea Set measures its own gain from a pool delta, so it claims
+        // ledger ownership separately; both halves belong on the one row.
+        Assert.Contains("Energy gained/wasted", body);
+        Assert.Contains("[b]3/1[/b]", body);
     }
 
     [Theory]

@@ -127,7 +127,7 @@ public class PumpkinCandleStatsTests
         Assert.Contains(
             "Times Pumpkin Candle was rekindled at a campfire.",
             body);
-        Assert.Contains("[b]14[/b]", body);
+        Assert.Contains("[b]14/0[/b]", body);
         Assert.Contains("[b]3.5[/b]", body);
         Assert.Contains("[b]3[/b]", body);
         Assert.Contains("[b]2[/b]", body);

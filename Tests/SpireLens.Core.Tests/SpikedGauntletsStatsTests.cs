@@ -123,7 +123,7 @@ public class SpikedGauntletsStatsTests
         Assert.Contains("[b]2.67[/b]", body);
         Assert.Contains("[b]1.5[/b]", body);
         Assert.Contains("[b]3[/b]", body);
-        Assert.Contains("[b]7[/b]", body);
+        Assert.Contains("[b]7/0[/b]", body);
         Assert.Contains("[b]3.5[/b]", body);
         Assert.Equal(BuildBody(agg), body);
     }

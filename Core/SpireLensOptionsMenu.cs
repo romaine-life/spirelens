@@ -4,6 +4,7 @@ using System.Linq;
 using Godot;
 using MegaCrit.Sts2.Core.Nodes.Screens;
 using MegaCrit.Sts2.Core.Nodes.Screens.MainMenu;
+using MegaCrit.Sts2.Core.Runs;
 using SpireLens.Core.Patches;
 
 namespace SpireLens.Core;
@@ -27,6 +28,8 @@ public static class SpireLensOptionsMenu
     private static readonly List<Panel> SelectionHighlights = new();
     private static readonly Dictionary<int, Action> RowActions = new();
     private static Button? _restartRoomButton;
+    private static Button? _potionHistoryButton;
+    private const string PotionHistoryText = "View current-run potion history";
     private static bool _restartArmed;
     private static int _selectedIndex;
     private static int _leftStickVerticalDirection;
@@ -55,6 +58,7 @@ public static class SpireLensOptionsMenu
         RefreshCheckboxes();
         _restartArmed = false;
         RefreshRestartRoomRow();
+        RefreshPotionHistoryRow();
         _layer!.Visible = true;
         _selectedIndex = Math.Clamp(_selectedIndex, 0, SelectableButtons.Count - 1);
         _leftStickVerticalDirection = 0;
@@ -128,6 +132,7 @@ public static class SpireLensOptionsMenu
         SelectionHighlights.Clear();
         RowActions.Clear();
         _restartRoomButton = null;
+        _potionHistoryButton = null;
         _restartArmed = false;
         _selectedIndex = 0;
         _leftStickVerticalDirection = 0;
@@ -199,7 +204,8 @@ public static class SpireLensOptionsMenu
         var runViewsHeader = NewLabel("Run views", 20);
         runViewsHeader.Modulate = new Color(0.72f, 0.8f, 0.92f);
         rows.AddChild(runViewsHeader);
-        AddAction(rows, "View current-run potion history", 7, OpenPotionHistory);
+        _potionHistoryButton = AddAction(rows, PotionHistoryText, 7, OpenPotionHistory);
+        RefreshPotionHistoryRow();
 
         var practiceHeader = NewLabel("Practice", 20);
         practiceHeader.Modulate = new Color(0.72f, 0.8f, 0.92f);
@@ -574,8 +580,33 @@ public static class SpireLensOptionsMenu
             : new Color(1f, 1f, 1f);
     }
 
+    /// <summary>
+    /// The menu opens outside a run too (main menu, Compendium), where there is
+    /// no current run to show, so the row says so instead of opening an empty
+    /// view.
+    /// </summary>
+    private static void RefreshPotionHistoryRow()
+    {
+        if (_potionHistoryButton == null || !GodotObject.IsInstanceValid(_potionHistoryButton))
+            return;
+
+        bool inRun = RunManager.Instance?.IsInProgress == true;
+        _potionHistoryButton.Text = inRun
+            ? PotionHistoryText
+            : $"{PotionHistoryText}  —  unavailable (no run in progress)";
+        _potionHistoryButton.Modulate = inRun
+            ? new Color(1f, 1f, 1f)
+            : new Color(0.55f, 0.55f, 0.55f);
+    }
+
     private static void OpenPotionHistory()
     {
+        if (RunManager.Instance?.IsInProgress != true)
+        {
+            RefreshPotionHistoryRow();
+            return;
+        }
+
         try
         {
             var tree = Engine.GetMainLoop() as SceneTree;

@@ -522,6 +522,20 @@ public static class CardHoverShowPatch
                     $"{share:F1}%");
             }
 
+            // Damage over the hits that produced it. Neither Total damage nor
+            // Plays can give you this: one play of a multi-hit or AoE attack
+            // lands many hits, so 378 damage could be six heavy swings or
+            // forty chip hits. Shown as the ratio it came from, matching
+            // Damage share above, so the average can be checked not trusted.
+            if (agg.TargetsHit > 0)
+            {
+                Row3(
+                    sb,
+                    "Damage per hit",
+                    $"{agg.TotalEffective} / {agg.TargetsHit}",
+                    $"{(float)agg.TotalEffective / agg.TargetsHit:F1}");
+            }
+
             _ = avgIntended;  // still computed above; silence unused warning
 
             // Clarify 0 damage for attacks that played without dealing any:
@@ -1094,6 +1108,18 @@ public static class CardHoverShowPatch
             // is the same measurement: effective damage is HP actually removed.
             case PanacheCardId:
                 Row3(sb, "Total damage", aggregate.TotalEffective.ToString(), "");
+                // Same pairing a card gets: the power triggers once per hit,
+                // so the total alone cannot say whether it fired often for
+                // little or rarely for a lot.
+                if (aggregate.TargetsHit > 0)
+                {
+                    Row3(
+                        sb,
+                        "Damage per hit",
+                        $"{aggregate.TotalEffective} / {aggregate.TargetsHit}",
+                        $"{(float)aggregate.TotalEffective / aggregate.TargetsHit:F1}");
+                }
+
                 if (aggregate.TotalIntended > 0)
                 {
                     Row3(

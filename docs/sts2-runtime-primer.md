@@ -559,6 +559,23 @@ energy, card-draw, and max-HP-loss stats. Brightest Flame can also come from
 the event card pool, so this is deliberately a family-wide projection rather
 than exact Storybook-grant lineage.
 
+### Counting The Hits Behind The Damage
+
+A damage total on its own cannot be read. One play of a multi-hit or AoE attack
+lands many hits, so `Plays` is not a stand-in, and 378 damage could be six heavy
+swings or forty chip hits.
+
+Every damage-bearing aggregate therefore carries a hit count beside its totals:
+`EnemyAggregate.DamageInstances`, `CardOrbAggregate.TargetsHit`,
+`PotionRunHistoryEntry.TargetsHit`, and now `CardAggregate.TargetsHit` and
+`PowerAggregate.TargetsHit`. Increment it at the same place the totals are
+incremented — one per observed `DamageReceivedEntry` — so the two can never
+drift apart.
+
+The name is inherited rather than exact: it counts hits, not distinct enemies,
+so a 3x5 attack on one enemy counts 3. Adding a new damage source means adding
+its hit count in the same commit, or the totals go back to being unreadable.
+
 ## Osty Body Attribution
 
 Necrobinder has both investment cards that create or maintain Osty and payoff

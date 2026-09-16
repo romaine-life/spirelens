@@ -734,6 +734,11 @@ New fixtures added going forward do not need a `v*-` prefix.
   because the Sovereign Blade never got swung. Decimal-valued, so it also pins
   that the wasted half keeps the fractional shape the generated half has.
 
+- `card-targets-hit-run.json`
+  The hit count that pairs a card's and a power's damage totals, so
+  `targets_hit` has a checked-in shape on both `CardAggregate` and
+  `PowerAggregate` alongside the damage set it belongs to.
+
 Why these exist:
 
 - new shape work should be validated against real checked-in examples, not memory

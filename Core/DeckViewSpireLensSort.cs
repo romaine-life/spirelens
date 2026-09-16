@@ -144,6 +144,17 @@ internal static class DeckViewSpireLensSort
             display: FormatDamageShare),
         new DeckSortMetric("kills", "Kills", GroupDamage,
             agg => agg.Kills),
+        // Hits landed, and the damage each one was worth. Plays cannot stand
+        // in for this: one play of a multi-hit or AoE attack lands many, so
+        // these separate the heavy swing from the chip attack that reached the
+        // same total.
+        new DeckSortMetric("targets_hit", "Hits landed", GroupDamage,
+            agg => agg.TargetsHit),
+        new DeckSortMetric("damage_per_hit", "Damage per hit", GroupDamage,
+            agg => agg.TargetsHit > 0
+                ? (double)agg.TotalEffective / agg.TargetsHit
+                : 0d,
+            tieBreak: agg => agg.TotalEffective),
 
         // Block generated, and the part of it that actually ate damage. The
         // gap between the two is block you paid for and never used.

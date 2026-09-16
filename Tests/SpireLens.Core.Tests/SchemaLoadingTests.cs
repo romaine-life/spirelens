@@ -7094,6 +7094,45 @@ public class SchemaLoadingTests
     }
 
     [Fact]
+    public void HistoricalLoad_AcceptsCardTargetsHitFixture()
+    {
+        var loaded = RunStorage.LoadHistorical(
+            FixturePath("card-targets-hit-run.json"));
+
+        Assert.NotNull(loaded);
+        Assert.True(loaded!.SupportsResume);
+        AssertCardTargetsHitFixture(
+            loaded.Data.Aggregates["CARD.VOLLEY#1"],
+            loaded.Data.MetaStats.PowerAggregates["POWER.PANACHE_POWER"]);
+    }
+
+    [Fact]
+    public void ResumableLoad_AcceptsCardTargetsHitFixture()
+    {
+        var resumed = RunStorage.LoadResumable(
+            FixturePath("card-targets-hit-run.json"));
+
+        Assert.NotNull(resumed);
+        AssertCardTargetsHitFixture(
+            resumed!.Aggregates["CARD.VOLLEY#1"],
+            resumed.MetaStats.PowerAggregates["POWER.PANACHE_POWER"]);
+    }
+
+    [Fact]
+    public void HistoricalLoad_DefaultsTargetsHitForOlderFixtures()
+    {
+        // A run saved before hits were counted still has its damage totals and
+        // must read as zero hits rather than failing to load.
+        var loaded = RunStorage.LoadHistorical(
+            FixturePath("panache-power-damage-run.json"));
+
+        Assert.NotNull(loaded);
+        var powerAgg = loaded!.Data.MetaStats.PowerAggregates["POWER.PANACHE_POWER"];
+        Assert.Equal(32, powerAgg.TotalEffective);
+        Assert.Equal(0, powerAgg.TargetsHit);
+    }
+
+    [Fact]
     public void HistoricalLoad_AcceptsPanachePowerDamageFixture()
     {
         var loaded = RunStorage.LoadHistorical(
@@ -7127,6 +7166,16 @@ public class SchemaLoadingTests
         Assert.Equal(0, agg.TotalIntended);
         Assert.Equal(0, agg.TotalEffective);
         Assert.Equal(0, agg.Kills);
+    }
+
+    private static void AssertCardTargetsHitFixture(
+        CardAggregate cardAgg,
+        PowerAggregate powerAgg)
+    {
+        Assert.Equal(78, cardAgg.TotalEffective);
+        Assert.Equal(12, cardAgg.TargetsHit);
+        Assert.Equal(30, powerAgg.TotalEffective);
+        Assert.Equal(5, powerAgg.TargetsHit);
     }
 
     private static void AssertPanachePowerDamageFixture(PowerAggregate powerAgg)

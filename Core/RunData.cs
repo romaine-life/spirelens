@@ -436,6 +436,18 @@ public class CardAggregate
     public int TotalEffective { get; set; }  // damage that actually moved HP (observed unblocked damage)
     public int Kills { get; set; }           // times the card landed a killing blow
 
+    // Damage instances this card landed on enemies. Pairs the damage totals
+    // above with the count that produced them: 378 damage reads very
+    // differently as 6 hits than as 40, and neither the totals nor Plays can
+    // tell you which, since one play of a multi-hit or AoE attack lands many.
+    //
+    // Counted per observed hit, exactly like CardOrbAggregate.TargetsHit and
+    // PotionRunHistoryEntry.TargetsHit: a 3x5 attack on one enemy counts 3,
+    // and a sweep across three enemies counts 3. It is a hit count, not a
+    // distinct-enemy count. Self-damage is excluded, as it is from the
+    // offensive totals.
+    public int TargetsHit { get; set; }
+
     // M3a: Energy spent. Sum of CardPlay.Resources.EnergySpent across every
     // play of this card instance. Uses EnergySpent (actual energy paid) not
     // EnergyValue (listed cost) so cost modifiers like Mummified Hand show
@@ -855,6 +867,11 @@ public class PowerAggregate
     public int TotalOverkill { get; set; }
     public int TotalEffective { get; set; }
     public int Kills { get; set; }
+
+    // The hit count for the damage above, on the same terms as
+    // CardAggregate.TargetsHit. Panache is currently the only power that deals
+    // damage itself, and it strikes once per hit it triggers.
+    public int TargetsHit { get; set; }
 
     public int RateAttacksCopied { get; set; }
     public int RateTimesTriggered { get; set; }

@@ -35921,6 +35921,7 @@ public static class RunTracker
             aggregate.TotalBlocked += entry.Result.BlockedDamage;
             aggregate.TotalOverkill += entry.Result.OverkillDamage;
             aggregate.TotalEffective += entry.Result.UnblockedDamage;
+            aggregate.TargetsHit++;
             if (entry.Result.WasTargetKilled) aggregate.Kills++;
 
             return true;
@@ -36546,6 +36547,10 @@ public static class RunTracker
                 agg.TotalBlocked += result.BlockedDamage;
                 agg.TotalOverkill += result.OverkillDamage;
                 agg.TotalEffective += damageTotals.EffectiveDamage;
+                // One per observed hit, matching how orbs and potions count
+                // theirs. This is the entry point for every enemy-facing card
+                // hit, so a multi-hit attack arrives here once per hit.
+                agg.TargetsHit++;
                 if (result.WasTargetKilled) agg.Kills++;
 
                 _pendingCombat.CombatEvents.Add(new CardEvent
@@ -36866,6 +36871,7 @@ public static class RunTracker
         target.TotalOverkill += source.TotalOverkill;
         target.TotalEffective += source.TotalEffective;
         target.Kills += source.Kills;
+        target.TargetsHit += source.TargetsHit;
         target.TotalEnergySpent += source.TotalEnergySpent;
         target.TotalEnergyGenerated += source.TotalEnergyGenerated;
         target.TotalStarsSpent += source.TotalStarsSpent;
@@ -37124,6 +37130,7 @@ public static class RunTracker
             targetAgg.TotalOverkill += sourceAgg.TotalOverkill;
             targetAgg.TotalEffective += sourceAgg.TotalEffective;
             targetAgg.Kills += sourceAgg.Kills;
+            targetAgg.TargetsHit += sourceAgg.TargetsHit;
             targetAgg.RateAttacksCopied += sourceAgg.RateAttacksCopied;
             targetAgg.RateTimesTriggered += sourceAgg.RateTimesTriggered;
             targetAgg.RateBlockGained += sourceAgg.RateBlockGained;

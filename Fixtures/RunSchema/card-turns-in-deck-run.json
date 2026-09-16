@@ -1,0 +1,36 @@
+{
+  "run_id": "card-turns-in-deck-fixture",
+  "started_at": "2026-09-16T20:00:00Z",
+  "updated_at": "2026-09-16T20:24:00Z",
+  "character": "IRONCLAD",
+  "ascension": 5,
+  "floor_reached": 9,
+  "outcome": "in_progress",
+  "game_start_time": 1789588800,
+  "aggregates": {
+    "CARD.STRIKE_IRONCLAD#1": {
+      "combats_in_deck": 4,
+      "turns_in_deck": 17,
+      "combats_with_turns_in_deck": 4,
+      "plays": 9,
+      "total_intended": 54,
+      "total_effective": 51,
+      "total_overkill": 3,
+      "times_drawn": 11,
+      "floor_added": 0,
+      "initial_upgrade_level": 0
+    }
+  },
+  "events": [],
+  "relic_aggregates": {},
+  "enemy_aggregates": {},
+  "meta_stats": {},
+  "instance_numbers_by_def": {
+    "CARD.STRIKE_IRONCLAD": [
+      1
+    ]
+  },
+  "def_counters": {
+    "CARD.STRIKE_IRONCLAD": 1
+  }
+}

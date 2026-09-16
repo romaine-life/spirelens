@@ -709,6 +709,9 @@ New fixtures added going forward do not need a `v*-` prefix.
   Damage recorded against a pooled power aggregate. Panache is the only power
   in the game that deals damage itself, so these are the first damage fields
   PowerAggregate has carried.
+- `card-turns-in-deck-run.json`
+  Every card's zero-inclusive turns-in-deck count, plus how many of its
+  combats-in-deck that count covers, for the per-turn damage average.
 
 Why these exist:
 

@@ -495,6 +495,16 @@ public static class CardHoverShowPatch
             // Avg intended intentionally omitted pending issue #15.
             Row3(sb, "Total damage", agg.TotalEffective.ToString(), "");
             Row3(sb, "Avg effective", $"{avgEffective:F1}", "");
+            // Damage over the whole time the card sat in the deck, matching
+            // the deck-view sorts of the same names. The per-turn row is
+            // withheld while the turn count covers fewer combats than the card
+            // was in the deck for (runs that predate turn counting).
+            if (agg.TotalEffective > 0 && DeckViewSpireLensSort.HasCompleteTurnCount(agg))
+            {
+                Row3(sb, "Avg damage per turn", $"{(float)agg.TotalEffective / agg.TurnsInDeck:F1}", "");
+            }
+            if (agg.TotalEffective > 0 && agg.CombatsInDeck > 0)
+                Row3(sb, "Avg damage per combat", $"{(float)agg.TotalEffective / agg.CombatsInDeck:F1}", "");
             // Damage bought per energy actually paid. A card that never spent
             // energy cannot be divided, so it shows its damage over a zero-cost
             // orb rather than a ratio — the same shape the deck-view sort uses,

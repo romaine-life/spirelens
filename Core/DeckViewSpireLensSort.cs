@@ -108,13 +108,34 @@ internal static class DeckViewSpireLensSort
         // damage, i.e. HP this physical card actually removed across the run.
         // Block and overkill waste are excluded, which is what players mean by
         // "this card has done X damage".
+        //
+        // It also prints the card's share of everything this run's cards have
+        // dealt. That share used to be a sort of its own, but its denominator
+        // is the same for every card, so it could only repeat this ordering.
         new DeckSortMetric("total_damage", "Total damage", GroupDamage,
-            agg => agg.TotalEffective),
+            agg => agg.TotalEffective,
+            display: FormatTotalDamage),
         // Total damage rewards whatever you drew most. This is the tooltip's
         // "Avg effective", which separates a consistent workhorse from a card
         // that only looks big because it came up a lot.
         new DeckSortMetric("avg_damage", "Avg damage per play", GroupDamage,
             agg => agg.Plays > 0 ? (double)agg.TotalEffective / agg.Plays : 0d),
+        // Per play flatters a card you rarely draw. These two also charge a
+        // card for the time it sat in the deck, so a big hitter that seldom
+        // turns up ranks below a smaller one that always does. Both are
+        // zero-inclusive: every turn / combat the card was in the deck,
+        // whether or not it was drawn.
+        //
+        // Turn counting started with the build that added this sort, so a
+        // card whose run began earlier has damage from combats whose turns
+        // were never counted. It scores nothing here rather than dividing all
+        // of its damage by only its later turns.
+        new DeckSortMetric("avg_damage_per_turn", "Avg damage per turn", GroupDamage,
+            agg => HasCompleteTurnCount(agg)
+                ? (double)agg.TotalEffective / agg.TurnsInDeck
+                : 0d),
+        new DeckSortMetric("avg_damage_per_combat", "Avg damage per combat", GroupDamage,
+            agg => agg.CombatsInDeck > 0 ? (double)agg.TotalEffective / agg.CombatsInDeck : 0d),
         // Damage bought per energy paid, using energy actually spent rather
         // than printed cost, so discounts and cost modifiers count.
         //
@@ -136,12 +157,6 @@ internal static class DeckViewSpireLensSort
                     : double.PositiveInfinity,
             tieBreak: agg => agg.TotalEffective,
             display: FormatDamagePerEnergy),
-        // Share of everything this run's cards have dealt. Ordering matches
-        // Total damage, since the denominator is the same for every card —
-        // the value is in reading how much of the run one card accounted for.
-        new DeckSortMetric("damage_share", "Damage share", GroupDamage,
-            agg => agg.TotalEffective,
-            display: FormatDamageShare),
         new DeckSortMetric("kills", "Kills", GroupDamage,
             agg => agg.Kills),
 
@@ -175,6 +190,13 @@ internal static class DeckViewSpireLensSort
         new DeckSortMetric("cards_drawn", "Cards drawn", GroupFlow,
             agg => agg.TimesCardsDrawn),
     };
+
+    /// <summary>
+    /// True when <see cref="CardAggregate.TurnsInDeck"/> covers every combat
+    /// the card was in the deck for, so it can divide the card's whole damage.
+    /// </summary>
+    internal static bool HasCompleteTurnCount(CardAggregate agg)
+        => agg.TurnsInDeck > 0 && agg.CombatsWithTurnsInDeck == agg.CombatsInDeck;
 
     internal static DeckSortMetric? ActiveMetric { get; private set; }
 
@@ -355,26 +377,26 @@ internal static class DeckViewSpireLensSort
     }
 
     /// <summary>
-    /// "18% (589 / 3271)" — the share, then the whole ratio it came from, so
-    /// the percentage can be checked rather than taken on trust.
+    /// "589", then "18% of 3271" — the damage, then its share of the run's
+    /// card damage beside the total it came from, so the percentage can be
+    /// checked rather than taken on trust.
     ///
     /// The denominator is refreshed each time the deck is re-rendered, from
     /// the run actually on screen, and for the live run it includes the
     /// current combat's buffered damage rather than stopping at the last room
     /// boundary. It does not tick during a combat while the screen sits open.
     /// </summary>
-    private static string FormatDamageShare(CardAggregate agg)
+    private static string FormatTotalDamage(CardAggregate agg)
     {
         var total = _damageShareTotal;
         if (total <= 0) return $"{agg.TotalEffective}";
 
         var percent = 100d * agg.TotalEffective / total;
-        // Break before the ratio rather than letting it wrap. Left to itself
-        // the line runs past the card's width on nearly every card and breaks
-        // mid-parenthetical, so "(589 /" ends one line and "4771)" starts the
-        // next. An explicit break puts the share on one line and the ratio it
-        // came from on the next, both centred with the rest of the card text.
-        return $"{FormatValue(percent)}%\n{agg.TotalEffective} / {total}";
+        // Break before the share rather than letting the caption wrap: left
+        // to itself it runs past the card's width and breaks mid-phrase. An
+        // explicit break puts the damage on one line and the share on the
+        // next, both centred with the rest of the card text.
+        return $"{agg.TotalEffective}\n{FormatValue(percent)}% of {total}";
     }
 
     private static long _damageShareTotal;

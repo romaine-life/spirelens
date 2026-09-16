@@ -608,6 +608,18 @@ public class SchemaLoadingTests
     }
 
     [Fact]
+    public void HistoricalLoad_AcceptsCardTurnsInDeckFixture()
+    {
+        var loaded = RunStorage.LoadHistorical(FixturePath("card-turns-in-deck-run.json"));
+
+        Assert.NotNull(loaded);
+        Assert.True(loaded!.SupportsResume);
+        Assert.True(loaded.HasPerInstanceIdentity);
+        Assert.Null(loaded.CompatibilityNote);
+        AssertCardTurnsInDeckFixture(loaded.Data.Aggregates["CARD.STRIKE_IRONCLAD#1"]);
+    }
+
+    [Fact]
     public void HistoricalLoad_AcceptsAllForOneCardFixture()
     {
         var loaded = RunStorage.LoadHistorical(FixturePath("all-for-one-card-run.json"));
@@ -1653,6 +1665,15 @@ public class SchemaLoadingTests
 
         Assert.NotNull(resumed);
         AssertDrainPowerFixture(resumed!.Aggregates["CARD.DRAIN_POWER#1"]);
+    }
+
+    [Fact]
+    public void ResumableLoad_AcceptsCardTurnsInDeckFixture()
+    {
+        var resumed = RunStorage.LoadResumable(FixturePath("card-turns-in-deck-run.json"));
+
+        Assert.NotNull(resumed);
+        AssertCardTurnsInDeckFixture(resumed!.Aggregates["CARD.STRIKE_IRONCLAD#1"]);
     }
 
     [Fact]
@@ -5035,6 +5056,14 @@ public class SchemaLoadingTests
         Assert.Equal(8, cardAgg.DrainPowerCardsUpgraded);
         Assert.Equal(6, cardAgg.DrainPowerTurnsInDeck);
         Assert.Equal(9, cardAgg.DrainPowerUpgradedCardPlays);
+    }
+
+    private static void AssertCardTurnsInDeckFixture(CardAggregate cardAgg)
+    {
+        Assert.Equal(4, cardAgg.CombatsInDeck);
+        Assert.Equal(17, cardAgg.TurnsInDeck);
+        Assert.Equal(4, cardAgg.CombatsWithTurnsInDeck);
+        Assert.Equal(51, cardAgg.TotalEffective);
     }
 
     private static void AssertAllForOneFixture(CardAggregate cardAgg)

@@ -1566,6 +1566,15 @@ the exact same combat card count for the source, while copies do not. Use every
 turn and combat where that physical Drain Power was in the permanent deck as
 the zero-inclusive average denominators.
 
+Every card's per-turn average divides by `TurnsInDeck`, counted from
+`Hook.AfterPlayerTurnStart` once per turn number for each card then in the
+permanent deck of the same player whose deck `CombatsInDeck` counts at combat
+start. Counting at turn start rather than from the final `TurnNumber` at combat
+end keeps a mid-combat deck view current and charges a card added mid-combat
+only for its turns. `CombatsWithTurnsInDeck` is incremented beside
+`CombatsInDeck`; the two differ only for combats that began before turn counting
+existed, and consumers withhold the per-turn average whenever they do.
+
 Miniature Cannon checks the live attack source's `IsUpgraded` property when
 modifying powered Attack damage. Its play and hit attribution must inspect that
 same combat card rather than its canonical deck version. Permanent upgrades are

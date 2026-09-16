@@ -246,6 +246,19 @@ The snapshot is in memory only, so a hot reload mid-room drops it and `Describe(
 
 Note that `SetUpSavedSingleplayer` awaits `SaveManager.IncrementNumReloads`, so every restart increments the save's `num_reloads`.
 
+### Death Deletes The Save, So Undoing One Keeps It First
+
+A loss is the one room ending that destroys what a restart replays. Decompiled `RunManager.OnEnded(isVictory: false)` (called synchronously from `CreatureCmd.Kill` once every player is dead, before `NRun.ShowGameOverScreen`) does, inside one save batch and only when `ShouldSave`:
+
+- `SaveManager.UpdateProgressWithRunData` — `TotalLosses++`, `CurrentWinStreak = 0`, playtime and floors climbed, per-card `TimesLost`, per-encounter and per-enemy losses, acts/events marked seen;
+- `RunHistoryUtilities.CreateRunHistoryEntry` — writes `history/{StartTime}.run` (SpireLens' `RunTracker.OnRunEnded` hangs off this as a postfix);
+- `MetricUtilities.UploadRunMetrics` and `AchievementsHelper.AfterRunEnded`;
+- `SaveManager.DeleteCurrentRun()` — deletes `current_run.save` and its `.backup`.
+
+The game-over screen then banks the run's score into `Progress.CurrentScore` and may `ObtainEpoch` a score unlock. `RunManager.State` stays non-null (`IsGameOver` true) until the player leaves that screen.
+
+`RunManagerOnEndedDeathRestorePatch` is a prefix on `OnEnded`, so it runs ahead of all of it. `RoomResetter.CaptureDeathRestorePoint` keeps the run save (still the room's opening state), `Progress.ToSerializable()`, and the SpireLens run id whose room-entry snapshot matches, in `user://SpireLens/death-restore.json`. Undoing the death restores the progress object and rewrites `progress.save`, deletes `{StartTime}.run`, rewinds the ended SpireLens record with `RunTracker.RollBackEndedRunToRoomEntry` (which un-stamps `outcome=loss`), and then takes the ordinary Continue path, which writes the run save back. The metrics upload and any achievement are outside the machine and are not reversed. The kept point is discarded as stale once a run save exists again or a newer history entry appears, because restoring it then would roll progress back over later runs.
+
 ## RunStarted Is Not Deck-Ready
 
 Do not use `RunStarted` as the source of truth for starter deck population.

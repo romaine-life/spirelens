@@ -1,5 +1,7 @@
 using System;
 using System.Diagnostics;
+using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using MegaCrit.Sts2.Core.Combat;
 using MegaCrit.Sts2.Core.Helpers;
@@ -10,6 +12,7 @@ using MegaCrit.Sts2.Core.Nodes.Audio;
 using MegaCrit.Sts2.Core.Rooms;
 using MegaCrit.Sts2.Core.Runs;
 using MegaCrit.Sts2.Core.Saves;
+using MegaCrit.Sts2.Core.Saves.Validation;
 
 namespace SpireLens.Core;
 
@@ -27,9 +30,35 @@ namespace SpireLens.Core;
 public readonly record struct RoomRestartAvailability(
     string? RoomNoun,
     string? BlockedReason,
-    string? ReplayNote = null)
+    string? ReplayNote = null,
+    bool UndoesDeath = false)
 {
     public bool CanRestart => BlockedReason == null;
+}
+
+/// <summary>
+/// What dying destroys, kept so the death can be undone. Written by
+/// <see cref="RoomResetter.CaptureDeathRestorePoint"/> immediately before the
+/// game processes a loss.
+/// </summary>
+public sealed class DeathRestorePoint
+{
+    public int ProfileId { get; set; }
+
+    /// <summary>The game's run identity, <c>SerializableRun.StartTime</c>, which also names its <c>{StartTime}.run</c> history entry.</summary>
+    public long GameStartTime { get; set; }
+
+    /// <summary>The SpireLens run record whose room-entry snapshot rewinds with the game.</summary>
+    public string RunId { get; set; } = "";
+
+    /// <summary><c>current_run.save</c> as it stood when the player died, in the game's own JSON.</summary>
+    public string RunSave { get; set; } = "";
+
+    /// <summary>The progress save as it stood just before the loss was recorded into it.</summary>
+    public string Progress { get; set; } = "";
+
+    public string RoomNoun { get; set; } = "room";
+    public string ReplayNote { get; set; } = "";
 }
 
 /// <summary>
@@ -74,6 +103,19 @@ public readonly record struct RoomRestartAvailability(
 /// The snapshot is in memory, so a hot reload mid-room drops it and
 /// <see cref="Describe"/> refuses until the next room re-arms it — refusing
 /// beats quietly inflating the run.
+///
+/// Death is the one room ending that destroys the save a restart replays:
+/// <c>RunManager.OnEnded</c> deletes <c>current_run.save</c> on a loss. It also
+/// records the loss everywhere the game keeps score — <c>progress.save</c>
+/// (losses, the win streak reset, playtime, per-card and per-encounter losses,
+/// and the score the game-over screen banks) and a <c>{StartTime}.run</c>
+/// history entry — and SpireLens stamps its record <c>outcome=loss</c>.
+/// <see cref="CaptureDeathRestorePoint"/> runs just before all of that and
+/// keeps the run save and the untouched progress, so undoing a death replays
+/// the room and reverses every one of those records instead of leaving behind
+/// a loss that never happened. The only things it cannot reverse are the ones
+/// that already left the machine: the game's run metrics upload, and any Steam
+/// achievement unlocked on the way out.
 /// </summary>
 public static class RoomResetter
 {
@@ -100,7 +142,18 @@ public static class RoomResetter
             if (_restartInProgress) return Blocked("already restarting");
 
             var run = RunManager.Instance;
-            if (run == null || !run.IsInProgress) return Blocked("no run in progress");
+
+            // Dead, whether still on the game-over screen or already back on
+            // the main menu: all that is left to replay is what was kept
+            // before the game deleted the save.
+            if (run == null || !run.IsInProgress || run.IsGameOver)
+            {
+                var death = FindDeathRestorePoint(run, out var deathBlocked);
+                return death == null
+                    ? Blocked(deathBlocked)
+                    : new RoomRestartAvailability(death.RoomNoun, null, death.ReplayNote, UndoesDeath: true);
+            }
+
             if (run.IsCleaningUp) return Blocked("run is shutting down");
 
             // SetUpSavedSingleplayer is singleplayer-only; the multiplayer
@@ -193,8 +246,160 @@ public static class RoomResetter
         }
 
         _restartInProgress = true;
-        TaskHelper.RunSafely(RestartAsync(availability.RoomNoun!, source));
+        TaskHelper.RunSafely(RestartAsync(availability.RoomNoun!, availability.UndoesDeath, source));
         return true;
+    }
+
+    /// <summary>
+    /// Keep what a loss is about to destroy. Called from the
+    /// <c>RunManager.OnEnded</c> prefix, which is ahead of every one of its
+    /// side effects: the progress update, the history entry (and SpireLens'
+    /// <see cref="RunTracker.OnRunEnded"/>, which hangs off it), and the save
+    /// deletion.
+    /// </summary>
+    public static void CaptureDeathRestorePoint(RunManager run, bool isVictory)
+    {
+        // OnEnded does its bookkeeping once per run; a repeat call changes
+        // nothing and must not replace the real pre-death capture with a
+        // post-death one.
+        if (isVictory || run._runHistoryWasUploaded) return;
+        if (!run.ShouldSave || run.IsAbandoned) return;
+        if (run.NetService == null || run.NetService.Type != NetGameType.Singleplayer) return;
+
+        var state = run.State;
+        if (state == null) return;
+
+        // Without a rewind target for the run record, restoring the game would
+        // leave SpireLens holding a finished run and minting a second record
+        // for the replay. Refuse up front, as the live restart does.
+        var runId = RunTracker.RunIdWithRoomEntrySnapshot;
+        if (runId == null)
+        {
+            CoreMain.Logger.Info("RoomResetter: death not undoable (no room-entry snapshot)");
+            return;
+        }
+
+        var read = SaveManager.Instance.LoadRunSave();
+        if (!read.Success || read.SaveData == null)
+        {
+            CoreMain.Logger.Info(
+                $"RoomResetter: death not undoable (run save unreadable: {read.Status} {read.ErrorMessage})");
+            return;
+        }
+
+        var save = read.SaveData;
+        var progress = SaveManager.Instance.Progress.ToSerializable();
+        progress.SchemaVersion = SaveManager.Instance.GetLatestSchemaVersion<SerializableProgress>();
+        var (noun, note) = DescribeReplayAfterDeath(state, save);
+
+        var point = new DeathRestorePoint
+        {
+            ProfileId = SaveManager.Instance.CurrentProfileId,
+            GameStartTime = save.StartTime,
+            RunId = runId,
+            RunSave = SaveManager.ToJson(save),
+            Progress = SaveManager.ToJson(progress),
+            RoomNoun = noun,
+            ReplayNote = note,
+        };
+        RunStorage.SaveDeathRestorePoint(point);
+        _deathRestorePoint = point;
+        _deathRestorePointLoaded = true;
+
+        CoreMain.Logger.Info(
+            $"RoomResetter: kept pre-death save for {noun} (run={runId}, game_start_time={save.StartTime})");
+    }
+
+    private static DeathRestorePoint? _deathRestorePoint;
+    private static bool _deathRestorePointLoaded;
+
+    /// <summary>
+    /// The kept pre-death state, if it still describes the most recent thing
+    /// that happened. A later run (a run save on disk, or a newer history
+    /// entry) or another profile makes it stale, and a stale one is deleted:
+    /// restoring it would roll progress back over runs played since.
+    /// </summary>
+    private static DeathRestorePoint? FindDeathRestorePoint(RunManager? run, out string blocked)
+    {
+        blocked = run?.IsGameOver == true ? "nothing kept from before this death" : "no run in progress";
+        if (run?.IsCleaningUp == true)
+        {
+            blocked = "run is shutting down";
+            return null;
+        }
+
+        if (!_deathRestorePointLoaded)
+        {
+            _deathRestorePoint = RunStorage.LoadDeathRestorePoint();
+            _deathRestorePointLoaded = true;
+        }
+
+        var point = _deathRestorePoint;
+        if (point == null) return null;
+
+        var saves = SaveManager.Instance;
+        if (saves.CurrentProfileId != point.ProfileId) return null;
+
+        // On the game-over screen the dead run is still loaded, and it has to
+        // be the run this point was kept for.
+        if (run?.IsInProgress == true && run._startTime != point.GameStartTime) return null;
+
+        bool superseded = saves.HasRunSave
+            || saves.GetAllRunHistoryNames().Any(name =>
+                long.TryParse(Path.GetFileNameWithoutExtension(name), out var startTime)
+                && startTime > point.GameStartTime);
+        if (superseded)
+        {
+            ForgetDeathRestorePoint();
+            return null;
+        }
+
+        return point;
+    }
+
+    private static void ForgetDeathRestorePoint()
+    {
+        RunStorage.DeleteDeathRestorePoint();
+        _deathRestorePoint = null;
+        _deathRestorePointLoaded = true;
+    }
+
+    /// <summary>
+    /// What replaying <paramref name="save"/> brings back, judged from the room
+    /// the player died in. A death has no live combat to consult, so where the
+    /// replay lands comes from the save itself.
+    /// </summary>
+    private static (string Noun, string Note) DescribeReplayAfterDeath(RunState state, SerializableRun save)
+    {
+        bool savedAfterAFight = save.PreFinishedRoom != null;
+        return state.BaseRoom switch
+        {
+            CombatRoom => savedAfterAFight
+                ? ("combat rewards", ToTheRewardScreen)
+                : ("combat", FromTheStart),
+            EventRoom { IsPreFinished: true } => ("event", AfterItResolved),
+            EventRoom => savedAfterAFight
+                ? ("event rewards", ToTheRewardScreen)
+                : ("event", FromTheStart),
+            _ => ("room", FromTheStart),
+        };
+    }
+
+    /// <summary>
+    /// Reverse the game's own record of the death: put the progress save back
+    /// as it was before the loss was counted, and remove the history entry the
+    /// loss wrote. The run writes that entry again when it really ends.
+    /// </summary>
+    private static void UndoRecordedDeath(DeathRestorePoint point, ProgressState progressBeforeDeath)
+    {
+        var saves = SaveManager.Instance;
+        saves.Progress = progressBeforeDeath;
+        saves.SaveProgressFile();
+
+        var history = saves._runHistorySaveManager;
+        var entry = Path.Combine(history.HistoryPath, $"{point.GameStartTime}.run");
+        if (history._saveStore.FileExists(entry))
+            history._saveStore.DeleteFile(entry);
     }
 
     private const string FromTheStart =
@@ -223,22 +428,51 @@ public static class RoomResetter
             || here.HasRoomOfType(RoomType.Boss);
     }
 
-    private static async Task RestartAsync(string roomNoun, string source)
+    private static async Task RestartAsync(string roomNoun, bool undoesDeath, string source)
     {
         try
         {
             // Read and deserialize BEFORE any teardown. A missing or corrupt
             // save must abort with the live run untouched, not after we have
             // already destroyed it.
-            var read = SaveManager.Instance.LoadRunSave();
-            if (!read.Success || read.SaveData == null)
+            SerializableRun save;
+            DeathRestorePoint? death = null;
+            ProgressState? progressBeforeDeath = null;
+            if (undoesDeath)
             {
-                CoreMain.Logger.Error(
-                    $"RoomResetter: cannot read run save ({read.Status} {read.ErrorMessage}); live run left alone");
-                return;
+                death = FindDeathRestorePoint(RunManager.Instance, out var blocked);
+                if (death == null)
+                {
+                    CoreMain.Logger.Error($"RoomResetter: pre-death save gone ({blocked}); nothing changed");
+                    return;
+                }
+
+                var keptRun = SaveManager.FromJson<SerializableRun>(death.RunSave);
+                var keptProgress = SaveManager.FromJson<SerializableProgress>(death.Progress);
+                if (!keptRun.Success || keptRun.SaveData == null
+                    || !keptProgress.Success || keptProgress.SaveData == null)
+                {
+                    CoreMain.Logger.Error(
+                        $"RoomResetter: pre-death save unreadable (run={keptRun.Status}, progress={keptProgress.Status}); nothing changed");
+                    return;
+                }
+
+                save = keptRun.SaveData;
+                progressBeforeDeath = ProgressState.FromSerializable(keptProgress.SaveData, new DeserializationContext());
+            }
+            else
+            {
+                var read = SaveManager.Instance.LoadRunSave();
+                if (!read.Success || read.SaveData == null)
+                {
+                    CoreMain.Logger.Error(
+                        $"RoomResetter: cannot read run save ({read.Status} {read.ErrorMessage}); live run left alone");
+                    return;
+                }
+
+                save = read.SaveData;
             }
 
-            var save = read.SaveData;
             var runState = RunState.FromSerializable(save);
 
             var game = NGame.Instance;
@@ -249,7 +483,7 @@ public static class RoomResetter
             }
 
             CoreMain.Logger.Info(
-                $"RoomResetter: restarting {roomNoun} from run save (source={source}, " +
+                $"RoomResetter: restarting {roomNoun} from {(death != null ? "pre-death save" : "run save")} (source={source}, " +
                 $"floor={save.MapPointHistory?.Count}, pre_finished_room={save.PreFinishedRoom?.RoomType.ToString() ?? "none"})");
 
             // Per-phase timing, because the remaining cost after the fades is
@@ -266,7 +500,10 @@ public static class RoomResetter
             // written. Deliberately here: every path that can abort with the
             // live run untouched is above, and CleanUp below is the point of no
             // return, so the record and the game commit to the rewind together.
-            if (!RunTracker.RollBackToRoomEntry($"{roomNoun} restart"))
+            bool rewound = death != null
+                ? RunTracker.RollBackEndedRunToRoomEntry(death.RunId, $"{roomNoun} restart after death")
+                : RunTracker.RollBackToRoomEntry($"{roomNoun} restart");
+            if (!rewound)
             {
                 CoreMain.Logger.Error(
                     "RoomResetter: run record rewind failed after the availability check passed; "
@@ -274,6 +511,10 @@ public static class RoomResetter
                 await game.Transition.FadeIn(FadeInSeconds);
                 return;
             }
+            // The game's own records of the death go back at the same commit
+            // point as the run record.
+            if (death != null)
+                UndoRecordedDeath(death, progressBeforeDeath!);
             var rollBackMs = phase.ElapsedMilliseconds; phase.Restart();
 
             // Frees RunManager.State so SetUpSavedSingleplayer will accept the
@@ -286,6 +527,12 @@ public static class RoomResetter
             // the run save to disk before returning.
             await RunManager.Instance.SetUpSavedSingleplayer(runState, save);
             var setUpMs = phase.ElapsedMilliseconds; phase.Restart();
+
+            // SetUpSavedSingleplayer has written the run save back to disk, so
+            // the death is undone for good; any later restart is the ordinary
+            // kind.
+            if (death != null)
+                ForgetDeathRestorePoint();
 
             game.ReactionContainer.InitializeNetworking(new NetSingleplayerGameService());
 

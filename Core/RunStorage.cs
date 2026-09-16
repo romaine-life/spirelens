@@ -75,6 +75,28 @@ public static class RunStorage
         catch (Exception e)
         {
             CoreMain.LogDebug($"SaveRoomEntrySnapshot failed: {e.Message}");
+            // An older snapshot left behind would be read back after a hot
+            // reload as if it were this one.
+            DeleteRoomEntrySnapshot(runId);
+        }
+    }
+
+    /// <summary>
+    /// Remove this run's snapshot, so a stale one can never be read back as the
+    /// rewind target. Best effort.
+    /// </summary>
+    public static void DeleteRoomEntrySnapshot(string? runId)
+    {
+        if (string.IsNullOrWhiteSpace(runId)) return;
+
+        try
+        {
+            var path = Path.Combine(RoomEntryDir, runId + ".json");
+            if (File.Exists(path)) File.Delete(path);
+        }
+        catch (Exception e)
+        {
+            CoreMain.LogDebug($"DeleteRoomEntrySnapshot failed: {e.Message}");
         }
     }
 

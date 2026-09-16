@@ -49,7 +49,8 @@ public readonly record struct RoomRestartAvailability(
 /// pre-finished room: <c>CombatManager</c> at combat victory, and
 /// <c>EventRoom.OnEventStateChanged</c> when an Ancient event finishes. Past
 /// either point the save is the room's aftermath rather than its opening, so a
-/// replay would undo nothing — <see cref="Describe"/> refuses instead.
+/// replay lands on the won fight's reward screen or just after the Ancient
+/// resolved — <see cref="Describe"/> still offers it and says so.
 ///
 /// The load sequence mirrors the main menu's Continue button
 /// (<c>NMainMenu</c>: FromSerializable → SetUpSavedSingleplayer → LoadRun),
@@ -70,10 +71,13 @@ public readonly record struct RoomRestartAvailability(
 /// happen, so replaying the room without rewinding the record would bank them
 /// twice — in the exact stats the room exists to produce, per-relic attribution
 /// included. <c>RunTracker.RollBackToRoomEntry</c> restores the snapshot taken
-/// when the room opened, which is the same instant the run save was written.
-/// The snapshot is in memory, so a hot reload mid-room drops it and
-/// <see cref="Describe"/> refuses until the next room re-arms it — refusing
-/// beats quietly inflating the run.
+/// at the same point the save on disk describes: at room entry, and retaken
+/// whenever the game rewrites the save with a pre-finished room — after the won
+/// fight is promoted, or once the Ancient's choice has landed — so a reward
+/// screen replay keeps the fight in the record just as the game keeps it.
+/// The snapshot is mirrored to disk, so a hot reload mid-room keeps it; when
+/// none exists <see cref="Describe"/> refuses — refusing beats quietly
+/// inflating or erasing part of the run.
 /// </summary>
 public static class RoomResetter
 {
@@ -110,10 +114,8 @@ public static class RoomResetter
 
             if (SaveManager.Instance?.HasRunSave != true) return Blocked("no run save on disk");
 
-            // Without a room-entry snapshot the run record cannot rewind with
-            // the game, and a shop or event would bank what it did here twice.
-            // The snapshot is in-memory, so a hot reload mid-room drops it; the
-            // next room re-arms it.
+            // Without a rewind snapshot the run record cannot rewind with the
+            // game, and a shop or event would bank what it did here twice.
             if (!RunTracker.HasRoomEntrySnapshot) return Blocked("no room-entry snapshot");
 
             var state = run.State;
@@ -262,8 +264,9 @@ public static class RoomResetter
             await game.Transition.FadeOut(FadeOutSeconds);
             var fadeOutMs = phase.ElapsedMilliseconds; phase.Restart();
 
-            // Rewind SpireLens' own record to the same instant the save was
-            // written. Deliberately here: every path that can abort with the
+            // Rewind SpireLens' own record to the point the save describes —
+            // room entry, or just after a won fight / finished Ancient when the
+            // save holds a pre-finished room. Deliberately here: every path that can abort with the
             // live run untouched is above, and CleanUp below is the point of no
             // return, so the record and the game commit to the rewind together.
             if (!RunTracker.RollBackToRoomEntry($"{roomNoun} restart"))

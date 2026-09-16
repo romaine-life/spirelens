@@ -62,6 +62,58 @@ public static class RunStorage
     private static string RunSaveSnapshotPath(string runId) =>
         Path.Combine(RunSaveSnapshotDir, runId + ".json");
 
+    // Outside runs/ for the same reason the rewind snapshots are: that
+    // directory is enumerated as run records. One file, because only the most
+    // recent death can be undone.
+    public static string DeathRestorePath =>
+        ProjectSettings.GlobalizePath("user://SpireLens/death-restore.json");
+
+    /// <summary>
+    /// Persist the death restore point so a Core hot reload between dying and
+    /// pressing restart does not lose it. Best effort, like the rewind
+    /// snapshot: failing costs only the restart offer, never the run end.
+    /// </summary>
+    public static void SaveDeathRestorePoint(DeathRestorePoint point)
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(DeathRestorePath)!);
+            File.WriteAllText(DeathRestorePath, JsonSerializer.Serialize(point, Options));
+        }
+        catch (Exception e)
+        {
+            CoreMain.Logger.Error($"SaveDeathRestorePoint failed: {e.Message}");
+        }
+    }
+
+    /// <summary>The stored death restore point, or null if there is none.</summary>
+    public static DeathRestorePoint? LoadDeathRestorePoint()
+    {
+        try
+        {
+            return File.Exists(DeathRestorePath)
+                ? JsonSerializer.Deserialize<DeathRestorePoint>(File.ReadAllText(DeathRestorePath), Options)
+                : null;
+        }
+        catch (Exception e)
+        {
+            CoreMain.LogDebug($"LoadDeathRestorePoint failed: {e.Message}");
+            return null;
+        }
+    }
+
+    public static void DeleteDeathRestorePoint()
+    {
+        try
+        {
+            if (File.Exists(DeathRestorePath)) File.Delete(DeathRestorePath);
+        }
+        catch (Exception e)
+        {
+            CoreMain.LogDebug($"DeleteDeathRestorePoint failed: {e.Message}");
+        }
+    }
+
     /// <summary>
     /// On-disk shape of the rewind target: the run record as it stood at the
     /// game's last run save, and which save that was (see

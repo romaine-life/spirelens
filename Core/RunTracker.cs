@@ -1839,6 +1839,73 @@ public static class RunTracker
     }
 
     /// <summary>
+    /// The run whose run-save snapshot a restart would rewind to, or null when
+    /// there is none. Read at the moment of death, before
+    /// <see cref="OnRunEnded"/> nulls the run, so an undo can name its target.
+    /// </summary>
+    public static string? RunIdWithRunSaveSnapshot
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _currentRun != null
+                    && EnsureRunSaveSnapshotLoadedLocked(_currentRun.RunId) != null
+                    ? _currentRun.RunId
+                    : null;
+            }
+        }
+    }
+
+    /// <summary>
+    /// <see cref="RollBackToLastRunSave"/> for a run that has already ended in
+    /// a death, so the death can be undone.
+    ///
+    /// <see cref="OnRunEnded"/> has by then stamped <c>outcome=loss</c>,
+    /// promoted the fatal fight and nulled <c>_currentRun</c>. It clears the
+    /// snapshot statics but leaves the disk copy, so the snapshot of the save
+    /// the game deleted is still there to load: restoring it un-ends the record
+    /// exactly as far back as the save <see cref="RoomResetter"/> kept, the run
+    /// file is rewritten with the restored, still in-progress record, and the
+    /// <c>RunStarted</c> the reload fires adopts it like any Continue.
+    /// </summary>
+    public static bool RollBackEndedRunToLastRunSave(string runId, string source)
+    {
+        lock (_lock)
+        {
+            try
+            {
+                var json = EnsureRunSaveSnapshotLoadedLocked(runId);
+                if (json == null) return false;
+
+                var restored = JsonSerializer.Deserialize<RunData>(json, RunStorage.Options);
+                if (restored == null
+                    || restored.RunId != runId
+                    || restored.Outcome != InProgressOutcome)
+                {
+                    return false;
+                }
+
+                _currentRun = restored;
+                _lastEndedRun = null;
+                _pendingCombat = null;
+                _unsavedRunTimeSeconds = 0;
+                RunStorage.SaveAsync(_currentRun);
+
+                CoreMain.Logger.Info(
+                    $"Ended run record rewound to last run save ({source}): "
+                    + $"run={runId} floor={_currentRun.FloorReached}");
+                return true;
+            }
+            catch (Exception e)
+            {
+                CoreMain.Logger.Error($"RollBackEndedRunToLastRunSave failed: {e}");
+                return false;
+            }
+        }
+    }
+
+    /// <summary>
     /// True when <paramref name="run"/> is an in-memory record for a game run
     /// that has already finished.
     ///

@@ -4,12 +4,16 @@ using System.Linq;
 using System.Text;
 using Godot;
 using HarmonyLib;
+using MegaCrit.Sts2.Core.Entities.Cards;
+using MegaCrit.Sts2.Core.Entities.Merchant;
+using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.HoverTips;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Models.Cards;
 using MegaCrit.Sts2.Core.Models.Relics;
 using MegaCrit.Sts2.Core.Nodes.Relics;
 using MegaCrit.Sts2.Core.Nodes.Screens.GameOverScreen;
+using MegaCrit.Sts2.Core.Nodes.Screens.Shops;
 
 
 namespace SpireLens.Core.Patches;
@@ -32,6 +36,15 @@ internal readonly record struct EternalFeatherLiveHeal(
     decimal Heal,
     int DeckCards,
     int CardsPerHeal);
+
+/// <summary>
+/// Enchanted cards in a player's deck as it stands now. Mystic Lighter adds
+/// damage to powered attack hits from any enchanted card, so this is the pool
+/// it can currently fire on.
+/// </summary>
+internal readonly record struct EnchantedDeckCardCounts(
+    int EnchantedCards,
+    int EnchantedAttacks);
 
 internal readonly record struct ThreeAttackScalingRelicStats(
     int AttacksPlayed,
@@ -87,6 +100,8 @@ public static class RelicHoverShowPatch
         AccessTools.Field(typeof(RainbowRing), "_attacksPlayedThisTurn");
     private static readonly System.Reflection.FieldInfo? RainbowRingPowersPlayedThisTurnField =
         AccessTools.Field(typeof(RainbowRing), "_powersPlayedThisTurn");
+    private static readonly System.Reflection.FieldInfo? MerchantEntryPlayerField =
+        AccessTools.Field(typeof(MerchantEntry), "_player");
     private static readonly System.Reflection.FieldInfo? RainbowRingSkillsPlayedThisTurnField =
         AccessTools.Field(typeof(RainbowRing), "_skillsPlayedThisTurn");
     private static readonly System.Reflection.FieldInfo? KunaiAttacksPlayedThisTurnField =
@@ -112,6 +127,41 @@ public static class RelicHoverShowPatch
             body,
             stretchHorizontally: ShouldStretchStatsTooltip(relicModel, body));
         return true;
+    }
+
+    /// <summary>
+    /// Builds the stats entry for a relic still for sale. Only relics whose
+    /// value depends on the buyer's current deck have anything to show before
+    /// purchase; the deck comes from the merchant entry's own player.
+    /// </summary>
+    internal static bool TryBuildMerchantHoverTip(
+        NMerchantRelic slot,
+        out HoverTip statsTip)
+    {
+        statsTip = default;
+        if (!ViewStatsInjectorPatch.StatsVisibilityEnabled) return false;
+
+        try
+        {
+            if (slot?.Entry is not MerchantRelicEntry { Model: MysticLighter lighter } entry)
+                return false;
+
+            var counts = CountEnchantedDeckCards(
+                MerchantEntryPlayerField?.GetValue(entry) as Player);
+            if (!counts.HasValue) return false;
+
+            var body = BuildMysticLighterBodyBBCode(counts.Value);
+            statsTip = StatsTooltip.CreateNativeTip(
+                "Mystic Lighter",
+                body,
+                stretchHorizontally: ShouldStretchStatsTooltip(lighter, body));
+            return true;
+        }
+        catch (Exception e)
+        {
+            CoreMain.LogDebug($"TryBuildMerchantHoverTip failed: {e.Message}");
+            return false;
+        }
     }
 
     internal static bool TryBuildInventoryBodyBBCode(
@@ -1732,7 +1782,62 @@ public static class RelicHoverShowPatch
             return true;
         }
 
+        if (relicModel is MysticLighter)
+        {
+            var counts = CountEnchantedDeckCards(relicModel.Owner);
+            if (!counts.HasValue) return false;
+
+            title = "Mystic Lighter";
+            body = BuildMysticLighterBodyBBCode(counts.Value);
+            return true;
+        }
+
         return false;
+    }
+
+    /// <summary>
+    /// Count the deck cards carrying any enchantment, mirroring Mystic
+    /// Lighter's own <c>cardSource.Enchantment != null</c> check. Returns null
+    /// without a live player so unowned views do not claim a deck.
+    /// </summary>
+    private static EnchantedDeckCardCounts? CountEnchantedDeckCards(Player? player)
+    {
+        try
+        {
+            var cards = player?.Deck?.Cards;
+            if (cards == null) return null;
+
+            var enchanted = cards
+                .Where(card => card?.Enchantment != null)
+                .ToList();
+            return new EnchantedDeckCardCounts(
+                enchanted.Count,
+                enchanted.Count(card => card.Type == CardType.Attack));
+        }
+        catch (Exception e)
+        {
+            CoreMain.LogDebug($"CountEnchantedDeckCards failed: {e.Message}");
+            return null;
+        }
+    }
+
+    internal static string BuildMysticLighterBodyBBCode(EnchantedDeckCardCounts counts)
+    {
+        var sb = new StringBuilder();
+        Row3(
+            sb,
+            "Enchanted cards in deck",
+            counts.EnchantedCards.ToString(),
+            "",
+            "Cards in your deck right now that carry any enchantment. Mystic Lighter "
+                + "adds damage to each powered attack hit from an enchanted card.");
+        Row3(
+            sb,
+            "Enchanted Attacks in deck",
+            counts.EnchantedAttacks.ToString(),
+            "",
+            "Of those, the Attack cards — the ones whose hits Mystic Lighter normally boosts.");
+        return sb.ToString();
     }
 
     private static string BuildBagOfPreparationBodyBBCode(RelicAggregate agg)

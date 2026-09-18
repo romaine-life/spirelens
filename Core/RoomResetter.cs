@@ -70,12 +70,12 @@ public readonly record struct RoomRestartAvailability(
 /// gold spent, cards bought, relics taken and HP traded are committed as they
 /// happen, so replaying the room without rewinding the record would bank them
 /// twice — in the exact stats the room exists to produce, per-relic attribution
-/// included. <c>RunTracker.RollBackToRoomEntry</c> restores the snapshot taken
-/// at the same point the save on disk describes: at room entry, and retaken
-/// whenever the game rewrites the save with a pre-finished room — after the won
-/// fight is promoted, or once the Ancient's choice has landed — so a reward
-/// screen replay keeps the fight in the record just as the game keeps it.
-/// The snapshot is mirrored to disk, so a hot reload mid-room keeps it; when
+/// included. <c>RunTracker.RollBackToLastRunSave</c> restores the snapshot taken
+/// as the game wrote the save on disk — at map-node entry, and again whenever
+/// the game rewrites it with a pre-finished room (after the won fight is
+/// promoted, or once the Ancient's choice has landed) — so the record rewinds to
+/// exactly the point the game replays. A main-menu Continue rewinds to the same
+/// snapshot. It is mirrored to disk, so a hot reload mid-room keeps it; when
 /// none exists <see cref="Describe"/> refuses — refusing beats quietly
 /// inflating or erasing part of the run.
 /// </summary>
@@ -116,7 +116,7 @@ public static class RoomResetter
 
             // Without a rewind snapshot the run record cannot rewind with the
             // game, and a shop or event would bank what it did here twice.
-            if (!RunTracker.HasRoomEntrySnapshot) return Blocked("no room-entry snapshot");
+            if (!RunTracker.HasRunSaveSnapshot) return Blocked("no run-save snapshot");
 
             var state = run.State;
 
@@ -269,7 +269,7 @@ public static class RoomResetter
             // save holds a pre-finished room. Deliberately here: every path that can abort with the
             // live run untouched is above, and CleanUp below is the point of no
             // return, so the record and the game commit to the rewind together.
-            if (!RunTracker.RollBackToRoomEntry($"{roomNoun} restart"))
+            if (!RunTracker.RollBackToLastRunSave($"{roomNoun} restart"))
             {
                 CoreMain.Logger.Error(
                     "RoomResetter: run record rewind failed after the availability check passed; "

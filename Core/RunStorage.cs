@@ -54,30 +54,48 @@ public static class RunStorage
 
     // Deliberately NOT under RunsDir: that directory is enumerated with
     // "*.json" to find run records, and a snapshot sitting in it would be
-    // read back as one.
-    public static string RoomEntryDir =>
-        ProjectSettings.GlobalizePath("user://SpireLens/room-entry/");
+    // read back as one. (Builds before the save-point tag wrote untagged
+    // snapshots to user://SpireLens/room-entry/; nothing reads those.)
+    public static string RunSaveSnapshotDir =>
+        ProjectSettings.GlobalizePath("user://SpireLens/run-save-snapshot/");
+
+    private static string RunSaveSnapshotPath(string runId) =>
+        Path.Combine(RunSaveSnapshotDir, runId + ".json");
 
     /// <summary>
-    /// Persist the room-entry snapshot so it survives a Core hot reload. Best
-    /// effort: failing to write one only costs the restart button until the
-    /// next room, so it must never disturb room entry.
+    /// On-disk shape of the rewind target: the run record as it stood at the
+    /// game's last run save, and which save that was (see
+    /// <c>RunTracker.DescribeRunSavePoint</c>). A cache, not part of the run
+    /// record — a missing or unreadable one only costs the rewind.
     /// </summary>
-    public static void SaveRoomEntrySnapshot(string? runId, string? json)
+    private sealed class RunSaveSnapshotFile
     {
-        if (string.IsNullOrWhiteSpace(runId) || json == null) return;
+        public string? SavePoint { get; set; }
+        public JsonElement Run { get; set; }
+    }
+
+    /// <summary>
+    /// Persist the run-save snapshot so it survives a Core hot reload and a
+    /// game restart. Best effort: failing to write one only costs the rewind,
+    /// so it must never disturb the game's save.
+    /// </summary>
+    public static void SaveRunSaveSnapshot(string? runId, string? savePoint, string? runJson)
+    {
+        if (string.IsNullOrWhiteSpace(runId) || savePoint == null || runJson == null) return;
 
         try
         {
-            Directory.CreateDirectory(RoomEntryDir);
-            File.WriteAllText(Path.Combine(RoomEntryDir, runId + ".json"), json);
+            using var run = JsonDocument.Parse(runJson);
+            var file = new RunSaveSnapshotFile { SavePoint = savePoint, Run = run.RootElement };
+            Directory.CreateDirectory(RunSaveSnapshotDir);
+            File.WriteAllText(RunSaveSnapshotPath(runId), JsonSerializer.Serialize(file, Options));
         }
         catch (Exception e)
         {
-            CoreMain.LogDebug($"SaveRoomEntrySnapshot failed: {e.Message}");
+            CoreMain.LogDebug($"SaveRunSaveSnapshot failed: {e.Message}");
             // An older snapshot left behind would be read back after a hot
             // reload as if it were this one.
-            DeleteRoomEntrySnapshot(runId);
+            DeleteRunSaveSnapshot(runId);
         }
     }
 
@@ -85,35 +103,53 @@ public static class RunStorage
     /// Remove this run's snapshot, so a stale one can never be read back as the
     /// rewind target. Best effort.
     /// </summary>
-    public static void DeleteRoomEntrySnapshot(string? runId)
+    public static void DeleteRunSaveSnapshot(string? runId)
     {
         if (string.IsNullOrWhiteSpace(runId)) return;
 
         try
         {
-            var path = Path.Combine(RoomEntryDir, runId + ".json");
+            var path = RunSaveSnapshotPath(runId);
             if (File.Exists(path)) File.Delete(path);
         }
         catch (Exception e)
         {
-            CoreMain.LogDebug($"DeleteRoomEntrySnapshot failed: {e.Message}");
+            CoreMain.LogDebug($"DeleteRunSaveSnapshot failed: {e.Message}");
         }
     }
 
-    /// <summary>Read back a snapshot for this run, or null if there is none.</summary>
-    public static string? LoadRoomEntrySnapshot(string? runId)
+    /// <summary>
+    /// Read back this run's snapshot. False when there is none or it cannot be
+    /// read whole.
+    /// </summary>
+    public static bool TryLoadRunSaveSnapshot(
+        string? runId,
+        out string? savePoint,
+        out string? runJson)
     {
-        if (string.IsNullOrWhiteSpace(runId)) return null;
+        savePoint = null;
+        runJson = null;
+        if (string.IsNullOrWhiteSpace(runId)) return false;
 
         try
         {
-            var path = Path.Combine(RoomEntryDir, runId + ".json");
-            return File.Exists(path) ? File.ReadAllText(path) : null;
+            var path = RunSaveSnapshotPath(runId);
+            if (!File.Exists(path)) return false;
+
+            var file = JsonSerializer.Deserialize<RunSaveSnapshotFile>(
+                File.ReadAllText(path),
+                Options);
+            if (file?.SavePoint == null || file.Run.ValueKind != JsonValueKind.Object)
+                return false;
+
+            savePoint = file.SavePoint;
+            runJson = file.Run.GetRawText();
+            return true;
         }
         catch (Exception e)
         {
-            CoreMain.LogDebug($"LoadRoomEntrySnapshot failed: {e.Message}");
-            return null;
+            CoreMain.LogDebug($"TryLoadRunSaveSnapshot failed: {e.Message}");
+            return false;
         }
     }
 

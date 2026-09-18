@@ -10,8 +10,8 @@ namespace SpireLens.Core.Patches;
 /// Shared observer for resolved room entry. Patching the resolved room hook
 /// includes rooms rolled from ? nodes, while excluding screens that merely
 /// display room-like content — which is what Signet Ring's first-merchant
-/// measurement, the map legend, the run gold rooms, Lucky Fysh's held-room
-/// denominators, and RoomResetter's rewind target all need.
+/// measurement, the map legend, the run gold rooms and Lucky Fysh's held-room
+/// denominators all need.
 /// </summary>
 [HarmonyPatch(typeof(Hook), nameof(Hook.AfterRoomEntered))]
 public static class SignetRingStatsPatch
@@ -26,11 +26,6 @@ public static class SignetRingStatsPatch
             RunTracker.RecordLuckyFyshRoomEntered(runState, room);
             if (room is MerchantRoom)
                 RunTracker.RecordSignetRingShopReached(runState, room);
-
-            // Last, so the snapshot includes everything the room-entry
-            // recorders above just wrote — a restart replays the room from
-            // here, not from before them.
-            RunTracker.CaptureRoomEntrySnapshot(runState);
         }
         catch (Exception e)
         {

@@ -32463,11 +32463,54 @@ public static class RunTracker
                 var instanceId = GetOrAssignInstanceId(card);
                 var agg = GetOrCreateAggregate(_pendingCombat!, instanceId);
                 agg.CombatsInDeck += 1;
+                // Same build that counts this combat's turns (see
+                // RecordCardTurnsInDeckTurnStarted), so the two only disagree
+                // for combats that began before turn counting existed.
+                agg.CombatsWithTurnsInDeck += 1;
             }
         }
         catch (Exception e)
         {
             CoreMain.LogDebug($"RecordCombatsInDeckForCurrentDeckLocked failed: {e.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Count one turn for every card in the permanent deck of the player whose
+    /// deck <see cref="RecordCombatsInDeckForCurrentDeckLocked"/> counts. Read
+    /// at turn start rather than at combat end so a deck view opened mid-combat
+    /// already divides by the turns played so far, and so a card that joins
+    /// the deck mid-combat is charged only the turns it was there for.
+    /// </summary>
+    public static void RecordCardTurnsInDeckTurnStarted(Player? player)
+    {
+        if (player?.Deck?.Cards == null) return;
+
+        lock (_lock)
+        {
+            try
+            {
+                if (_pendingCombat == null) return;
+                if (!ShouldTrackCardStatsDuringCombatLocked()) return;
+                if (!ReferenceEquals(player, RunManager.Instance?.State?.Players.FirstOrDefault()))
+                    return;
+
+                var turnNumber = player.PlayerCombatState?.TurnNumber ?? 0;
+                if (turnNumber <= 0) return;
+                if (_pendingCombat.CardTurnsInDeckCountedTurn == turnNumber) return;
+                _pendingCombat.CardTurnsInDeckCountedTurn = turnNumber;
+
+                foreach (var card in player.Deck.Cards)
+                {
+                    if (card == null) continue;
+                    var instanceId = GetOrAssignInstanceId(card);
+                    GetOrCreateAggregate(_pendingCombat, instanceId).TurnsInDeck += 1;
+                }
+            }
+            catch (Exception e)
+            {
+                CoreMain.LogDebug($"RecordCardTurnsInDeckTurnStarted failed: {e.Message}");
+            }
         }
     }
 
@@ -36860,6 +36903,8 @@ public static class RunTracker
     internal static void MergeAggregateInto(CardAggregate target, CardAggregate source)
     {
         target.CombatsInDeck += source.CombatsInDeck;
+        target.TurnsInDeck += source.TurnsInDeck;
+        target.CombatsWithTurnsInDeck += source.CombatsWithTurnsInDeck;
         target.Plays += source.Plays;
         target.TotalIntended += source.TotalIntended;
         target.TotalBlocked += source.TotalBlocked;
@@ -38363,6 +38408,7 @@ internal class PendingCombat
         = new(ReferenceEqualityComparer.Instance);
     public Dictionary<string, int> DrainPowerTurnCountedTurns { get; }
         = new(StringComparer.Ordinal);
+    public int CardTurnsInDeckCountedTurn { get; set; }
     public Dictionary<CardModel, HashSet<string>> DrainPowerSourcesByUpgradedCard { get; }
         = new(ReferenceEqualityComparer.Instance);
     public HashSet<Player> NutritiousSoupCombatCountedPlayers { get; }

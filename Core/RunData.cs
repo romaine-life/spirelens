@@ -427,6 +427,15 @@ public class CardAggregate
     // rarely be drawn or played.
     public int CombatsInDeck { get; set; }
 
+    // Player turns that started while this physical card was in the permanent
+    // deck: the denominator for per-turn averages. CombatsWithTurnsInDeck is
+    // how many of CombatsInDeck that count covers. It falls short on cards
+    // whose run predates turn counting, and a per-turn average is withheld
+    // whenever the two differ, so earlier combats' damage is never divided by
+    // only the later combats' turns.
+    public int TurnsInDeck { get; set; }
+    public int CombatsWithTurnsInDeck { get; set; }
+
     public int Plays { get; set; }
 
     // M1: Attack attribution. Null/zero for non-attack cards.

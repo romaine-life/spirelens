@@ -5496,8 +5496,9 @@ public static class RunTracker
     /// <summary>
     /// Records actual current-HP restoration against the map icon responsible
     /// for the room. This is intentionally outcome-only: clamped healing at
-    /// full HP contributes zero because Hook.AfterCurrentHpChanged reports the
-    /// post-clamp delta.
+    /// full HP contributes zero because CreatureHealObservationPatch reports
+    /// the observed CurrentHp change. Out of combat (rest sites, events,
+    /// shops, the map) the heal is committed to the run immediately.
     /// </summary>
     public static void RecordRunHpGained(
         ICombatState? combatState,
@@ -15926,9 +15927,15 @@ public static class RunTracker
         var mapStats = _currentRun?.MapLegendStats;
         var floor = Math.Max(0, CurrentRunFloorLocked() ?? 0);
         if (mapStats?.CurrentPointFloor == floor
-            && GetMapLegendCategory(mapStats, mapStats.CurrentPointType) != null)
+            && !string.IsNullOrWhiteSpace(mapStats.CurrentPointType))
         {
-            return mapStats.CurrentPointType;
+            // The icon the player picked is known for this floor. Ancient and
+            // Boss points have no legend row, and must not fall through to the
+            // room type: an Ancient is an EventRoom, which would book Neow's
+            // full heal and every Ancient relic under "?" without a "?" visit.
+            return GetMapLegendCategory(mapStats, mapStats.CurrentPointType) != null
+                ? mapStats.CurrentPointType
+                : null;
         }
 
         return roomType switch

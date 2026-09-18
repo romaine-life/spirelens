@@ -2284,6 +2284,33 @@ Healing has its own attribution rule: track attempted, actually restored, and
 lost healing separately, with lost-healing reason buckets such as `full_hp` and
 specific blocker ids as they are discovered. See [ADR 0002](adr/0002-healing-attribution.md).
 
+The "actually restored" amount is observed at `Creature.HealInternal`
+(`CreatureHealObservationPatch`), not at `Hook.AfterCurrentHpChanged`. Two
+facts about `CreatureCmd.Heal` rule the hook out for healing:
+
+- It only fires the hook when `creature.CombatState != null`. The player is not
+  attached outside a fight — `CombatManager.Reset(graceful: true)` on room exit
+  runs `CombatState.RemoveCreature`, which nulls `creature.CombatState`, and a
+  Continue builds a fresh creature — so rest-site Rest and Mend, event heals,
+  Ancient arrival heals, Meal Ticket, Eternal Feather and potions used on the
+  map never reached it. The map legend's `HpHealed` silently missed all of them.
+- It passes the requested `amount`, not the clamped `num` it computed, so an
+  in-combat heal near full HP reported more than it restored. The relic-healing
+  finalizer takes `Max(hook, observed)`, so that overcount survived into
+  `TotalHealingRestored` too.
+
+`HealInternal` has exactly one caller (`CreatureCmd.Heal`), mutates
+synchronously before any await, and is the only place both paths share. The hook
+patch now handles negative deltas only; its other positive source,
+`CreatureCmd.SetCurrentHp`, raises HP only for monsters in the current game.
+
+Map-legend attribution resolves the category from the icon the player picked
+(`MapLegendStats.CurrentPointType`) and only falls back to room type when that
+icon is unknown for the floor. Ancient and Boss points have no legend row, so a
+known Ancient point resolves to no category rather than to its `EventRoom`'s
+"?" — otherwise Neow's run-start heal-to-full and every Ancient relic would be
+booked under "?" without a "?" visit.
+
 Blood Vial and Blood Vial??? (`FakeBloodVial`) both heal from their
 owner-specific `AfterPlayerTurnStartLate` callback on the first turn. Arm the
 shared relic-healing ledger from that exact callback, use the model's current

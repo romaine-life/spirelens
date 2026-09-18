@@ -7,9 +7,11 @@ using MegaCrit.Sts2.Core.Hooks;
 namespace SpireLens.Core.Patches;
 
 /// <summary>
-/// Captures observed HP deltas after the game applies clamping, prevention, or
-/// redirection. Positive deltas feed owner-specific healing attribution; Osty
-/// negative deltas feed summon-body absorbed-damage attribution.
+/// Captures observed HP losses after the game applies prevention or
+/// redirection; Osty losses feed summon-body absorbed-damage attribution.
+/// Healing is observed at <see cref="CreatureHealObservationPatch"/> instead:
+/// CreatureCmd.Heal only reaches this hook in combat, and reports the
+/// requested amount rather than the clamped one.
 /// </summary>
 [HarmonyPatch(typeof(Hook), nameof(Hook.AfterCurrentHpChanged))]
 public static class HookAfterCurrentHpChangedPatch
@@ -22,22 +24,17 @@ public static class HookAfterCurrentHpChangedPatch
     {
         try
         {
-            if (creature == null || delta == 0m) return;
+            // Positive deltas come from CreatureCmd.Heal, already observed at
+            // HealInternal, and from CreatureCmd.SetCurrentHp, whose only
+            // HP-raising callers are monsters.
+            if (creature == null || delta >= 0m) return;
 
-            if (delta > 0m)
-            {
-                RunTracker.RecordRunHpGained(combatState, creature, delta);
-                RunTracker.RecordRelicHealingHpChanged(creature, delta);
-            }
-            else
-            {
-                RunTracker.RecordRunHpLost(combatState, creature, -delta);
-                RunTracker.RecordWhisperingEarringHpLost(
-                    combatState,
-                    creature,
-                    -delta);
-                RunTracker.RecordOstyHpLost(creature, -delta);
-            }
+            RunTracker.RecordRunHpLost(combatState, creature, -delta);
+            RunTracker.RecordWhisperingEarringHpLost(
+                combatState,
+                creature,
+                -delta);
+            RunTracker.RecordOstyHpLost(creature, -delta);
         }
         catch (Exception e)
         {

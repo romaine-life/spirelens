@@ -44,7 +44,7 @@ internal readonly record struct EternalFeatherLiveHeal(
 /// </summary>
 internal readonly record struct EnchantedDeckCardCounts(
     int EnchantedCards,
-    int EnchantedAttacks);
+    IReadOnlyList<string> EnchantedAttacks);
 
 internal readonly record struct ThreeAttackScalingRelicStats(
     int AttacksPlayed,
@@ -1812,12 +1812,29 @@ public static class RelicHoverShowPatch
                 .ToList();
             return new EnchantedDeckCardCounts(
                 enchanted.Count,
-                enchanted.Count(card => card.Type == CardType.Attack));
+                enchanted
+                    .Where(card => card.Type == CardType.Attack)
+                    .Select(FormatEnchantedCardName)
+                    .ToList());
         }
         catch (Exception e)
         {
             CoreMain.LogDebug($"CountEnchantedDeckCards failed: {e.Message}");
             return null;
+        }
+    }
+
+    private static string FormatEnchantedCardName(CardModel card)
+    {
+        var name = string.IsNullOrWhiteSpace(card.Title) ? card.Id.ToString() : card.Title;
+        try
+        {
+            var enchantment = card.Enchantment?.Title.GetFormattedText();
+            return string.IsNullOrWhiteSpace(enchantment) ? name : $"{name} ({enchantment})";
+        }
+        catch
+        {
+            return name;
         }
     }
 
@@ -1834,9 +1851,11 @@ public static class RelicHoverShowPatch
         Row3(
             sb,
             "Enchanted Attacks in deck",
-            counts.EnchantedAttacks.ToString(),
+            counts.EnchantedAttacks.Count.ToString(),
             "",
             "Of those, the Attack cards — the ones whose hits Mystic Lighter normally boosts.");
+        foreach (var card in counts.EnchantedAttacks)
+            TextValueRow(sb, "Boosted card", StatsTooltip.EscapeBbcode(card), "");
         return sb.ToString();
     }
 

@@ -1848,12 +1848,8 @@ public static class RelicHoverShowPatch
             "",
             "Cards in your deck right now that carry any enchantment. Mystic Lighter "
                 + "adds damage to each powered attack hit from an enchanted card.");
-        Row3(
-            sb,
-            "Enchanted Attacks in deck",
-            counts.EnchantedAttacks.Count.ToString(),
-            "",
-            "Of those, the Attack cards — the ones whose hits Mystic Lighter normally boosts.");
+        // One row per boosted card already carries the Attack count; a
+        // separate count row rendered as a near-duplicate of the one above.
         foreach (var card in counts.EnchantedAttacks)
             TextValueRow(sb, "Boosted card", StatsTooltip.EscapeBbcode(card), "");
         return sb.ToString();

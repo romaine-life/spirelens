@@ -131,15 +131,20 @@ public static class RunTracker
     private static PendingCombat? _pendingCombat;
 
     // The run record as it stood when the game last wrote current_run.save,
-    // serialized in the on-disk shape, plus the run it belongs to. This is the
-    // rewind target for RoomResetter: replaying the save and restoring this
-    // snapshot keeps the record and the game telling the same story. Taken at
-    // room entry, and retaken when the game rewrites the save with a
-    // pre-finished room (combat victory, Ancient event done). Mirrored to disk
-    // so a hot reload does not lose it. See CaptureRoomEntrySnapshot /
-    // CaptureRewindSnapshotAtPreFinishedSave / RollBackToRoomEntry.
-    private static string? _roomEntrySnapshotJson;
-    private static string? _roomEntrySnapshotRunId;
+    // serialized in the on-disk shape, plus the run it belongs to and the save
+    // point it describes. This is the rewind target whenever the game replays
+    // that save — a RoomResetter restart or a main-menu Continue: replaying
+    // the save and restoring this snapshot keeps the record and the game
+    // telling the same story. Taken as the game writes the save, except a
+    // combat-victory save, which is retaken after CombatEnded's promotion.
+    // Mirrored to disk so a hot reload or a game restart does not lose it. See
+    // OnRunSaveWriting / RollBackToLastRunSave / RewindToLastRunSaveLocked.
+    private static string? _runSaveSnapshotJson;
+    private static string? _runSaveSnapshotRunId;
+    private static string? _runSaveSnapshotPoint;
+    // Set between a combat-victory save and the CombatEnded promotion that
+    // follows it: the save point the snapshot is owed for.
+    private static string? _runSaveSnapshotAwaitingPromotionPoint;
 
     private static long _unsavedRunTimeSeconds;
     private static CardPlay? _currentPlayerCardPlay;
@@ -1525,6 +1530,18 @@ public static class RunTracker
         if (_currentRun == null) return;
         if (IsResurrectedEndedRunLocked(_currentRun)) return;
 
+        StampIdentitySnapshotLocked();
+        RunStorage.SaveAsync(_currentRun);
+    }
+
+    /// <summary>
+    /// Refresh the per-card identity snapshot fields on <c>_currentRun</c> from
+    /// the live identity maps. Caller must hold the lock.
+    /// </summary>
+    private static void StampIdentitySnapshotLocked()
+    {
+        if (_currentRun == null) return;
+
         // Never capture identity from a deck that belongs to a DIFFERENT game
         // run. During a new-run embark or continue-load, CardEnterDeckPatch
         // can repopulate the deck before RunStarted re-points _currentRun —
@@ -1539,95 +1556,105 @@ public static class RunTracker
             _currentRun.InstanceNumbersByDef = CaptureInstanceNumbersByDeckRank();
             _currentRun.DefCounters = new Dictionary<string, int>(_defCounters);
         }
-
-        RunStorage.SaveAsync(_currentRun);
     }
 
-    /// <summary>Whether a room-entry rewind target exists for the live run.</summary>
-    public static bool HasRoomEntrySnapshot
+    /// <summary>Whether a rewind target for the last run save exists for the live run.</summary>
+    public static bool HasRunSaveSnapshot
     {
         get
         {
             lock (_lock)
             {
                 return _currentRun != null
-                    && EnsureRoomEntrySnapshotLoadedLocked() != null;
+                    && EnsureRunSaveSnapshotLoadedLocked(_currentRun.RunId) != null;
             }
         }
     }
 
     /// <summary>
-    /// The snapshot for the current run, reloading it from disk when this Core
-    /// load has none in memory.
+    /// The snapshot for <paramref name="runId"/>, reloading it from disk when
+    /// this Core load has none in memory. Returns the serialized record and
+    /// sets <paramref name="savePoint"/> to the save point it describes.
     ///
     /// It is held in memory for speed but written at capture, because a Core
-    /// hot reload otherwise loses it and the restart button stays refused for
-    /// the rest of the room — which, during development, is most of the time.
-    /// Caller must hold the lock.
+    /// hot reload or a game restart otherwise loses it — and a Continue after a
+    /// game restart is exactly when the rewind is needed. Caller must hold the
+    /// lock.
     /// </summary>
-    private static string? EnsureRoomEntrySnapshotLoadedLocked()
+    private static string? EnsureRunSaveSnapshotLoadedLocked(
+        string? runId,
+        out string? savePoint)
     {
-        if (_currentRun == null) return null;
+        savePoint = null;
+        if (string.IsNullOrWhiteSpace(runId)) return null;
 
-        if (_roomEntrySnapshotJson != null
-            && _roomEntrySnapshotRunId == _currentRun.RunId)
+        if (_runSaveSnapshotJson != null && _runSaveSnapshotRunId == runId)
         {
-            return _roomEntrySnapshotJson;
+            savePoint = _runSaveSnapshotPoint;
+            return _runSaveSnapshotJson;
         }
 
-        var loaded = RunStorage.LoadRoomEntrySnapshot(_currentRun.RunId);
-        if (loaded == null) return null;
+        if (!RunStorage.TryLoadRunSaveSnapshot(runId, out var loadedPoint, out var loaded))
+            return null;
 
-        _roomEntrySnapshotJson = loaded;
-        _roomEntrySnapshotRunId = _currentRun.RunId;
+        _runSaveSnapshotJson = loaded;
+        _runSaveSnapshotRunId = runId;
+        _runSaveSnapshotPoint = loadedPoint;
+        savePoint = loadedPoint;
         return loaded;
     }
 
+    private static string? EnsureRunSaveSnapshotLoadedLocked(string? runId) =>
+        EnsureRunSaveSnapshotLoadedLocked(runId, out _);
+
     /// <summary>
-    /// Capture the run record as the room opens, so a restart can rewind it in
-    /// step with the game. Called from
-    /// <see cref="Patches.SignetRingStatsPatch"/>, which observes the resolved
-    /// room-entry hook — that fires just after
-    /// <c>EnterMapPointInternal</c> has written the run save, which is exactly
-    /// the state a restart replays.
+    /// Where in the run a save of <paramref name="state"/> puts the player:
+    /// act, map coordinate and total floor. Two saves at the same map point are
+    /// told apart by the floor — the room-entry save is written before the
+    /// point's map-history entry is appended, every later save at that point
+    /// after it — so a pre-finished-room save never matches a room-entry
+    /// snapshot, or the other way round.
     ///
-    /// Base rooms only. An event option that starts a fight pushes a combat
-    /// room onto the stack, but the save still replays the map point, so
-    /// overwriting the snapshot there would rewind to the middle of the event
-    /// instead of its start.
+    /// A continued run's <c>RunState</c> is rebuilt from the save before
+    /// <c>RunStarted</c> fires, so the same description taken there names the
+    /// save being loaded.
     /// </summary>
-    public static void CaptureRoomEntrySnapshot(IRunState? runState)
+    internal static string? DescribeRunSavePoint(IRunState? state)
     {
-        lock (_lock)
-        {
-            if (runState != null && runState.CurrentRoomCount > 1) return;
-            CaptureRewindSnapshotLocked(nameof(CaptureRoomEntrySnapshot));
-        }
+        if (state == null) return null;
+        var coord = state.CurrentMapCoord;
+        return $"act={state.CurrentActIndex} "
+            + $"coord={(coord.HasValue ? $"{coord.Value.col},{coord.Value.row}" : "none")} "
+            + $"floor={state.TotalFloor}";
     }
 
     /// <summary>
-    /// Retake the rewind target because the game has just rewritten
-    /// <c>current_run.save</c> with a pre-finished room, so a restart no longer
-    /// replays the room's opening — it replays the reward screen after a won
-    /// fight, or the aftermath of a finished Ancient event. Rewinding the record
-    /// to room entry there would erase what the game keeps: the fight's
-    /// promoted stats, the Ancient's relic.
+    /// Called from <see cref="Patches.RunSaveSnapshotPatch"/> at the instant
+    /// the game serializes <c>current_run.save</c>, so the rewind target and the
+    /// save describe the same moment by construction. Everything after it — room
+    /// creation, entry hooks, the whole visit — is replayed by the game when it
+    /// loads this save, and so must not already be in the record.
     ///
-    /// Unlike <see cref="CaptureRoomEntrySnapshot"/> this does not skip stacked
-    /// rooms: an event-spawned fight's victory save is exactly such a save.
-    /// Callers must only call this when the game actually wrote one — see
-    /// <see cref="GameWritesRunSave"/>.
+    /// A combat-victory save is the exception: the game saves before raising
+    /// <c>CombatEnded</c>, so the won fight is still in
+    /// <c>_pendingCombat</c>. The stale snapshot is dropped here and
+    /// <see cref="OnCombatEnded"/> retakes it after the promotion, so in the gap
+    /// there is no rewind target rather than a wrong one.
     /// </summary>
-    public static void CaptureRewindSnapshotAtPreFinishedSave(string source)
+    public static void OnRunSaveWriting(AbstractRoom? preFinishedRoom)
     {
         lock (_lock)
         {
-            if (CaptureRewindSnapshotLocked(source))
+            var point = DescribeRunSavePoint(RunManager.Instance?.State);
+            if (preFinishedRoom is CombatRoom && _pendingCombat != null)
             {
-                CoreMain.LogDebug(
-                    $"Rewind snapshot retaken at pre-finished-room save ({source}): "
-                    + $"run={_currentRun?.RunId}");
+                DiscardRunSaveSnapshotLocked();
+                _runSaveSnapshotAwaitingPromotionPoint = point;
+                return;
             }
+
+            _runSaveSnapshotAwaitingPromotionPoint = null;
+            CaptureRunSaveSnapshotLocked(point, "run save");
         }
     }
 
@@ -1647,48 +1674,65 @@ public static class RunTracker
     }
 
     /// <summary>
-    /// Serialize the live record as the rewind target and mirror it to disk.
-    /// Caller must hold the lock. Returns whether a snapshot was taken.
+    /// Serialize the live record as the rewind target for the save at
+    /// <paramref name="savePoint"/> and mirror it to disk. Caller must hold the
+    /// lock. Returns whether a snapshot was taken.
     /// </summary>
-    private static bool CaptureRewindSnapshotLocked(string source)
+    private static bool CaptureRunSaveSnapshotLocked(string? savePoint, string source)
     {
         try
         {
-            if (_currentRun == null) return false;
+            if (_currentRun == null || savePoint == null)
+            {
+                DiscardRunSaveSnapshotLocked();
+                return false;
+            }
 
-            _roomEntrySnapshotJson =
+            StampIdentitySnapshotLocked();
+            _runSaveSnapshotJson =
                 JsonSerializer.Serialize(_currentRun, RunStorage.Options);
-            _roomEntrySnapshotRunId = _currentRun.RunId;
-            RunStorage.SaveRoomEntrySnapshot(
-                _roomEntrySnapshotRunId,
-                _roomEntrySnapshotJson);
+            _runSaveSnapshotRunId = _currentRun.RunId;
+            _runSaveSnapshotPoint = savePoint;
+            RunStorage.SaveRunSaveSnapshot(
+                _runSaveSnapshotRunId,
+                _runSaveSnapshotPoint,
+                _runSaveSnapshotJson);
+            CoreMain.LogDebug(
+                $"Rewind snapshot taken ({source}): run={_runSaveSnapshotRunId} [{savePoint}]");
             return true;
         }
         catch (Exception e)
         {
             // A snapshot we could not take is not a reason to disturb the game.
             // Drop the old one too — it no longer matches the save — so
-            // RoomResetter reads HasRoomEntrySnapshot and refuses.
-            _roomEntrySnapshotJson = null;
-            _roomEntrySnapshotRunId = null;
-            if (_currentRun != null) RunStorage.DeleteRoomEntrySnapshot(_currentRun.RunId);
+            // RoomResetter refuses and Continue does not rewind.
+            DiscardRunSaveSnapshotLocked();
             CoreMain.LogDebug($"{source}: rewind snapshot capture failed: {e.Message}");
             return false;
         }
     }
 
+    /// <summary>Drop the live run's snapshot from memory and disk. Caller must hold the lock.</summary>
+    private static void DiscardRunSaveSnapshotLocked()
+    {
+        var runId = _currentRun?.RunId ?? _runSaveSnapshotRunId;
+        _runSaveSnapshotJson = null;
+        _runSaveSnapshotRunId = null;
+        _runSaveSnapshotPoint = null;
+        RunStorage.DeleteRunSaveSnapshot(runId);
+    }
+
     /// <summary>
-    /// Rewind the run record to the rewind snapshot and persist it. That is the
-    /// room-entry snapshot, or the one retaken at a pre-finished-room save (see
-    /// <see cref="CaptureRewindSnapshotAtPreFinishedSave"/>) — whichever matches
-    /// the save the game is about to replay.
-    /// Returns false, having changed nothing, when no usable snapshot exists.
+    /// Rewind the run record to the snapshot of the last run save and persist
+    /// it. Returns false, having changed nothing, when no usable snapshot
+    /// exists.
     ///
     /// Called by <see cref="RoomResetter"/> immediately before the point of no
     /// return, because everything a shop or an event does — gold spent, cards
     /// bought, relics taken, HP traded — is committed as it happens rather than
     /// buffered the way combat stats are. Without this the replayed room would
-    /// bank its purchases a second time.
+    /// bank its purchases a second time. A main-menu Continue gets the same
+    /// rewind through <see cref="RewindToLastRunSaveLocked"/>.
     ///
     /// The live identity maps are deliberately left alone: <c>RunStarted</c>
     /// re-fires moments later and <see cref="AdoptRunLocked"/> clears and
@@ -1698,7 +1742,7 @@ public static class RunTracker
     /// stamp the still-live (post-purchase) instance numbers back over the
     /// restored ones.
     /// </summary>
-    public static bool RollBackToRoomEntry(string source)
+    public static bool RollBackToLastRunSave(string source)
     {
         lock (_lock)
         {
@@ -1706,7 +1750,7 @@ public static class RunTracker
             {
                 if (_currentRun == null) return false;
 
-                var json = EnsureRoomEntrySnapshotLoadedLocked();
+                var json = EnsureRunSaveSnapshotLoadedLocked(_currentRun.RunId);
                 if (json == null) return false;
 
                 var restored = JsonSerializer.Deserialize<RunData>(
@@ -1721,15 +1765,76 @@ public static class RunTracker
                 RunStorage.SaveAsync(_currentRun);
 
                 CoreMain.Logger.Info(
-                    $"Run record rewound to room entry ({source}): "
+                    $"Run record rewound to last run save ({source}): "
                     + $"run={_currentRun.RunId} floor={beforeFloor}->{_currentRun.FloorReached}");
                 return true;
             }
             catch (Exception e)
             {
-                CoreMain.Logger.Error($"RollBackToRoomEntry failed: {e}");
+                CoreMain.Logger.Error($"RollBackToLastRunSave failed: {e}");
                 return false;
             }
+        }
+    }
+
+    /// <summary>
+    /// The record a main-menu Continue should resume: the snapshot of the last
+    /// run save when the save being loaded is that one, otherwise
+    /// <paramref name="run"/> unchanged.
+    ///
+    /// Continue replays the save — the room's opening state, RNG included, or
+    /// a pre-finished room's aftermath — but nothing else rewinds the record,
+    /// and shops, events, rest sites and treasure rooms commit to it as they
+    /// happen. Without this a Save and Quit mid-shop followed by Continue banks
+    /// every purchase of the abandoned visit, then banks the replayed ones on
+    /// top.
+    ///
+    /// The save-point match is the guard: a snapshot of any other save (one an
+    /// older build left, one a skipped capture left behind) is not rewound to,
+    /// which keeps the record as it was rather than rewinding it to a point the
+    /// game is not replaying. Caller must hold the lock.
+    /// </summary>
+    private static RunData RewindToLastRunSaveLocked(RunData run, RunState? runState, string context)
+    {
+        try
+        {
+            var loadingPoint = DescribeRunSavePoint(runState);
+            var json = EnsureRunSaveSnapshotLoadedLocked(run.RunId, out var snapshotPoint);
+            if (json == null)
+            {
+                CoreMain.Logger.Info(
+                    $"{context}: no run-save snapshot for run={run.RunId}; record not rewound");
+                return run;
+            }
+
+            if (loadingPoint == null
+                || !string.Equals(loadingPoint, snapshotPoint, StringComparison.Ordinal))
+            {
+                CoreMain.Logger.Info(
+                    $"{context}: run-save snapshot is for [{snapshotPoint}] but the save loads "
+                    + $"[{loadingPoint}]; record not rewound");
+                return run;
+            }
+
+            var restored = JsonSerializer.Deserialize<RunData>(json, RunStorage.Options);
+            if (restored == null
+                || restored.RunId != run.RunId
+                || restored.GameStartTime != run.GameStartTime
+                || restored.Outcome != InProgressOutcome)
+            {
+                return run;
+            }
+
+            RunStorage.SaveAsync(restored);
+            CoreMain.Logger.Info(
+                $"{context}: run record rewound to the save being continued: "
+                + $"run={restored.RunId} [{loadingPoint}]");
+            return restored;
+        }
+        catch (Exception e)
+        {
+            CoreMain.Logger.Error($"{context}: run-save rewind failed: {e}");
+            return run;
         }
     }
 
@@ -2108,6 +2213,7 @@ public static class RunTracker
 
         UnsubscribeCardOrbEventsLocked();
         _pendingCombat = null;
+        _runSaveSnapshotAwaitingPromotionPoint = null;
         ResetCombatContextState();
         ResetRewardContextState();
         _instanceNumbers.Clear();
@@ -2537,7 +2643,11 @@ public static class RunTracker
                 && _currentRun.GameStartTime == gameStartTime
                 && _currentRun.Outcome == "in_progress")
             {
-                AdoptRunLocked(_currentRun, runState, "RunStarted(continue)", repairAggregates: false);
+                AdoptRunLocked(
+                    RewindToLastRunSaveLocked(_currentRun, runState, "RunStarted(continue)"),
+                    runState,
+                    "RunStarted(continue)",
+                    repairAggregates: false);
                 return;
             }
 
@@ -2563,7 +2673,11 @@ public static class RunTracker
                 var saved = RunStorage.FindByGameStartTime(gameStartTime, out _, requireInProgress: true);
                 if (saved != null && saved.Outcome == "in_progress")
                 {
-                    AdoptRunLocked(saved, runState, "RunStarted(adopt-saved)", repairAggregates: true);
+                    AdoptRunLocked(
+                        RewindToLastRunSaveLocked(saved, runState, "RunStarted(adopt-saved)"),
+                        runState,
+                        "RunStarted(adopt-saved)",
+                        repairAggregates: true);
                     return;
                 }
             }
@@ -2678,8 +2792,10 @@ public static class RunTracker
 
             // Clear state so the next OnRunStarted sees a clean slate.
             _currentRun = null;
-            _roomEntrySnapshotJson = null;
-            _roomEntrySnapshotRunId = null;
+            _runSaveSnapshotJson = null;
+            _runSaveSnapshotRunId = null;
+            _runSaveSnapshotPoint = null;
+            _runSaveSnapshotAwaitingPromotionPoint = null;
             UnsubscribeCardOrbEventsLocked();
             _pendingCombat = null;
             _unsavedRunTimeSeconds = 0;
@@ -2744,12 +2860,17 @@ public static class RunTracker
             // CombatManager.EndCombatInternal marks a won room pre-finished and
             // awaits SaveRun(room) BEFORE raising CombatEnded, so the save on
             // disk now replays this fight's reward screen with the fight kept.
-            // Retake the rewind target only now, after the promotion above, so
-            // a restart rewinds the record to that same point instead of to
-            // room entry — which would erase the fight the game still keeps.
-            // A loss never marks the room, so it never lands here.
-            if (room.IsPreFinished && GameWritesRunSave())
-                CaptureRewindSnapshotAtPreFinishedSave("combat victory");
+            // OnRunSaveWriting dropped the stale snapshot at that save; take it
+            // only now, after the promotion above, so a replay rewinds the
+            // record to that same point instead of erasing the fight the game
+            // still keeps. A loss never saves, so it never lands here.
+            lock (_lock)
+            {
+                var point = _runSaveSnapshotAwaitingPromotionPoint;
+                _runSaveSnapshotAwaitingPromotionPoint = null;
+                if (point != null)
+                    CaptureRunSaveSnapshotLocked(point, "combat victory");
+            }
         });
 
     private static void OnCombatEndedImpl(CombatRoom room)

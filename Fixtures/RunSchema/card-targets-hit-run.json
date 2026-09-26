@@ -1,0 +1,49 @@
+{
+  "run_id": "card-targets-hit-run",
+  "started_at": "2026-09-15T17:00:00Z",
+  "updated_at": "2026-09-15T17:26:00Z",
+  "character": "IRONCLAD",
+  "ascension": 9,
+  "floor_reached": 24,
+  "outcome": "in_progress",
+  "game_start_time": 1794178800,
+  "aggregates": {
+    "CARD.VOLLEY#1": {
+      "combats_in_deck": 6,
+      "plays": 4,
+      "times_drawn": 7,
+      "floor_added": 2,
+      "initial_upgrade_level": 0,
+      "total_intended": 84,
+      "total_blocked": 6,
+      "total_overkill": 0,
+      "total_effective": 78,
+      "kills": 3,
+      "targets_hit": 12
+    }
+  },
+  "events": [],
+  "relic_aggregates": {},
+  "enemy_aggregates": {},
+  "meta_stats": {
+    "power_aggregates": {
+      "POWER.PANACHE_POWER": {
+        "power_id": "POWER.PANACHE_POWER",
+        "display_name": "Panache",
+        "successful_applications": 2,
+        "total_intended": 30,
+        "total_effective": 30,
+        "kills": 1,
+        "targets_hit": 5
+      }
+    }
+  },
+  "instance_numbers_by_def": {
+    "CARD.VOLLEY": [
+      1
+    ]
+  },
+  "def_counters": {
+    "CARD.VOLLEY": 1
+  }
+}

@@ -713,6 +713,11 @@ New fixtures added going forward do not need a `v*-` prefix.
   Every card's zero-inclusive turns-in-deck count, plus how many of its
   combats-in-deck that count covers, for the per-turn damage average.
 
+- `card-targets-hit-run.json`
+  The hit count that pairs a card's and a power's damage totals, so
+  `targets_hit` has a checked-in shape on both `CardAggregate` and
+  `PowerAggregate` alongside the damage set it belongs to.
+
 Why these exist:
 
 - new shape work should be validated against real checked-in examples, not memory

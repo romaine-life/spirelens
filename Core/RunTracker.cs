@@ -2810,6 +2810,10 @@ public static class RunTracker
 
     private static void OnCombatSetUpImpl(CombatState state)
     {
+        // The room-icon breakdown is display-only and must start fresh for
+        // every fight, even when no run record can be ensured.
+        EncounterTurnDamage.BeginCombat(RunManager.Instance?.State);
+
         lock (_lock)
         {
             RuntimeOptionsProvider.Refresh();
@@ -3805,6 +3809,7 @@ public static class RunTracker
                     // (RecordCombatEndingSuppressedDamage) knows this hit was
                     // recorded normally and won't synthesize a duplicate.
                     TryMarkDamageResultObserved(dre.Result);
+                    RecordEncounterTurnDamage(dre);
 
                     if (dre.Receiver.IsPlayer)
                     {
@@ -36395,6 +36400,43 @@ public static class RunTracker
                 ReconcilePlayerBlockLedgerLocked(entry.Receiver);
             }
         }
+    }
+
+    /// <summary>
+    /// Feeds the room-icon per-round breakdown. Dealt is HP actually removed
+    /// from enemy-side creatures by the tracked player, their pets, or an
+    /// ownerless source (poison and similar ticks carry no dealer). Taken is
+    /// HP the tracked player actually lost to any damage, self-inflicted
+    /// included. Blocked and overkill amounts are excluded from both.
+    /// </summary>
+    private static void RecordEncounterTurnDamage(DamageReceivedEntry entry)
+    {
+        var receiver = entry.Receiver;
+        if (receiver == null) return;
+
+        int hpLost = Math.Max(0, entry.Result.UnblockedDamage);
+        if (hpLost <= 0) return;
+
+        int dealt = 0;
+        int taken = 0;
+        if (receiver.IsPlayer)
+        {
+            if (IsTrackedPlayerCreature(receiver)) taken = hpLost;
+        }
+        else if (receiver.IsEnemy)
+        {
+            var dealer = entry.Dealer;
+            bool ours = dealer == null
+                || (dealer.IsPlayer && IsTrackedPlayerCreature(dealer))
+                || (dealer.PetOwner != null && IsTrackedPlayerCreature(dealer.PetOwner.Creature));
+            if (ours) dealt = hpLost;
+        }
+
+        EncounterTurnDamage.Record(
+            RunManager.Instance?.State,
+            entry.RoundNumber,
+            dealt,
+            taken);
     }
 
     private static void RecordPlayerBlockedDamage(DamageReceivedEntry entry)

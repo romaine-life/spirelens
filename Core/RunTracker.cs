@@ -36432,7 +36432,11 @@ public static class RunTracker
             if (ours) dealt = hpLost;
         }
 
-        EncounterTurnDamage.Record(entry.RoundNumber, dealt, taken);
+        EncounterTurnDamage.Record(
+            RunManager.Instance?.State,
+            entry.RoundNumber,
+            dealt,
+            taken);
     }
 
     private static void RecordPlayerBlockedDamage(DamageReceivedEntry entry)

@@ -578,8 +578,11 @@ the synthesized combat-ending killing blow above. It buckets by the entry's
 own `RoundNumber` (one round = player side plus enemy side), counts only
 unblocked HP loss, credits dealt damage to the tracked player, their pets, or
 dealer-less ticks (poison), and counts taken damage from any dealer including
-self-damage. It is display-only, memory-only, reset at `CombatSetUp`, and bound
-to the run state and floor it was recorded on.
+self-damage. It is display-only (never written to the run file), reset at
+`CombatSetUp`, and bound to the floor it was recorded on. It survives Core hot
+reload, mid-combat included, because it lives in an AppDomain-slot
+`ConditionalWeakTable` keyed by the game's live `IRunState` and holds only BCL
+types.
 
 ## Osty Body Attribution
 

@@ -571,6 +571,16 @@ energy, card-draw, and max-HP-loss stats. Brightest Flame can also come from
 the event card pool, so this is deliberately a family-wide projection rather
 than exact Storybook-grant lineage.
 
+The top-bar room-icon tooltip's per-round "Combat damage" breakdown
+(`EncounterTurnDamage`, fed by `RunTracker.RecordEncounterTurnDamage`) reads
+every `DamageReceivedEntry` in the shared `Observe` dispatch, so it inherits
+the synthesized combat-ending killing blow above. It buckets by the entry's
+own `RoundNumber` (one round = player side plus enemy side), counts only
+unblocked HP loss, credits dealt damage to the tracked player, their pets, or
+dealer-less ticks (poison), and counts taken damage from any dealer including
+self-damage. It is display-only, memory-only, reset at `CombatSetUp`, and bound
+to the run state and floor it was recorded on.
+
 ## Osty Body Attribution
 
 Necrobinder has both investment cards that create or maintain Osty and payoff

@@ -300,6 +300,12 @@ internal static class NativeStatsHoverTipFactory
                 statsTip = tip;
                 return true;
 
+            case TextureRect roomIcon
+                when EncounterStatsTooltip.IsRoomIconTipOwner(roomIcon)
+                    && EncounterStatsTooltip.TryBuildNativeHoverTip(out tip):
+                statsTip = tip;
+                return true;
+
             default:
                 return false;
         }

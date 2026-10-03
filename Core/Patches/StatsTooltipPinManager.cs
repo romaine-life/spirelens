@@ -134,7 +134,7 @@ internal static class StatsTooltipPinManager
 
     public static void AttachTopBarRunStatsTarget(Control? target)
     {
-        if (target is NTopBarHp or NTopBarGold)
+        if (target is NTopBarHp or NTopBarGold or NTopBarRoomIcon)
             AttachTarget(target, subscribeToGuiInput: true);
     }
 
@@ -368,6 +368,12 @@ internal static class StatsTooltipPinManager
         // owner to manufacture a duplicate set.
         if (ReferenceEquals(_pinnedTarget, owner)) return true;
 
+        // The room icon shows its ordinary tooltip from its inner Icon
+        // TextureRect, while right-clicks land on the NTopBarRoomIcon itself.
+        if (_pinnedTarget is NTopBarRoomIcon roomIcon
+            && ReferenceEquals(roomIcon._roomIcon, owner))
+            return true;
+
         // Native tooltip pages deliberately ignore mouse input so clicks can
         // dismiss the pin and continue to the game underneath. Keep that
         // click-through behavior, but do not let a covered card, relic, or
@@ -539,7 +545,7 @@ internal static class StatsTooltipPinManager
             return;
         }
 
-        NHoverTipSet.Remove(target);
+        NHoverTipSet.Remove(GetOrdinaryHoverTipOwner(target));
 
         var pinOwner = new Control
         {
@@ -921,6 +927,9 @@ internal static class StatsTooltipPinManager
             case NTopBarGold gold:
                 return GoldStatsTooltip.TryBuildNativeHoverTip(gold, out tip);
 
+            case NTopBarRoomIcon:
+                return EncounterStatsTooltip.TryBuildNativeHoverTip(out tip);
+
             case NPotionHolder holder:
                 return PotionBeltStatsTooltip.TryBuildNativeHoverTip(holder, out tip);
 
@@ -988,6 +997,13 @@ internal static class StatsTooltipPinManager
                 };
                 return true;
 
+            case NTopBarRoomIcon roomIcon:
+                nativeHoverTips = new IHoverTip[]
+                {
+                    CreateStockHoverTip(roomIcon.GetHoverTipPrefixForRoomType()),
+                };
+                return true;
+
             case NPotionHolder holder:
                 nativeHoverTips = holder.Potion?.Model.HoverTips
                     ?? new IHoverTip[]
@@ -1046,6 +1062,10 @@ internal static class StatsTooltipPinManager
 
             case NTopBarHp or NTopBarGold:
                 AlignTopBarTipSet(target, tipSet);
+                break;
+
+            case NTopBarRoomIcon roomIcon:
+                AlignRoomIconTipSet(roomIcon, tipSet);
                 break;
 
             case NPotionHolder holder:
@@ -1117,6 +1137,14 @@ internal static class StatsTooltipPinManager
                     AlignTopBarTipSet(target, tipSet);
                 break;
 
+            case NTopBarRoomIcon roomIcon:
+                var roomTipSet = NHoverTipSet.CreateAndShow(
+                    roomIcon._roomIcon,
+                    nativeHoverTips);
+                if (roomTipSet != null)
+                    AlignRoomIconTipSet(roomIcon, roomTipSet);
+                break;
+
             case NPotionHolder holder:
                 var potionTipSet = NHoverTipSet.CreateAndShow(
                     target,
@@ -1157,6 +1185,7 @@ internal static class StatsTooltipPinManager
             RunHistoryCampfireButton => "run-history-campfires",
             NTopBarHp => "live-run-hp",
             NTopBarGold => "live-run-gold",
+            NTopBarRoomIcon => "live-run-encounter",
             NPotionHolder holder => holder.Potion?.Model.Id.ToString()
                 ?? "empty-potion-slot",
             Control label when RunHistoryHpTooltip.IsTarget(label)
@@ -1184,6 +1213,27 @@ internal static class StatsTooltipPinManager
             target.GlobalPosition + new Vector2(0f, target.Size.Y + 20f));
     }
 
+    /// <summary>
+    /// Mirrors NTopBarRoomIcon.OnFocus, which places its set below the inner
+    /// Icon using the outer control's height.
+    /// </summary>
+    private static void AlignRoomIconTipSet(
+        NTopBarRoomIcon roomIcon,
+        NHoverTipSet tipSet)
+    {
+        tipSet.SetGlobalPosition(
+            roomIcon._roomIcon.GlobalPosition
+            + new Vector2(0f, roomIcon.Size.Y + 20f));
+    }
+
+    /// <summary>
+    /// The control the game passes as owner for the target's ordinary tooltip.
+    /// </summary>
+    private static Control GetOrdinaryHoverTipOwner(Control target)
+        => target is NTopBarRoomIcon roomIcon && IsLive(roomIcon._roomIcon)
+            ? roomIcon._roomIcon
+            : target;
+
     private static void AlignPotionTipSet(
         NPotionHolder holder,
         NHoverTipSet tipSet)
@@ -1206,7 +1256,7 @@ internal static class StatsTooltipPinManager
     }
 
     private static bool UsesLayoutNeutralPinOverlay(Control target)
-        => target is NTopBarHp or NTopBarGold or NPotionHolder;
+        => target is NTopBarHp or NTopBarGold or NTopBarRoomIcon or NPotionHolder;
 
     private static void ShowHintPopup(string tooltip, Vector2 pointerPosition)
     {

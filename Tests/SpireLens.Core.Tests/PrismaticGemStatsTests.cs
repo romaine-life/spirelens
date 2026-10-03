@@ -108,7 +108,7 @@ public class PrismaticGemStatsTests
             ?? throw new InvalidOperationException("BuildPrismaticGemBodyBBCode returned null."));
 
         Assert.Contains("Energy generated", body);
-        Assert.Contains("[b]4[/b]", body);
+        Assert.Contains("[b]4/0[/b]", body);
         Assert.Contains("Card rewards affected", body);
         Assert.Contains("[b]2[/b]", body);
         Assert.Contains("Ironclad cards offered/taken", body);

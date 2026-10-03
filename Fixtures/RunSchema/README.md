@@ -713,6 +713,11 @@ New fixtures added going forward do not need a `v*-` prefix.
   Every card's zero-inclusive turns-in-deck count, plus how many of its
   combats-in-deck that count covers, for the per-turn damage average.
 
+- `energy-wasted-ledger-run.json`
+  The card-side and relic-side halves of the energy provenance ledger, so the
+  new `total_energy_wasted` / `energy_wasted` counters have a checked-in shape
+  alongside the `*_generated` totals they pair with.
+
 Why these exist:
 
 - new shape work should be validated against real checked-in examples, not memory

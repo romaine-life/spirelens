@@ -42,6 +42,10 @@ public static class VenerableTeaSetStatsPatch
             if (!ReferenceEquals(__instance.Owner, player)) return;
             if (!WillGainEnergy(__instance)) return;
 
+            RunTracker.NoteVenerableTeaSetActivationStarted(
+                __instance.Id.ToString(),
+                player);
+
             __state = new EnergyState(
                 __instance.Id.ToString(),
                 __instance,

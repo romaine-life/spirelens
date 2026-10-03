@@ -82,7 +82,7 @@ public class BoomingConchStatsTests
 
         Assert.Contains("Energy generated", body);
         Assert.Contains("Cards drawn", body);
-        Assert.Contains("[b]2[/b]", body);
+        Assert.Contains("[b]2/0[/b]", body);
         Assert.Contains("[b]4[/b]", body);
     }
 }

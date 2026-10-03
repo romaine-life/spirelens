@@ -1,0 +1,39 @@
+{
+  "run_id": "energy-wasted-ledger-run",
+  "started_at": "2026-09-09T18:00:00Z",
+  "updated_at": "2026-09-09T18:24:00Z",
+  "character": "IRONCLAD",
+  "ascension": 12,
+  "floor_reached": 17,
+  "outcome": "in_progress",
+  "game_start_time": 1789660800,
+  "aggregates": {
+    "CARD.ADRENALINE#1": {
+      "combats_in_deck": 5,
+      "plays": 4,
+      "times_drawn": 6,
+      "floor_added": 3,
+      "initial_upgrade_level": 0,
+      "total_energy_spent": 0,
+      "total_energy_generated": 8,
+      "total_energy_wasted": 3
+    }
+  },
+  "events": [],
+  "relic_aggregates": {
+    "RELIC.ART_OF_WAR": {
+      "activations": 3,
+      "energy_generated": 3,
+      "energy_wasted": 2
+    }
+  },
+  "enemy_aggregates": {},
+  "instance_numbers_by_def": {
+    "CARD.ADRENALINE": [
+      1
+    ]
+  },
+  "def_counters": {
+    "CARD.ADRENALINE": 1
+  }
+}

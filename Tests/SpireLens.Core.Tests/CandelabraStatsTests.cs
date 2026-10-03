@@ -171,7 +171,10 @@ public class CandelabraStatsTests
         Assert.Contains("Activations", body);
         Assert.Contains("Energy generated", body);
         Assert.Contains("1st turns ended with excess energy", body);
-        Assert.Equal(3, CountOccurrences(body, "[b]0[/b]"));
+        // The generated total now shares its row with wasted, so it is
+        // one "[b]x/y[/b]" cell rather than a bare zero.
+        Assert.Contains("[b]0/0[/b]", body);
+        Assert.Equal(2, CountOccurrences(body, "[b]0[/b]"));
         Assert.DoesNotContain("Combats with energy not gained", body);
     }
 
@@ -183,7 +186,10 @@ public class CandelabraStatsTests
         Assert.Contains("Activations", body);
         Assert.Contains("Energy generated", body);
         Assert.Contains("1st turns ended with excess energy", body);
-        Assert.Equal(3, CountOccurrences(body, "[b]0[/b]"));
+        // The generated total now shares its row with wasted, so it is
+        // one "[b]x/y[/b]" cell rather than a bare zero.
+        Assert.Contains("[b]0/0[/b]", body);
+        Assert.Equal(2, CountOccurrences(body, "[b]0[/b]"));
         Assert.DoesNotContain("Combats with energy not gained", body);
     }
 
@@ -215,7 +221,10 @@ public class CandelabraStatsTests
         Assert.Contains("Energy generated", body);
         Assert.Contains("2nd turns ended with excess energy", body);
         Assert.Contains("Combats without energy", body);
-        Assert.Equal(4, CountOccurrences(body, "[b]0[/b]"));
+        // The generated total now shares its row with wasted, so it is
+        // one "[b]x/y[/b]" cell rather than a bare zero.
+        Assert.Contains("[b]0/0[/b]", body);
+        Assert.Equal(3, CountOccurrences(body, "[b]0[/b]"));
     }
 
     [Fact]
@@ -237,7 +246,7 @@ public class CandelabraStatsTests
         Assert.Contains("[b]2[/b]", body);
         Assert.Contains("[b]1[/b]", body);
         Assert.Contains("[b]4[/b]", body);
-        Assert.Contains("[b]8[/b]", body);
+        Assert.Contains("[b]8/0[/b]", body);
         Assert.Contains("[b]2[/b]", body);
     }
 
@@ -256,7 +265,7 @@ public class CandelabraStatsTests
 
         Assert.Contains("Activations", body);
         Assert.Contains("Energy generated", body);
-        Assert.Contains("[b]9[/b]", body);
+        Assert.Contains("[b]9/0[/b]", body);
         Assert.Contains("[b]1[/b]", body);
         Assert.Contains("[b]2[/b]", body);
     }

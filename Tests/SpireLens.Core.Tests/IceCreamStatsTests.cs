@@ -52,8 +52,7 @@ public class IceCreamStatsTests
         // Credit is gated on Ice Cream's own answer, so a second suppressor
         // would not corrupt the total — but it would make the number a shared
         // outcome rather than Ice Cream's alone, which the tooltip claims.
-        var suppressors = typeof(AbstractModel).Assembly
-            .GetTypes()
+        var suppressors = LoadableTypes(typeof(AbstractModel).Assembly)
             .Where(t => !t.IsAbstract && typeof(AbstractModel).IsAssignableFrom(t))
             .Where(t => t.GetMethod(
                 nameof(AbstractModel.ShouldPlayerResetEnergy),
@@ -215,6 +214,23 @@ public class IceCreamStatsTests
         Assert.True(recognized);
         Assert.Equal("Ice Cream", title);
         Assert.Contains("[b]27[/b]", body);
+    }
+
+    // The headless gate builds against the checked-in sts2.dll reference stub,
+    // which ships without its full dependency closure (SmartFormat,
+    // Steamworks.NET). GetTypes() therefore throws partway through even though
+    // most of the assembly loaded, so scan what did load — IceCream and every
+    // other RelicModel among them.
+    private static IEnumerable<Type> LoadableTypes(Assembly assembly)
+    {
+        try
+        {
+            return assembly.GetTypes();
+        }
+        catch (ReflectionTypeLoadException e)
+        {
+            return e.Types.Where(t => t != null)!;
+        }
     }
 
     private static string BuildBody(RelicAggregate aggregate)

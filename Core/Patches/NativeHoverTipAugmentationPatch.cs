@@ -12,6 +12,7 @@ using MegaCrit.Sts2.Core.Nodes.Relics;
 using MegaCrit.Sts2.Core.Nodes.Screens.PotionLab;
 using MegaCrit.Sts2.Core.Nodes.Screens.RelicCollection;
 using MegaCrit.Sts2.Core.Nodes.Screens.RunHistoryScreen;
+using MegaCrit.Sts2.Core.Nodes.Screens.Shops;
 using MegaCrit.Sts2.Core.Nodes.Screens.Map;
 using MegaCrit.sts2.Core.Nodes.TopBar;
 
@@ -240,6 +241,11 @@ internal static class NativeStatsHoverTipFactory
 
             case NRelicInventoryHolder relicHolder
                 when RelicHoverShowPatch.TryBuildNativeHoverTip(relicHolder, out tip):
+                statsTip = tip;
+                return true;
+
+            case NMerchantRelic merchantRelic
+                when RelicHoverShowPatch.TryBuildMerchantHoverTip(merchantRelic, out tip):
                 statsTip = tip;
                 return true;
 

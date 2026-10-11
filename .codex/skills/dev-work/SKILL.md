@@ -106,6 +106,26 @@ When the user asks to PR and merge:
    anyone reading it, `git -C D:\repos\spirelens checkout --detach main` moves
    its detached `HEAD` to the tip without holding the branch.
 
+### `--delete-branch` Is Wrong On `gh pr close` Too
+
+The camping is the flag's *local* half, which is not specific to `merge`.
+Observed 2026-10-10 on throwaway PR #339: `gh pr close 339 --delete-branch`,
+run from the worktree sitting on that branch, printed
+`Deleted branch claude/ci-gate-probe and switched to branch main` and left the
+feature worktree camping on `main` exactly as `merge -d` does.
+
+The *remote* half differs, and that changes the cleanup. `delete_branch_on_merge`
+fires only on a merge, so a closed-unmerged PR's remote branch survives — the
+flag is doing real work there, not a no-op. Dropping it and stopping leaks the
+remote branch. Do both sides explicitly:
+
+```
+gh pr close <number>
+git checkout --detach main
+git branch -D <feature-branch>
+git push origin --delete <feature-branch>
+```
+
 ### One PR Per Logical Change, Even From One Branch
 
 Squash is the only merge method this repo allows, so a branch carrying several

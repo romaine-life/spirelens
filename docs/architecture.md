@@ -167,6 +167,17 @@ Current UI conventions:
   and an aggregate over every member of a plural scope renders `∈ ∀` before
   the scope icon; mixed prose stays readable instead of forcing relation
   symbols ahead of its remaining words
+- a bare `/` in a row label is read as that same **Per** marker: the vocabulary
+  treats a recognized concept immediately after a slash as the denominator, so
+  spelling a pair into the label (“commons offered/taken”) says *offered per
+  taken* rather than naming two numbers. Paired stats keep the pair in the
+  **value** (`offered/taken`) and pass explicit concept ids for the label
+- an offer bucket and the subset of it the player took share one row whose value
+  is `offered/taken`, instead of spending a row on each number:
+  `OfferedTakenRow` for relic rows, `OfferedPickedRow` for card rows
+- the plain **card** concept matches “commons” as well as “cards”, so a commons
+  bucket row and a row for the total across rarities render identically; give
+  the total the **all** concept to keep the two apart
 - every icon-driven stat row can pair a left-side information hint for the full row meaning with a separate semantic concept hint; the central compendium glossary describes those same concept symbols
 - card, enemy, relic, potion, and run-summary stat rows all pass through the shared row vocabulary; established concepts render as glossary icons, and equivalent prose is retained only in the information hint rather than repeated visibly beside the icon
 - when the game already exposes a recognizable asset, prefer the in-game block/draw/energy/star iconography over generic text-only rows
@@ -205,3 +216,20 @@ Use this checklist:
 6. update [SchemaLoadingTests.cs](../Tests/SpireLens.Core.Tests/SchemaLoadingTests.cs)
 7. update tooltip rendering in [CardHoverTooltipPatch.cs](../Core/Patches/CardHoverTooltipPatch.cs) if the stat is user-facing
 8. keep compact tooltip noise low
+
+The recurring failure mode in this area is hand-maintained parallel structures:
+aggregate field lists that must be edited in several places, attribution
+one-shot flags with no arbitration, and relic gates re-implemented from card
+text instead of from decompiled code. Fixing an instance is not fixing the
+class. Three guardrails exist for that reason and new work should route through
+them rather than adding a fourth parallel copy:
+
+- [Core/AttributionWindows.cs](../Core/AttributionWindows.cs) — per-combat
+  FIFO-arbitrated attribution windows, held on `PendingCombat` so they
+  self-reset, in place of per-relic one-shot booleans
+- [Tests/SpireLens.Core.Tests/AggregateDriftTests.cs](../Tests/SpireLens.Core.Tests/AggregateDriftTests.cs)
+  — reflection-exhaustive assertions that `Clone(src) == src` and
+  `Merge(new, src) == src`, which catch both an omitted field and a
+  double-added one when an aggregate gains a field
+- [Core/PatchGuard.cs](../Core/PatchGuard.cs) — always-on error logging with
+  per-site rate-limited swallowing, so a patch cannot fail silently

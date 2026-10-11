@@ -23,6 +23,12 @@ in it are all expected here.
 - **Restart claims are evidence-based.** Never hand over a precautionary restart
   to cover your own uncertainty. AGENTS.md **Restart Claims** defines the only
   three allowed outcomes.
+- **Recording something that did not happen is a defect, not a documented
+  limitation.** Per-card and per-relic attribution *is* the product, so never
+  ship run-total corruption with a note explaining it — and price the fix
+  before concluding it is expensive. When a correctness precondition is
+  missing, prefer blocking the action over letting it run and silently skewing
+  the data.
 - **New persisted fields are additive**, and need a `Fixtures/RunSchema` fixture
   plus `SchemaLoadingTests` assertions. See **When Changing Behavior** in
   AGENTS.md.

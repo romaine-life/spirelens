@@ -23,7 +23,7 @@ Treat SpireLens work as branch-based, pushed, live-validated development. Do not
    - Freeing `main` is not by itself the fix, because that same
      `--delete-branch` wants to *check `main` out*. With `main` unheld it
      succeeds and silently leaves the feature worktree camping instead of
-     erroring. Not passing the flag is the fix — see **PR And Merge** step 3.
+     erroring. Not passing the flag is the fix — see **PR And Merge** step 4.
    - If a clone is found parked on `main` and is clean, `git checkout --detach`
      frees the branch without changing working-tree contents.
    - If main cannot be updated cleanly, stop and report the blocker.
@@ -86,7 +86,21 @@ When the user asks to PR and merge:
 
 1. Ensure the branch is committed and pushed.
 2. Create the PR.
-3. Merge with `gh pr merge <number> --squash`. **Do not pass `--delete-branch`
+3. Wait for the PR's CI to actually report before merging. This repo **has** a
+   headless gate: `.github/workflows/dotnet-quality.yml` builds against the
+   checked-in `lib/{0Harmony,GodotSharp,sts2}.dll` reference stubs and runs
+   `dotnet test ... --filter "Category!=RequiresLiveGame"` on every PR and every
+   push to `main`. Nothing in this repo *requires* that check to pass before
+   merge, so `gh pr merge` will go straight through a gate that is still queued.
+   - A checks reading of `passing: 0, failing: 0, pending: 0` taken seconds
+     after `gh pr create` means GitHub has not reported yet. Treat 0/0/0 as
+     unknown, never as "this repo has no CI".
+   - To reproduce a gate failure locally, force the stub path the runner uses:
+     `-c Release -p:SkipModsDeploy=true -p:Sts2DataDir=`. An ordinary local
+     build resolves the full game install and hides headless-only failures,
+     such as `GetTypes()` throwing `ReflectionTypeLoadException` against the
+     stub's missing dependency closure.
+4. Merge with `gh pr merge <number> --squash`. **Do not pass `--delete-branch`
    /`-d`.** Both halves of that flag are wrong here:
    - The remote half is a no-op — the repo has `delete_branch_on_merge`
      enabled, so GitHub has already deleted the branch by the time `gh` asks.
@@ -94,11 +108,11 @@ When the user asks to PR and merge:
      is on, so `gh` checks out the default branch and pulls it in order to
      delete the feature branch. That checkout is the camping, and it happens
      silently on success.
-4. After merge, update local `main` as a ref: `git fetch origin main:main`. Do
+5. After merge, update local `main` as a ref: `git fetch origin main:main`. Do
    not switch a worktree to `main` to do it. Refs are shared across worktrees —
    one fetch updates `main` for the primary clone and every worktree at once, so
    there is nothing further to do "at the git root".
-5. Delete the local feature branch yourself, detaching first so nothing camps:
+6. Delete the local feature branch yourself, detaching first so nothing camps:
    `git checkout --detach main && git branch -D <feature-branch>`. This also
    lands the worktree on the merged result. The remote branch needs no
    attention; it is auto-deleted on merge.

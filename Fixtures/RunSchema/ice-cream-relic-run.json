@@ -1,0 +1,18 @@
+{
+  "run_id": "ice-cream-relic-fixture",
+  "started_at": "2026-08-13T08:00:00Z",
+  "updated_at": "2026-08-13T08:20:00Z",
+  "outcome": "in_progress",
+  "aggregates": {},
+  "events": [],
+  "relic_aggregates": {
+    "RELIC.ICE_CREAM": {
+      "ice_cream_energy_conserved": 27,
+      "ice_cream_turns": 36,
+      "ice_cream_combats": 9
+    }
+  },
+  "meta_stats": {},
+  "instance_numbers_by_def": {},
+  "def_counters": {}
+}

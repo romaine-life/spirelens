@@ -657,6 +657,13 @@ public static class RelicHoverShowPatch
             return true;
         }
 
+        if (relicModel is IceCream)
+        {
+            title = "Ice Cream";
+            body = BuildIceCreamBodyBBCode(agg);
+            return true;
+        }
+
         if (relicModel is CrackedCore or InfusedCore)
         {
             title = relicModel is InfusedCore ? "Infused Core" : "Cracked Core";
@@ -2347,6 +2354,52 @@ public static class RelicHoverShowPatch
             FormatDecimal(energyPerTurnThisCombat),
             "");
         return sb.ToString();
+    }
+
+    private static string BuildIceCreamBodyBBCode(RelicAggregate agg)
+    {
+        var conservedPerTurn = CalculateIceCreamEnergyConservedPerTurn(agg);
+        var conservedPerCombat = CalculateIceCreamEnergyConservedPerCombat(agg);
+
+        var sb = new StringBuilder();
+        Row3(
+            sb,
+            EnergyLabel("Total energy conserved"),
+            agg.IceCreamEnergyConserved.ToString(),
+            "",
+            "Total energy conserved — Energy carried into a turn that the start-of-turn reset "
+            + "would otherwise have discarded, read at the game's own reset-or-carry decision.");
+        Row3(
+            sb,
+            EnergyLabel("Avg energy conserved per turn"),
+            FormatDecimal(conservedPerTurn),
+            "",
+            "Average energy conserved per turn — conserved Energy across every player turn Ice Cream "
+            + "was held, including turns that carried nothing and turn 1, which always resets.");
+        Row3(
+            sb,
+            EnergyLabel("Avg energy conserved per combat"),
+            FormatDecimal(conservedPerCombat),
+            "",
+            "Average energy conserved per combat — conserved Energy across every combat Ice Cream "
+            + "was held, including combats that carried nothing.");
+        return sb.ToString();
+    }
+
+    internal static decimal CalculateIceCreamEnergyConservedPerTurn(RelicAggregate agg)
+    {
+        if (agg == null) return 0m;
+        return agg.IceCreamTurns <= 0
+            ? 0m
+            : (decimal)agg.IceCreamEnergyConserved / agg.IceCreamTurns;
+    }
+
+    internal static decimal CalculateIceCreamEnergyConservedPerCombat(RelicAggregate agg)
+    {
+        if (agg == null) return 0m;
+        return agg.IceCreamCombats <= 0
+            ? 0m
+            : (decimal)agg.IceCreamEnergyConserved / agg.IceCreamCombats;
     }
 
     private static string BuildStartingLightningCoreBodyBBCode(RelicAggregate agg)

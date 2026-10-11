@@ -3073,6 +3073,9 @@ public static partial class RunTracker
         // later turn to spend it on.
         AttributeUnusedBlockLocked(TotalTrackedPlayerBlockLocked());
         AttributeUnusedEnergyLocked(TotalTrackedPlayerEnergyLocked());
+        // Forge is per combat and dies with it. Anything still sitting on an
+        // unswung Sovereign Blade never became damage.
+        AttributeUnusedForgeLocked();
 
         PromotePendingCombatIntoRun(_pendingCombat, _currentRun);
     }
@@ -4016,6 +4019,9 @@ public static partial class RunTracker
             RecordMetaPowerCardPlayedLocked(cardPlay.Card);
             RecordRandomGeneratedCardPlayedLocked(cardPlay.Card);
             RecordDrainPowerUpgradedCardPlayedLocked(cardPlay.Card);
+            // Swinging the Blade cashes in every forge standing on it.
+            if (IsSovereignBladeCard(cardPlay.Card))
+                NoteSovereignBladePlayedLocked();
 
             // Per-instance tracking: each physical card in the deck gets its
             // own aggregates bucket. First play assigns its instance id.
@@ -5116,6 +5122,11 @@ public static partial class RunTracker
                 var instanceId = GetOrAssignInstanceId(sourceCard);
                 var agg = GetOrCreateAggregate(_pendingCombat, instanceId);
                 agg.TotalForgeGenerated += amount;
+                _pendingCombat.ForgeLedger.Add(new ForgeChunk
+                {
+                    CardInstanceId = instanceId,
+                    Remaining = amount,
+                });
 
                 _pendingCombat.CombatEvents.Add(new CardEvent
                 {
@@ -5129,6 +5140,89 @@ public static partial class RunTracker
             catch (Exception e)
             {
                 CoreMain.LogDebug($"RecordForgeGranted failed: {e.Message}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// A Sovereign Blade was played, so every point of forge standing on it
+    /// has now been swung. Called from the card-play path rather than from a
+    /// damage observer on purpose: the Blade's damage can be blocked outright
+    /// or land on a dying target that emits no damage entry, and the forge was
+    /// still spent either way. Waste here means "never swung", not "swung for
+    /// nothing" — overkill and blocked damage are already their own stats.
+    /// </summary>
+    private static void NoteSovereignBladePlayedLocked()
+    {
+        if (_pendingCombat == null) return;
+
+        // A Blade's damage is the whole accumulated forge, so a play cashes in
+        // every outstanding chunk at once. There is no ordering question to
+        // settle, unlike the block and energy ledgers.
+        _pendingCombat.ForgeLedger.Clear();
+    }
+
+    /// <summary>
+    /// Charge the forge still outstanding back to the cards that granted it,
+    /// newest first, matching the LIFO waste convention the block and energy
+    /// ledgers use.
+    ///
+    /// One known gap, stated rather than papered over: forging again after a
+    /// Blade has been exhausted also adds damage to that dead Blade, which can
+    /// never be swung. The new Blade minted by that same forge can be, so the
+    /// chunk is treated as live. The duplicate buff to the exhausted copy
+    /// produces no damage and is not counted as waste.
+    /// </summary>
+    private static void AttributeUnusedForgeLocked()
+    {
+        if (_pendingCombat == null) return;
+
+        for (int i = _pendingCombat.ForgeLedger.Count - 1; i >= 0; i--)
+        {
+            var chunk = _pendingCombat.ForgeLedger[i];
+            if (chunk.Remaining <= 0m) continue;
+
+            var agg = GetOrCreateAggregate(_pendingCombat, chunk.CardInstanceId);
+            agg.TotalForgeWasted += chunk.Remaining;
+            chunk.Remaining = 0m;
+        }
+
+        _pendingCombat.ForgeLedger.Clear();
+    }
+
+    /// <summary>
+    /// Test seam for the forge ledger, mirroring the block and energy ones:
+    /// runs the real grant -> swing -> combat-end sequence against a throwaway
+    /// pending combat so the attribution can be pinned headlessly.
+    /// </summary>
+    internal static PendingCombat RunForgeLedgerForTest(
+        IEnumerable<(string cardInstanceId, decimal amount)> grants,
+        bool bladePlayed)
+    {
+        lock (_lock)
+        {
+            var previous = _pendingCombat;
+            try
+            {
+                var scratch = new PendingCombat();
+                _pendingCombat = scratch;
+                foreach (var (cardInstanceId, amount) in grants)
+                {
+                    GetOrCreateAggregate(scratch, cardInstanceId).TotalForgeGenerated += amount;
+                    scratch.ForgeLedger.Add(new ForgeChunk
+                    {
+                        CardInstanceId = cardInstanceId,
+                        Remaining = amount,
+                    });
+                }
+
+                if (bladePlayed) NoteSovereignBladePlayedLocked();
+                AttributeUnusedForgeLocked();
+                return scratch;
+            }
+            finally
+            {
+                _pendingCombat = previous;
             }
         }
     }
@@ -37318,6 +37412,7 @@ public static partial class RunTracker
         target.TotalStarsSpent += source.TotalStarsSpent;
         target.TotalStarsGenerated += source.TotalStarsGenerated;
         target.TotalForgeGenerated += source.TotalForgeGenerated;
+        target.TotalForgeWasted += source.TotalForgeWasted;
         target.TotalOrbsCreated += source.TotalOrbsCreated;
         target.OrbOutcomes ??= new Dictionary<string, CardOrbAggregate>();
         MergeCardOrbOutcomesInto(target.OrbOutcomes, source.OrbOutcomes);
@@ -38528,6 +38623,7 @@ internal class PendingCombat
     public Dictionary<string, EnemyAggregate> EnemyAggregates { get; } = new();
     public List<BlockChunk> PlayerBlockLedger { get; } = new();
     public List<EnergyChunk> PlayerEnergyLedger { get; } = new();
+    public List<ForgeChunk> ForgeLedger { get; } = new();
     public List<BufferChargeChunk> PlayerBufferLedger { get; } = new();
     public List<GoldAttributionChunk>? GoldAttributionLedger { get; set; }
     public Dictionary<AbstractModel, PlayerPowerOwnershipShare> PlayerPowerOwnershipByModifier { get; }
@@ -39121,6 +39217,19 @@ internal sealed class EnergyChunk
     public string? CardInstanceId { get; init; }
     public string? RelicId { get; init; }
     public int Remaining { get; set; }
+}
+
+/// <summary>
+/// One forge and the card that granted it. Forge from several cards piles onto
+/// the same Sovereign Blade, so whose forge got swung is not a fact the game
+/// exposes — the same provenance problem <see cref="BlockChunk"/> solves, with
+/// one simplification: a Blade's damage IS its accumulated forge, so playing it
+/// cashes in everything outstanding rather than some slice of it.
+/// </summary>
+internal sealed class ForgeChunk
+{
+    public required string CardInstanceId { get; init; }
+    public decimal Remaining { get; set; }
 }
 
 /// <summary>

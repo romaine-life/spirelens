@@ -924,6 +924,26 @@ Forge:
 - Record actual forge amount, forger, and source.
 - This also preserves effect source context for immediate follow-up effects and marks Sovereign Blade overlay availability.
 
+Forge generated is paired with forge wasted through a third provenance ledger,
+`_pendingCombat.ForgeLedger`. Forge is per combat and only becomes damage if the
+Blade is swung: `ForgeCmd.Forge` mints a Sovereign Blade into hand on the first
+forge of a combat and every later forge calls `IncreaseSovereignBladeDamage`, so
+forge left on an unplayed Blade dies with the fight.
+
+- Each grant appends a chunk owned by the forging card.
+- Playing a Sovereign Blade cashes in EVERY outstanding chunk. Unlike block and
+  energy there is no ordering question: a Blade's damage is the whole
+  accumulated forge, not a slice of a pool.
+- Consume at the card-play path, not from a damage observer. The Blade's swing
+  can be fully blocked, or land on a dying target that emits no damage entry,
+  and the forge was spent either way. Wasted here means "never swung", not
+  "swung for nothing" — blocked and overkill are already their own stats.
+- Combat end wastes the remainder, newest-first.
+- Known gap, stated rather than hidden: forging after a Blade has been exhausted
+  also adds damage to that dead copy, which can never be swung. The new Blade
+  minted by that same forge can be, so the chunk counts as live and the
+  duplicate buff is not counted as waste.
+
 For UI, energy/star spent rows intentionally appear only when empirical variance exists or when the resource is otherwise interesting. Absence of a row usually means actual spend matched expected listed cost across plays.
 
 ## Card-Sourced Orb Creation

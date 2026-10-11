@@ -141,6 +141,41 @@ public class SchemaLoadingTests
     }
 
     [Fact]
+    public void HistoricalLoad_AcceptsForgeWastedFixture()
+    {
+        var loaded = RunStorage.LoadHistorical(
+            FixturePath("forge-wasted-ledger-run.json"));
+
+        Assert.NotNull(loaded);
+        Assert.True(loaded!.SupportsResume);
+        AssertForgeWastedFixture(loaded.Data.Aggregates["CARD.TEMPER#1"]);
+    }
+
+    [Fact]
+    public void ResumableLoad_AcceptsForgeWastedFixture()
+    {
+        var resumed = RunStorage.LoadResumable(
+            FixturePath("forge-wasted-ledger-run.json"));
+
+        Assert.NotNull(resumed);
+        AssertForgeWastedFixture(resumed!.Aggregates["CARD.TEMPER#1"]);
+    }
+
+    [Fact]
+    public void HistoricalLoad_DefaultsForgeWastedForOlderFixtures()
+    {
+        // A run saved before the forge ledger existed keeps its generated
+        // total and must read as zero wasted rather than failing to load.
+        var loaded = RunStorage.LoadHistorical(
+            FixturePath("v10-per-instance-forge-run.json"));
+
+        Assert.NotNull(loaded);
+        var agg = loaded!.Data.Aggregates["CARD.REFINE_BLADE#1"];
+        Assert.Equal(9m, agg.TotalForgeGenerated);
+        Assert.Equal(0m, agg.TotalForgeWasted);
+    }
+
+    [Fact]
     public void HistoricalLoad_AcceptsLegacyResumableV10ForgeFixture()
     {
         var loaded = RunStorage.LoadHistorical(FixturePath("v10-per-instance-forge-run.json"));
@@ -7296,6 +7331,12 @@ public class SchemaLoadingTests
         Assert.Equal(3, cardAgg.TotalEnergyWasted);
         Assert.Equal(3, relicAgg.EnergyGenerated);
         Assert.Equal(2, relicAgg.EnergyWasted);
+    }
+
+    private static void AssertForgeWastedFixture(CardAggregate cardAgg)
+    {
+        Assert.Equal(18m, cardAgg.TotalForgeGenerated);
+        Assert.Equal(6.5m, cardAgg.TotalForgeWasted);
     }
 
     private static void AssertPanachePowerDamageFixture(PowerAggregate powerAgg)

@@ -2374,14 +2374,14 @@ public static class RelicHoverShowPatch
             EnergyLabel("Avg energy conserved per turn"),
             FormatDecimal(conservedPerTurn),
             "",
-            "Average energy conserved per turn — conserved Energy across every player turn Ice Cream "
+            "Avg energy conserved per turn — conserved Energy across every player turn Ice Cream "
             + "was held, including turns that carried nothing and turn 1, which always resets.");
         Row3(
             sb,
             EnergyLabel("Avg energy conserved per combat"),
             FormatDecimal(conservedPerCombat),
             "",
-            "Average energy conserved per combat — conserved Energy across every combat Ice Cream "
+            "Avg energy conserved per combat — conserved Energy across every combat Ice Cream "
             + "was held, including combats that carried nothing.");
         return sb.ToString();
     }

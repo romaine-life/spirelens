@@ -102,7 +102,16 @@ When the user asks to PR and merge:
    `git checkout --detach main && git branch -D <feature-branch>`. This also
    lands the worktree on the merged result. The remote branch needs no
    attention; it is auto-deleted on merge.
-6. Optional: if the primary clone's working tree is stale enough to confuse
+6. Rebuild and deploy Core from the merged `main`, then hot-reload. The live
+   install is still running the feature-branch build, which is the merged code
+   plus whatever `main` gained while the PR was open — a mixture that exists
+   nowhere in the repo. Build from a worktree sitting on merged `main`
+   (`git worktree add --detach <path> main`), then reload through the bridge
+   and check the log, exactly as in **Validate After Each Pushed Iteration**.
+   This is agent-owned work like every other deploy. Do not offer it to the
+   user as an optional follow-up; `AGENTS.md` forbids handing them a rebuild or
+   redeploy as a chore, and an offer is just a chore with a question mark.
+7. Optional: if the primary clone's working tree is stale enough to confuse
    anyone reading it, `git -C D:\repos\spirelens checkout --detach main` moves
    its detached `HEAD` to the tip without holding the branch.
 

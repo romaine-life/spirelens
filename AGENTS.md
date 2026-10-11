@@ -19,8 +19,12 @@ tasks (for example, a Glimmung verification phase) still count as an explicit
 request and should follow their own validation contract.
 
 Build, deploy, and reload are **agent-owned, not user-owned**. Never hand the
-user an F5 press, a rebuild, or a redeploy as a chore — the commands are in
-**Useful Commands** below and the agent runs them. The only thing a running game
+user an F5 press, a rebuild, or a redeploy as a chore, and never offer one as
+an optional follow-up — the commands are in **Useful Commands** below and the
+agent runs them. This includes the deploy that follows a merge: the live
+install keeps running the feature-branch build until Core is rebuilt from the
+merged `main` and reloaded, so that redeploy belongs to the same session that
+merged. The only thing a running game
 needs from the user is a full process restart, and that is governed by
 **Restart Claims** below.
 

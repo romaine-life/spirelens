@@ -42,6 +42,7 @@ public static class CardEnterDeckPatch
             if (card == null) return;
 
             RunTracker.RecordCardEntered(card);
+            RunTracker.RecordEffectFrameCardChange(card, Effects.EffectOutcomeKeys.CardsAdded);
         }
         catch (Exception e)
         {

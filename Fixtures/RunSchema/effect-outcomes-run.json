@@ -1,0 +1,77 @@
+{
+  "run_id": "effect-outcomes-fixture",
+  "started_at": "2026-10-12T08:00:00Z",
+  "updated_at": "2026-10-12T08:30:00Z",
+  "character": "IRONCLAD",
+  "ascension": 3,
+  "floor_reached": 9,
+  "outcome": "in_progress",
+  "game_start_time": 1791792000,
+  "aggregates": {
+    "CARD.DEMON_FORM#1": {
+      "combats_in_deck": 4,
+      "plays": 3,
+      "times_drawn": 5,
+      "applied_effects": {
+        "POWER.DEMON_FORM_POWER": {
+          "effect_id": "POWER.DEMON_FORM_POWER",
+          "display_name": "Demon Form",
+          "times_applied": 3,
+          "total_amount_applied": 6,
+          "outcomes": {
+            "power:POWER.STRENGTH_POWER": 14,
+            "hp_healed": 1.5
+          }
+        }
+      },
+      "floor_added": 3,
+      "initial_upgrade_level": 0
+    }
+  },
+  "events": [],
+  "relic_aggregates": {
+    "RELIC.SAI": {
+      "additional_block_effective": 30,
+      "additional_block_wasted": 12,
+      "outcomes": {
+        "triggers": 6,
+        "combats": 2,
+        "block": 42
+      }
+    },
+    "RELIC.CHARONS_ASHES": {
+      "outcomes": {
+        "triggers": 5,
+        "combats": 2,
+        "damage": 37,
+        "damage_blocked": 8,
+        "overkill": 3,
+        "hits": 11,
+        "kills": 1,
+        "debuff:POWER.VULNERABLE_POWER": 2,
+        "some_future_key": 4
+      }
+    }
+  },
+  "enemy_aggregates": {},
+  "meta_stats": {
+    "power_aggregates": {
+      "POWER.DEMON_FORM_POWER": {
+        "power_id": "POWER.DEMON_FORM_POWER",
+        "display_name": "Demon Form",
+        "outcomes": {
+          "triggers": 7,
+          "power:POWER.STRENGTH_POWER": 14
+        }
+      }
+    }
+  },
+  "instance_numbers_by_def": {
+    "CARD.DEMON_FORM": [
+      1
+    ]
+  },
+  "def_counters": {
+    "CARD.DEMON_FORM": 1
+  }
+}

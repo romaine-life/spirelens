@@ -29,6 +29,7 @@ using MegaCrit.Sts2.Core.Rewards;
 using MegaCrit.Sts2.Core.Rooms;
 using MegaCrit.Sts2.Core.Runs;
 using MegaCrit.Sts2.Core.ValueProps;
+using SpireLens.Core.Effects;
 
 namespace SpireLens.Core;
 
@@ -60,7 +61,7 @@ internal enum RunTimeCategory
 ///   - attack, block, energy, orb, draw, exhaust, and effect attribution
 ///   - case-specific downstream attribution such as poison tick damage
 /// </summary>
-public static class RunTracker
+public static partial class RunTracker
 {
     internal const string DowsingCardTypeName =
         "MegaCrit.Sts2.Core.Models.Cards.Dowsing";
@@ -3233,6 +3234,7 @@ public static class RunTracker
     /// </summary>
     internal static void MergeRelicAggregateInto(RelicAggregate target, RelicAggregate source)
     {
+        target.Outcomes = MergeEffectOutcomes(target.Outcomes, source.Outcomes);
         target.Activations += source.Activations;
         target.EnemiesAffected += source.EnemiesAffected;
         target.VulnerableApplied += source.VulnerableApplied;
@@ -3872,7 +3874,10 @@ public static class RunTracker
                     break;
                 case OrbChanneledEntry oce:
                     if (trackCardStats)
+                    {
                         RecordOrbCreated(oce);
+                        RecordEffectFrameOrbChanneled(oce.Orb?.Owner?.Creature);
+                    }
                     break;
                 case DamageReceivedEntry dre:
                     // Remember the result ref so the combat-ending capture
@@ -3894,6 +3899,10 @@ public static class RunTracker
                         if (trackCardStats)
                             CoreMain.LogDebug($"  -> RecordDamage from '{dre.CardSource.Title}' intended={dre.Result.BlockedDamage + dre.Result.UnblockedDamage} canonicalHash={Canonical(dre.CardSource).GetHashCode()}");
                         RecordDamageFromCard(dre);
+                    }
+                    else if (trackCardStats && TryRecordEffectFrameDamage(dre))
+                    {
+                        break;
                     }
                     else if (trackCardStats && !dre.Receiver.IsPlayer && TryRecordPoisonTickDamage(dre))
                     {
@@ -4359,11 +4368,14 @@ public static class RunTracker
             {
                 if (!ShouldTrackCardStatsDuringCombatLocked()) return;
 
+                var targetPlayer = combatState._player;
+                if (TryCreditEffectFrameLocked(targetPlayer?.Creature, EffectOutcomeKeys.Energy, amount))
+                    return;
+
                 var causingPlay = FindCurrentlyResolvingCardPlay();
                 if (causingPlay?.Card == null) return;
 
                 var sourceCard = causingPlay.Card;
-                var targetPlayer = combatState._player;
                 if (targetPlayer != null && sourceCard.Owner != null
                     && !ReferenceEquals(sourceCard.Owner, targetPlayer))
                     return;
@@ -4403,11 +4415,14 @@ public static class RunTracker
             {
                 if (!ShouldTrackCardStatsDuringCombatLocked()) return;
 
+                var targetPlayer = combatState._player;
+                if (TryCreditEffectFrameLocked(targetPlayer?.Creature, EffectOutcomeKeys.Stars, amount))
+                    return;
+
                 var causingPlay = FindCurrentlyResolvingCardPlay();
                 if (causingPlay?.Card == null) return;
 
                 var sourceCard = causingPlay.Card;
-                var targetPlayer = combatState._player;
                 if (targetPlayer != null && sourceCard.Owner != null
                     && !ReferenceEquals(sourceCard.Owner, targetPlayer))
                     return;
@@ -5623,6 +5638,7 @@ public static class RunTracker
                 });
 
                 FinishMaxHpHistoryMutationLocked();
+                TryCreditEffectFrameLocked(creature, EffectOutcomeKeys.MaxHp, newMaxHp - previousMaxHp);
             }
             catch (Exception e)
             {
@@ -30127,6 +30143,7 @@ public static class RunTracker
             if (player == null) return;
 
             RecordStrikeDummyCombatForPlayerLocked(player);
+            RecordEffectRelicCombatsForPlayerLocked(player);
             RecordPermafrostCombatForPlayerLocked(player);
             RecordPocketwatchCombatForPlayerLocked(player);
             RecordPollinousCoreCombatForPlayerLocked(player);
@@ -35888,6 +35905,12 @@ public static class RunTracker
             {
                 try
                 {
+                    if (TryCreditEffectFrameLocked(card.Owner?.Creature, EffectOutcomeKeys.CardsDrawn, 1m))
+                    {
+                        TryConsumePendingDrawAttempt(card.Owner, out _);
+                        return;
+                    }
+
                     CardModel? sourceCard = null;
                     if (TryConsumePendingDrawAttempt(card.Owner, out var pendingAttempt))
                         sourceCard = pendingAttempt!.SourceCard;
@@ -36176,6 +36199,9 @@ public static class RunTracker
                         entry.Amount,
                         causingPlay);
                 }
+
+                if (RecordEffectPowerReceivedLocked(entry.Power, entry.Amount, target, causingPlay))
+                    return;
 
                 if (causingPlay?.Card == null)
                 {
@@ -36530,9 +36556,16 @@ public static class RunTracker
                 && ConsumePendingCreatureAttribution(
                     _pendingOrnamentalFanBlockHistoryAttributions,
                     entry.Receiver);
-            string? relicId = isOrnamentalFanBlock ? OrnamentalFanRelicId : null;
+            string? effectFrameRelicId = null;
+            bool isEffectFrameBlock = !isFrostOrbBlock
+                && !isOrnamentalFanBlock
+                && !potionSequence.HasValue
+                && isTrackedPlayerReceiver
+                && TryClaimEffectFrameBlockLocked(entry, out effectFrameRelicId);
+            string? relicId = isOrnamentalFanBlock ? OrnamentalFanRelicId : effectFrameRelicId;
             bool hasKnownNonCardSource = isFrostOrbBlock
                 || isOrnamentalFanBlock
+                || isEffectFrameBlock
                 || potionSequence.HasValue;
             if (!hasKnownNonCardSource && entry.CardPlay?.Card != null)
             {
@@ -37556,6 +37589,7 @@ public static class RunTracker
                 target[powerId] = targetAgg;
             }
 
+            targetAgg.Outcomes = MergeEffectOutcomes(targetAgg.Outcomes, sourceAgg.Outcomes);
             if (string.IsNullOrWhiteSpace(targetAgg.PowerId))
                 targetAgg.PowerId = sourceAgg.PowerId;
             if (string.IsNullOrWhiteSpace(targetAgg.DisplayName)
@@ -37734,6 +37768,7 @@ public static class RunTracker
             effect.TotalTriggeredEffectiveDamage += kv.Value.TotalTriggeredEffectiveDamage;
             effect.TotalTriggeredOverkill += kv.Value.TotalTriggeredOverkill;
             effect.TotalTriggeredCardsDrawBlocked += kv.Value.TotalTriggeredCardsDrawBlocked;
+            effect.Outcomes = MergeEffectOutcomes(effect.Outcomes, kv.Value.Outcomes);
             if (string.IsNullOrWhiteSpace(effect.DisplayName) && !string.IsNullOrWhiteSpace(kv.Value.DisplayName))
                 effect.DisplayName = kv.Value.DisplayName;
             if (string.IsNullOrWhiteSpace(effect.IconPath) && !string.IsNullOrWhiteSpace(kv.Value.IconPath))
@@ -38528,6 +38563,13 @@ internal sealed record PanacheDamageWindow(
 
 internal class PendingCombat
 {
+    // Generic effect-frame framework (RunTracker.Effects.cs): per power
+    // instance, the stacks each source contributed; and the enrolled relics
+    // already counted toward this combat's "combats held" denominator.
+    public Dictionary<PowerModel, List<EffectStackContribution>> EffectPowerLedgers { get; }
+        = new(ReferenceEqualityComparer.Instance);
+    public HashSet<string> EffectRelicCombatsCounted { get; } = new(StringComparer.Ordinal);
+
     public int EtherealCardsPlayed { get; set; }
     public Dictionary<string, CardAggregate> CombatAggregates { get; } = new();
     public Dictionary<CardModel, PendingRandomCardGenerationSource>

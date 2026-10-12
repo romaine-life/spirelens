@@ -822,6 +822,13 @@ public class PowerAggregate
     public string PowerId { get; set; } = "";
     public string DisplayName { get; set; } = "";
 
+    // Generic effect-frame outcomes (Core/Effects). Keys are
+    // EffectOutcomeKeys constants written verbatim; values are observed
+    // outcomes credited while this power's own callback was resolving.
+    // Null on records written before the framework, and on owners it never
+    // credited.
+    public Dictionary<string, decimal>? Outcomes { get; set; }
+
     // Shared meta-power accounting. One aggregate represents every physical
     // and generated play of the same Power card definition.
     //
@@ -1030,6 +1037,12 @@ public class AppliedEffectAggregate
     public decimal TotalTriggeredEffectiveDamage { get; set; }
     public decimal TotalTriggeredOverkill { get; set; }
     public int TotalTriggeredCardsDrawBlocked { get; set; }
+
+    // This source's proportional share of the applied power's own payoff
+    // (generic effect-frame outcomes, Core/Effects). Split by the stacks
+    // each source contributed to the power instance when it triggered —
+    // a convention, exact only when one source supplied every stack.
+    public Dictionary<string, decimal>? Outcomes { get; set; }
 }
 
 public class BlockedDrawReasonAggregate
@@ -1065,6 +1078,13 @@ public class GoldAttributionChunk
 /// </summary>
 public class RelicAggregate
 {
+    // Generic effect-frame outcomes (Core/Effects). Keys are
+    // EffectOutcomeKeys constants written verbatim; values are observed
+    // outcomes credited while this relic's own callback was resolving.
+    // Null on records written before the framework, and on owners it never
+    // credited.
+    public Dictionary<string, decimal>? Outcomes { get; set; }
+
     // Total times this relic's tracked effect activated.
     // Used by room/trigger-based relics such as Meal Ticket and Tuning Fork.
     public int Activations { get; set; }

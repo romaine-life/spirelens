@@ -22,6 +22,8 @@ public static class HookAfterForgePatch
             RunTracker.RecordForgeGranted(amount, forger, source);
             RunTracker.RecordSovereignBladeForged();
             RunTracker.NoteEffectSource(source);
+            if (source != null)
+                RunTracker.CreditEffectOwnerDirect(source, forger, Effects.EffectOutcomeKeys.Forge, amount);
         }
         catch (System.Exception e)
         {

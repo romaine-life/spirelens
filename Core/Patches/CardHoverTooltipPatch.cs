@@ -2239,7 +2239,32 @@ public static class CardHoverShowPatch
             if (!compact && effect.TotalTriggeredCardsDrawBlocked > 0)
                 Row3(sb, GetAppliedEffectBlockedDrawLabel(effect), effect.TotalTriggeredCardsDrawBlocked.ToString(), "");
 
+            if (!compact)
+                AppendAppliedEffectPayoffRows(sb, effect);
+
             shown++;
+        }
+    }
+
+    /// <summary>
+    /// This card's share of an enrolled power's observed payoff (generic
+    /// effect frames). The share is split by the stacks each source put into
+    /// the power, so it is exact only when this card supplied every stack.
+    /// </summary>
+    private static void AppendAppliedEffectPayoffRows(StringBuilder sb, AppliedEffectAggregate effect)
+    {
+        if (!Effects.EffectOutcomeRows.HasVisibleOutcomes(effect.Outcomes)) return;
+
+        var powerName = string.IsNullOrWhiteSpace(effect.DisplayName)
+            ? Effects.EffectOutcomeRows.Humanize(effect.EffectId)
+            : effect.DisplayName;
+        foreach (var row in Effects.EffectOutcomeRows.Build(
+                     effect.Outcomes,
+                     $"{powerName} (this card's share of its stacks)",
+                     includeTriggers: false,
+                     includeRates: false))
+        {
+            Row3(sb, $"{powerName}: {row.Label.ToLowerInvariant()}", row.Value, "");
         }
     }
 

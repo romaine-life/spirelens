@@ -88,14 +88,17 @@ public static class ReplayFormat
             if (!root.TryGetProperty("type", out var typeEl) || typeEl.ValueKind != JsonValueKind.String) return false;
             string? key = null;
             string? snapshot = null;
+            long? dseq = null;
             if (root.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Object)
             {
                 if (data.TryGetProperty("key", out var k) && k.ValueKind == JsonValueKind.String)
                     key = k.GetString();
                 if (data.TryGetProperty("snapshot", out var s) && s.ValueKind == JsonValueKind.String)
                     snapshot = s.GetString();
+                if (data.TryGetProperty("dseq", out var d) && d.TryGetInt64(out var dv))
+                    dseq = dv;
             }
-            entry = new ReplayLogEntry(seq, typeEl.GetString()!, key, snapshot);
+            entry = new ReplayLogEntry(seq, typeEl.GetString()!, key, snapshot, dseq);
             return true;
         }
         catch (JsonException)
@@ -212,8 +215,11 @@ public static class ReplayFormat
 /// <summary>Position of one named RNG stream inside a save.</summary>
 public readonly record struct RngPosition(string Name, int Counter, ulong State0);
 
-/// <summary>The envelope fields of one events.jsonl line the timeline cut needs.</summary>
-public readonly record struct ReplayLogEntry(long Seq, string Type, string? Key, string? Snapshot);
+/// <summary>
+/// The envelope fields of one events.jsonl line the timeline cut needs.
+/// <see cref="DecisionSeq"/> is the linked decision record (<c>data.dseq</c>), if any.
+/// </summary>
+public readonly record struct ReplayLogEntry(long Seq, string Type, string? Key, string? Snapshot, long? DecisionSeq = null);
 
 /// <summary>
 /// A run of events cut by a load. <see cref="AnchorSeq"/> is the save point the

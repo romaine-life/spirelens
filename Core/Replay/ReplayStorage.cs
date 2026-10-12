@@ -20,6 +20,12 @@ namespace SpireLens.Core.Replay;
 public sealed class ReplayHeader
 {
     public int FormatVersion { get; set; } = ReplayFormat.FormatVersion;
+
+    /// <summary>
+    /// <see cref="DecisionFormat.FormatVersion"/> of the decisions/ records, set
+    /// when the first record is written. Null for recordings without them.
+    /// </summary>
+    public int? DecisionsFormatVersion { get; set; }
     public long GameStartTime { get; set; }
     public string? SpirelensRunId { get; set; }
     public string CreatedAtUtc { get; set; } = "";
@@ -181,7 +187,11 @@ internal sealed class ReplaySession : IDisposable
     public string? LastSnapshotKey { get; private set; }
     public string? LastSnapshotFile { get; private set; }
 
+    /// <summary>Seq of the latest <c>save_point</c> event: the anchor of the open decision segment (0 = none yet).</summary>
+    public long LastSavePointSeq { get; private set; }
+
     private long _seq;
+    private long _dseq;
     private int _nextSnapshot;
     private int _nextCombat;
     private FileStream? _events;
@@ -237,16 +247,24 @@ internal sealed class ReplaySession : IDisposable
             if (File.Exists(EventsPath))
             {
                 var lines = File.ReadAllLines(EventsPath);
+                bool haveSavePoint = false, haveDseq = false;
                 for (int i = lines.Length - 1; i >= 0; i--)
                 {
                     if (!ReplayFormat.TryParseEnvelope(lines[i], out var e)) continue;
                     if (_seq == 0) _seq = e.Seq;
-                    if (e.Type == ReplayFormat.EvSavePoint && LastSnapshotKey == null)
+                    if (e.Type == ReplayFormat.EvSavePoint && !haveSavePoint)
                     {
+                        haveSavePoint = true;
                         LastSnapshotKey = e.Key;
                         LastSnapshotFile = e.Snapshot;
+                        LastSavePointSeq = e.Seq;
                     }
-                    if (_seq != 0 && LastSnapshotKey != null) break;
+                    if (e.DecisionSeq.HasValue && !haveDseq)
+                    {
+                        haveDseq = true;
+                        _dseq = e.DecisionSeq.Value;
+                    }
+                    if (_seq != 0 && haveSavePoint && haveDseq) break;
                 }
                 maxSnapshot = ParseIndex(LastSnapshotFile);
             }
@@ -259,6 +277,76 @@ internal sealed class ReplaySession : IDisposable
         maxSnapshot = Math.Max(maxSnapshot, MaxIndexIn(Path.Combine(Dir, "snapshots"), "*.json.gz"));
         _nextSnapshot = maxSnapshot + 1;
         _nextCombat = MaxIndexIn(Path.Combine(Dir, "combats"), "*.mcr") + 1;
+
+        // Segments left plain by a crash / hot reload, other than the one
+        // still open, are closed now.
+        try
+        {
+            if (Directory.Exists(DecisionsDir))
+            {
+                foreach (var f in Directory.GetFiles(DecisionsDir, "*.jsonl"))
+                {
+                    long anchor = DecisionFormat.ParseSegmentAnchor(Path.GetFileName(f));
+                    if (anchor >= 0 && anchor != LastSavePointSeq) QueueCompressSegment(anchor);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            CoreMain.LogDebug($"Run recording: decision segment sweep failed: {ex.Message}");
+        }
+    }
+
+    public string DecisionsDir => Path.Combine(Dir, "decisions");
+
+    /// <summary>Allocate the next decision record seq (monotonic per run; recovered from events.jsonl links).</summary>
+    public long NextDecisionSeq() => ++_dseq;
+
+    /// <summary>
+    /// A save point was logged: it opens a new decision segment, and the
+    /// previous one is closed (gzipped off-thread).
+    /// </summary>
+    public void OnSavePointAppended(long seq)
+    {
+        long previous = LastSavePointSeq;
+        LastSavePointSeq = seq;
+        if (previous != seq) QueueCompressSegment(previous);
+    }
+
+    /// <summary>
+    /// Append one decision record to the open segment. The line is built on
+    /// the background chain (<paramref name="buildLine"/> must only touch
+    /// detached snapshot data), after every earlier queued write.
+    /// </summary>
+    public void QueueDecisionRecord(Func<string> buildLine)
+    {
+        string path = Path.Combine(DecisionsDir, DecisionFormat.SegmentFileName(LastSavePointSeq));
+        ReplayStorage.Enqueue("decision record write", () =>
+        {
+            string line = buildLine();
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.AppendAllText(path, line + "\n");
+        });
+    }
+
+    /// <summary>Close the open segment (run end); the next record or save point reopens one.</summary>
+    public void CloseDecisionSegment() => QueueCompressSegment(LastSavePointSeq);
+
+    private void QueueCompressSegment(long anchor)
+    {
+        string plain = Path.Combine(DecisionsDir, DecisionFormat.SegmentFileName(anchor));
+        ReplayStorage.Enqueue("decision segment compress", () =>
+        {
+            if (!File.Exists(plain)) return;
+            // A segment can be reopened after it was closed (records after a
+            // run end that a death undo then continues), so never overwrite an
+            // earlier compressed part.
+            string gz = plain + ".gz";
+            for (int part = 1; File.Exists(gz); part++)
+                gz = plain.Substring(0, plain.Length - ".jsonl".Length) + "." + part + ".jsonl.gz";
+            ReplayStorage.WriteGzip(gz, File.ReadAllBytes(plain));
+            File.Delete(plain);
+        });
     }
 
     private static int MaxIndexIn(string dir, string pattern)

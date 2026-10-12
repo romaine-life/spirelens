@@ -528,6 +528,9 @@ public static class RoomResetter
 
             // Note: this awaits SaveManager.IncrementNumReloads, which writes
             // the run save to disk before returning.
+            Replay.ReplayRecorder.SetPendingLoadReason(death != null
+                ? Replay.ReplayFormat.LoadReasonDeathUndo
+                : Replay.ReplayFormat.LoadReasonRoomRestart);
             await RunManager.Instance.SetUpSavedSingleplayer(runState, save);
             var setUpMs = phase.ElapsedMilliseconds; phase.Restart();
 

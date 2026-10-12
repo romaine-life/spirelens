@@ -122,6 +122,9 @@ public static class CoreMain
 
         RelicClassificationStore.Initialize();
         RunTracker.InitializeHooks();
+        // Run recording (docs/run-recording.md). Re-attaches to a run in
+        // progress, so it also covers a mid-run hot reload.
+        Replay.ReplayRecorder.InitializeHooks();
 
         // Resume an active run across hot reload. Our static state (current
         // run ref, instance-number map, per-def counters) lives on this Core
@@ -224,6 +227,9 @@ public static class CoreMain
 
         try { PowerHistoryPileUi.TeardownInjectedUi(); }
         catch (Exception e) { Logger.Error($"Shutdown: power history pile teardown failed: {e}"); }
+
+        try { Replay.ReplayRecorder.TeardownHooks(); }
+        catch (Exception e) { Logger.Error($"Shutdown: run recording teardown failed: {e}"); }
 
         try { RunTracker.TeardownHooks(); }
         catch (Exception e) { Logger.Error($"Shutdown: TeardownHooks failed: {e}"); }

@@ -42,20 +42,6 @@ public class DarkEmbracePowerStatsTests
             "AppendPhysicalMetaPowerSummary not found.");
 
     [Fact]
-    public void DarkEmbraceImmediateDraw_RequiresOwnerAndNonEtherealExhaust()
-    {
-        Assert.True(RunTracker.DarkEmbraceImmediateDrawQualifiesForTest(
-            exhaustedCardBelongsToOwner: true,
-            causedByEthereal: false));
-        Assert.False(RunTracker.DarkEmbraceImmediateDrawQualifiesForTest(
-            exhaustedCardBelongsToOwner: false,
-            causedByEthereal: false));
-        Assert.False(RunTracker.DarkEmbraceImmediateDrawQualifiesForTest(
-            exhaustedCardBelongsToOwner: true,
-            causedByEthereal: true));
-    }
-
-    [Fact]
     public void PowerAggregate_DarkEmbraceFields_DefaultAndSerialize()
     {
         var empty = new PowerAggregate();
@@ -75,22 +61,6 @@ public class DarkEmbracePowerStatsTests
         Assert.Contains("\"dark_embrace_combat_turns\"", json);
         Assert.NotNull(restored);
         var agg = restored!.MetaStats.PowerAggregates[DarkEmbracePowerId];
-        Assert.Equal(18, agg.DarkEmbraceCardsDrawn);
-        Assert.Equal(9, agg.DarkEmbraceCombatTurns);
-    }
-
-    [Fact]
-    public void RunTracker_DarkEmbraceHelpers_RecordOnlyPositiveOutcomes()
-    {
-        var agg = new PowerAggregate();
-
-        RunTracker.RecordDarkEmbraceCardsDrawnForTest(agg, 18);
-        RunTracker.RecordDarkEmbraceCardsDrawnForTest(agg, 0);
-        RunTracker.RecordDarkEmbraceCardsDrawnForTest(agg, -1);
-        RunTracker.RecordDarkEmbraceCombatTurnsForTest(agg, 9);
-        RunTracker.RecordDarkEmbraceCombatTurnsForTest(agg, 0);
-        RunTracker.RecordDarkEmbraceCombatTurnsForTest(agg, -1);
-
         Assert.Equal(18, agg.DarkEmbraceCardsDrawn);
         Assert.Equal(9, agg.DarkEmbraceCombatTurns);
     }
@@ -139,44 +109,6 @@ public class DarkEmbracePowerStatsTests
         Assert.Contains("[b]3[/b]", body);
         Assert.Contains("[b]2[/b]", body);
         Assert.Contains("[b]6[/b]", body);
-    }
-
-    [Fact]
-    [Trait("Category", "RequiresLiveGame")]
-    public void DarkEmbrace_UsesExactCallbacksAndDrawOverload()
-    {
-        var immediateTarget = AccessTools.Method(
-            typeof(DarkEmbracePower),
-            nameof(DarkEmbracePower.AfterCardExhausted),
-            new[]
-            {
-                typeof(PlayerChoiceContext),
-                typeof(CardModel),
-                typeof(bool),
-            });
-        var deferredTarget = AccessTools.Method(
-            typeof(DarkEmbracePower),
-            nameof(DarkEmbracePower.AfterSideTurnEnd),
-            new[]
-            {
-                typeof(PlayerChoiceContext),
-                typeof(CombatSide),
-                typeof(IEnumerable<Creature>),
-            });
-        var drawTarget = AccessTools.Method(
-            typeof(CardPileCmd),
-            nameof(CardPileCmd.Draw),
-            new[]
-            {
-                typeof(PlayerChoiceContext),
-                typeof(decimal),
-                typeof(Player),
-                typeof(bool),
-            });
-
-        Assert.NotNull(immediateTarget);
-        Assert.NotNull(deferredTarget);
-        Assert.NotNull(drawTarget);
     }
 
     private static PowerAggregate CreateAggregate(

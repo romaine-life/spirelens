@@ -62,7 +62,8 @@ internal static class EffectRegistry
     ];
 
     /// <summary>Player powers whose payoff is a command their own hooks
-    /// issue. Damage/block modifiers (Strength, Vulnerable...) are not
+    /// issue. A power migrated off bespoke tracking must stop writing its
+    /// legacy fields in the same change that enrolls it. Damage/block modifiers (Strength, Vulnerable...) are not
     /// here: their marginal contribution needs its own convention. Thorns is
     /// not here because Bronze Scales already owns a Thorns damage window.</summary>
     internal static readonly string[] PowerClassNames =
@@ -95,6 +96,9 @@ internal static class EffectRegistry
         "SentryModePower", "NightmarePower", "SoulboundPower", "ForegoneConclusionPower",
         "StratagemPower", "InfiniteBladesPower", "ImprovementPower", "FurnacePower",
         "HammerTimePower", "RegenPower", "RoyaltiesPower",
+        // Migrated from bespoke windows (their frozen legacy PowerAggregate
+        // fields are still read and added to the bag by the tooltip).
+        "FeelNoPainPower", "DanseMacabrePower", "DarkEmbracePower", "ViciousPower",
     ];
 
     // Resolved against the game assembly that defines RelicModel/PowerModel,

@@ -999,11 +999,13 @@ public static class CardHoverShowPatch
                 break;
 
             case DanseMacabreCardId:
-                Row3(sb, "Times triggered", aggregate.TimesTriggered.ToString(), "");
+                Row3(sb, "Times triggered", FormatDecimal(aggregate.TimesTriggered
+                        + EffectOutcome(aggregate, Effects.EffectOutcomeKeys.Triggers)), "");
                 Row3(
                     sb,
                     GetBlockStatLabel("Block gained"),
-                    FormatDecimal(aggregate.BlockGained),
+                    FormatDecimal(aggregate.BlockGained
+                        + EffectOutcome(aggregate, Effects.EffectOutcomeKeys.Block)),
                     "");
                 break;
 
@@ -1011,7 +1013,8 @@ public static class CardHoverShowPatch
                 Row3(
                     sb,
                     GetDrawStatLabel("cards drawn"),
-                    aggregate.DarkEmbraceCardsDrawn.ToString(),
+                    FormatDecimal(aggregate.DarkEmbraceCardsDrawn
+                        + EffectOutcome(aggregate, Effects.EffectOutcomeKeys.CardsDrawn)),
                     "");
                 break;
 
@@ -1038,7 +1041,8 @@ public static class CardHoverShowPatch
                 Row3(
                     sb,
                     GetBlockStatLabel("Block gained"),
-                    FormatDecimal(aggregate.BlockGained),
+                    FormatDecimal(aggregate.BlockGained
+                        + EffectOutcome(aggregate, Effects.EffectOutcomeKeys.Block)),
                     "");
                 break;
 
@@ -1097,7 +1101,8 @@ public static class CardHoverShowPatch
                 Row3(
                     sb,
                     GetDrawStatLabel("cards drawn"),
-                    aggregate.ViciousCardsDrawn.ToString(),
+                    FormatDecimal(aggregate.ViciousCardsDrawn
+                        + EffectOutcome(aggregate, Effects.EffectOutcomeKeys.CardsDrawn)),
                     "");
                 break;
 
@@ -1173,19 +1178,22 @@ public static class CardHoverShowPatch
                 AppendMetaPowerRateTriplet(
                     sb,
                     "triggers",
-                    aggregate.RateTimesTriggered,
+                    aggregate.RateTimesTriggered
+                        + EffectOutcome(aggregate, Effects.EffectOutcomeKeys.Triggers),
                     aggregate);
                 AppendMetaPowerRateTriplet(
                     sb,
                     "block gained",
-                    aggregate.RateBlockGained,
+                    aggregate.RateBlockGained
+                        + EffectOutcome(aggregate, Effects.EffectOutcomeKeys.Block),
                     aggregate);
                 break;
             case DarkEmbraceCardId:
                 AppendMetaPowerRateTriplet(
                     sb,
                     "cards drawn",
-                    aggregate.RateDarkEmbraceCardsDrawn,
+                    aggregate.RateDarkEmbraceCardsDrawn
+                        + EffectOutcome(aggregate, Effects.EffectOutcomeKeys.CardsDrawn),
                     aggregate);
                 break;
             case EntropyCardId:
@@ -1199,7 +1207,8 @@ public static class CardHoverShowPatch
                 AppendMetaPowerRateTriplet(
                     sb,
                     "block gained",
-                    aggregate.RateBlockGained,
+                    aggregate.RateBlockGained
+                        + EffectOutcome(aggregate, Effects.EffectOutcomeKeys.Block),
                     aggregate);
                 break;
             case RuptureCardId:
@@ -1244,11 +1253,20 @@ public static class CardHoverShowPatch
                 AppendMetaPowerRateTriplet(
                     sb,
                     "cards drawn",
-                    aggregate.RateViciousCardsDrawn,
+                    aggregate.RateViciousCardsDrawn
+                        + EffectOutcome(aggregate, Effects.EffectOutcomeKeys.CardsDrawn),
                     aggregate);
                 break;
         }
     }
+
+    /// <summary>A pooled power's effect-frame outcome, 0 when absent. Powers
+    /// migrated onto the framework (Feel No Pain, Danse Macabre, Dark
+    /// Embrace, Vicious) show frozen legacy field + bag; each era wrote only
+    /// one of the two, so nothing double-counts. The bag accrues in the same
+    /// observation era as the Meta* rate denominators.</summary>
+    internal static decimal EffectOutcome(PowerAggregate aggregate, string key)
+        => aggregate.Outcomes != null && aggregate.Outcomes.TryGetValue(key, out var value) ? value : 0m;
 
     private static void AppendMetaPowerRateTriplet(
         StringBuilder sb,
@@ -2290,6 +2308,9 @@ public static class CardHoverShowPatch
     private static void AppendAppliedEffectPayoffRows(StringBuilder sb, AppliedEffectAggregate effect)
     {
         if (!Effects.EffectOutcomeRows.HasVisibleOutcomes(effect.Outcomes)) return;
+        // A meta-power card already shows the family total (ADR 0003); a
+        // per-copy share beside it would read as a second, smaller total.
+        if (MetaPowerRegistry.TryGetByPowerId(effect.EffectId, out _)) return;
 
         var powerName = string.IsNullOrWhiteSpace(effect.DisplayName)
             ? Effects.EffectOutcomeRows.Humanize(effect.EffectId)

@@ -1227,12 +1227,12 @@ zero-inclusive so the creation averages include turns and combats where the
 box produced no card.
 
 `ViciousPower.AfterPowerAmountChanged` owns the exact trigger condition: a
-positive Vulnerable change applied by the power's owner. Arm a narrow window
-around that callback and consume it at the immediate `CardPileCmd.Draw` call.
-Count the non-null cards returned by that command, not the Vicious stack amount,
-so No Draw, hand capacity, and pile exhaustion remain observed zero-value
-outcomes. Persist the shared total under `POWER.VICIOUS` and project it on
-every Vicious card rather than attributing later triggers to one physical copy.
+positive Vulnerable change applied by the power's owner. Its payoff is tracked
+by the generic effect frames (ADR 0004): the callback is framed, and every card
+it actually draws is credited to `cards_drawn` in the pooled `POWER.VICIOUS`
+outcome bag, so No Draw, hand capacity, and pile exhaustion remain observed
+zero-value outcomes. The pre-framework `ViciousCardsDrawn` field is frozen and
+the tooltip shows it plus the bag, projected on every Vicious card.
 
 `StampedePower.AfterAutoPostPlayPhaseEntered` selects eligible Attacks from the
 owner’s hand and sequentially awaits `CardCmd.AutoPlay`. Keep a callback-wide
@@ -1274,26 +1274,28 @@ Persist `StrengthGained` and `TurnsActive` under `POWER.RUPTURE`, then project
 the shared total and per-active-turn quotient on every Rupture card.
 
 `FeelNoPainPower.AfterCardExhausted` owns an exact owner-card check and then
-awaits the decimal/`ValueProp` `CreatureCmd.GainBlock` overload. Arm from that
-callback and replace the command's returned task with an observer so the
-post-modifier block amount is recorded before the power listener completes.
-For the per-active-turn denominator, count the positive application turn from
+awaits `CreatureCmd.GainBlock`. Its payoff is tracked by the generic effect
+frames (ADR 0004): the frame claims the resulting `BlockGainedEntry`, so the
+block is credited to the power's `block` outcome and no longer also falls back
+to the card whose play exhausted something (True Grit, Second Wind). For the
+per-active-turn denominator, count the positive application turn from
 `PowerReceivedEntry` and every later player turn that starts with the power,
-including turns with no exhausts. Persist the numerator as `BlockGained` and
-the denominator as `TurnsActive` under `POWER.FEEL_NO_PAIN`, then project the
-shared quotient on every Feel No Pain card.
+including turns with no exhausts. The pre-framework `BlockGained` and
+`RateBlockGained` fields are frozen; the tooltip shows them plus the bag under
+`POWER.FEEL_NO_PAIN`, projected on every Feel No Pain card.
 
 `DarkEmbracePower` has two draw paths. Non-Ethereal owner cards draw
 immediately from `AfterCardExhausted`; Ethereal cards increment an internal
-counter and produce one deferred batch from `AfterSideTurnEnd`. Arm each native
-callback independently, consume the window at its direct `CardPileCmd.Draw`,
-and count only the cards returned by that command so blocked or capacity-limited
-draws stay observed outcomes. Count the application turn and later turns that
-start while the power is active for the active-turn denominator. Also count
-every player turn in a combat where Dark Embrace became active, including turns
-before it was played, by finalizing that combat-wide denominator at promotion.
-Persist both turn denominators, the active-combat count, and cards drawn under
-`POWER.DARK_EMBRACE`, then project all four rows on every Dark Embrace card.
+counter and produce one deferred batch from `AfterSideTurnEnd`. Both callbacks
+are framed by the generic effect frames (ADR 0004), so only cards actually
+drawn inside them reach the pooled `cards_drawn` outcome, and those draws no
+longer also fall back to the card that caused the exhaust. Count the
+application turn and later turns that start while the power is active for the
+active-turn denominator. Also count every player turn in a combat where Dark
+Embrace became active, including turns before it was played, by finalizing
+that combat-wide denominator at promotion. The pre-framework
+`DarkEmbraceCardsDrawn` fields are frozen; the tooltip shows them plus the bag
+under `POWER.DARK_EMBRACE`, projected on every Dark Embrace card.
 
 `ConsumingShadowPower.AfterSideTurnEnd` sequentially calls and awaits
 `OrbCmd.EvokeLast` once per Power stack, but later calls can become no-ops when
@@ -1308,13 +1310,14 @@ the cards that originally channeled those orbs.
 `DanseMacabrePower.BeforeCardPlayed` owns both the exact trigger condition and
 the block command: an owner card whose resolved energy cost is at least the
 power's Energy dynamic variable causes one flash and one awaited
-`CreatureCmd.GainBlock(Creature, decimal, ValueProp, CardPlay, bool)`. Count
-the callback trigger there, arm only that immediate overload, and use its
-returned post-modifier amount as block gained. The application turn is
-observed from the successful `PowerReceivedEntry`; later turns come from
-`Hook.AfterPlayerTurnStart`. Persist the shared totals and active
-turn/combat denominators under the power ID, and project them on every Danse
-Macabre card rather than assigning later power behavior to one physical copy.
+`CreatureCmd.GainBlock`. The callback is framed by the generic effect frames
+(ADR 0004): a frame that gained block counts one `triggers` outcome and its
+observed block is the `block` outcome, and that block no longer also falls
+back to the card being played. The application turn is observed from the
+successful `PowerReceivedEntry`; later turns come from
+`Hook.AfterPlayerTurnStart`. The pre-framework `TimesTriggered`/`BlockGained`
+and their `Rate*` fields are frozen; the tooltip shows them plus the bag under
+the power ID, projected on every Danse Macabre card.
 
 For relics that emit damage commands, prefer the relic-owned callback plus the resolved `CreatureCmd.Damage` result. Mercury Hourglass arms from `MercuryHourglass.AfterPlayerTurnStart` and records the actual multi-target damage split from the command result on each turn. Every armed turn start is one activation; the per-combat averages divide by a separate zero-inclusive held-combat denominator (`MercuryHourglassCombats`, counted from the shared held-combat baseline pass) rather than by the activation count.
 

@@ -288,8 +288,12 @@ Run recording (`Core/Replay/`, format in [run-recording.md](run-recording.md)) r
 - `RunSaveManager.SaveRun(SerializableRun save, bool isMultiplayer)` is that method.
 - The `SaveRun(AbstractRoom)` overload that `RunSaveSnapshotPatch` uses builds the `SerializableRun` and calls it, but it is not the only caller.
 - `SaveManager.IncrementNumReloads` calls the `SerializableRun` overload directly, on every `SetUpSavedSingleplayer` / `SetUpSavedMultiplayer`.
-- `ReplaySaveSnapshotPatch` therefore patches the `SerializableRun` overload and sees the exact object about to be serialized.
-- It serializes with `JsonSerializationUtility.GetTypeInfo<SerializableRun>()`, so the snapshot matches `current_run.save`.
+- The method ends with `this.Saved?.Invoke()` after the file is written. `SaveManager.Saved` forwards that event.
+- Run recording subscribes to that event and reads back the file the game just wrote. It does **not** patch the method.
+- **A Harmony prefix on this method did not run after a hot reload.** It was added at Core hot reload in an already-running game. Harmony listed `RunSaveManager.SaveRun` as patched, but over about six floors of saves the prefix never ran.
+- The method's only callers are `SaveRun(AbstractRoom)` in the same class and `SaveManager.IncrementNumReloads`. Both are direct calls that were compiled before the detour existed, and they kept calling the original. This is the "Newly Added Harmony Targets Need One Full Restart" case above.
+- `RunSaveSnapshotPatch` on the `AbstractRoom` overload is unaffected, because it was patched before its callers compiled.
+- When a game method raises a public event at the point you need, subscribing to the event avoids the restart entirely.
 
 **Inputs reach public per-run events.**
 

@@ -235,9 +235,35 @@ and on Core `Initialize` when a run is live:
 - `RunManager.Instance.ActionExecutor.AfterActionExecuted`, plus a per-action
   `GameAction.BeforeCancelled` for player-driven actions.
 
+One subscription is made once per Core load rather than per run:
+
+- `SaveManager.Instance.Saved`, which forwards `RunSaveManager.Saved`, produces
+  `save_point` and the snapshot. `RunSaveManager.SaveRun(SerializableRun save,
+  bool isMultiplayer)` raises it right after writing the file. That method
+  handles every run-save write, including the `IncrementNumReloads` re-save on
+  each load.
+  - The handler reads back the file the game just wrote (the newer of
+    `current_run.save` and `current_run_mp.save`), so the snapshot is
+    byte-for-byte the save.
+  - It deserializes the file with `JsonSerializationUtility.GetTypeInfo<SerializableRun>()`
+    to compute the key and fields.
+
+  The handler runs after the game's `await` of the file write. It may
+  therefore land on a thread-pool thread, and it touches run state read-only.
+
+**Why an event and not a Harmony prefix.** The first build prefixed
+`SaveRun(SerializableRun, bool)`. Live, after a Core hot reload with no game
+restart, Harmony listed the method as patched, yet the prefix never ran: zero
+`save_point` events over six floors. The method's only callers are
+`SaveRun(AbstractRoom)` in the same class and `SaveManager.IncrementNumReloads`.
+Both were compiled before the hot reload added the detour, and they kept
+calling the original. This is the primer's "Newly Added Harmony Targets Need
+One Full Restart" case. The existing `RunSaveSnapshotPatch` on the
+`AbstractRoom` overload works because it has been patched since process start.
+A public event works from the moment it is subscribed, with no restart.
+
 Harmony patches (prefixes unless noted):
 
-- `RunSaveManager.SaveRun(SerializableRun save, bool isMultiplayer)` → `save_point` plus the snapshot
 - `RunManager.SetUpSavedSingleplayer(RunState state, SerializableRun save)` and
   `RunManager.SetUpSavedMultiplayer(RunState state, LoadRunLobby lobby)` → `load`
 - `RunManager.WriteReplay(bool stopRecording)`, prefix and postfix → `.mcr` copy
@@ -263,8 +289,8 @@ Cost on the game thread:
 
 - per event, one small JSON line plus a `FileStream.Flush`, which lands in
   the OS cache;
-- per save, one extra `JsonSerializer` pass over the save (the game does the
-  same pass itself);
+- per save, one read-back and one deserialize of the run save the game just
+  wrote (50-70 KB);
 - per combat end, one read of the `.mcr` (35-270 KB).
 
 Gzip and all file writes other than the per-event line run on one ordered

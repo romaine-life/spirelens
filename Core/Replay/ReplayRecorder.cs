@@ -39,8 +39,10 @@ namespace SpireLens.Core.Replay;
 ///     <c>PlayerChoiceSynchronizer.PlayerChoiceReceived</c>,
 ///     <c>ChecksumTracker.ChecksumGenerated</c>,
 ///     <c>ActionExecutor.AfterActionExecuted</c>;
-///   * Harmony prefixes in <c>Core/Patches/Replay*Patch.cs</c> for save
-///     points, loads, combat-replay copies and the non-action decisions
+///   * <c>SaveManager.Saved</c> (raised after every run-save write) for save
+///     points and snapshots;
+///   * Harmony prefixes in <c>Core/Patches/Replay*Patch.cs</c> for loads,
+///     combat-replay copies and the non-action decisions
 ///     (event / rest site / reward / shop / treasure chest).
 ///
 /// Hot reload: <see cref="InitializeHooks"/> re-attaches to a run already in
@@ -55,6 +57,7 @@ public static class ReplayRecorder
     private static readonly object _lock = new();
     private static ReplaySession? _session;
     private static bool _hooked;
+    private static SaveManager? _savedSource;
 
     // Per-run game objects we are subscribed to (they are recreated for every run).
     private static ActionQueueSet? _subQueue;
@@ -93,6 +96,8 @@ public static class ReplayRecorder
         }
 
         RunManager.Instance.RunStarted += OnRunStarted;
+        _savedSource = SaveManager.Instance;
+        _savedSource.Saved += OnRunSaved;
         _hooked = true;
         _active = true;
 
@@ -121,6 +126,8 @@ public static class ReplayRecorder
         if (_hooked)
         {
             try { RunManager.Instance.RunStarted -= OnRunStarted; } catch { }
+            try { if (_savedSource != null) _savedSource.Saved -= OnRunSaved; } catch { }
+            _savedSource = null;
             _hooked = false;
         }
         lock (_lock)
@@ -202,22 +209,30 @@ public static class ReplayRecorder
         }
     });
 
-    // -------- Save points and loads (Harmony prefixes) --------
+    // -------- Save points (RunSaveManager.Saved) and loads (Harmony prefix) --------
 
     /// <summary>
-    /// Prefix on <c>RunSaveManager.SaveRun(SerializableRun, bool)</c> — the one
-    /// method every run-save write goes through (map-node entry, combat
-    /// victory, finished Ancient, run creation, and the IncrementNumReloads
-    /// re-save on every load). Serializes the exact object the game is about
-    /// to write, with the game's own JSON type info, so the snapshot is
-    /// byte-compatible with <c>current_run.save</c>.
+    /// Handler for <c>SaveManager.Saved</c> (forwarding <c>RunSaveManager.Saved</c>),
+    /// which <c>RunSaveManager.SaveRun(SerializableRun, bool)</c> raises right
+    /// after writing the run save. That method is the one every run-save write
+    /// goes through: map-node entry, combat victory, finished Ancient, run
+    /// creation, and the IncrementNumReloads re-save on every load.
+    ///
+    /// Deliberately an event, not a Harmony prefix on that method: its only
+    /// callers (the <c>SaveRun(AbstractRoom)</c> overload and
+    /// <c>SaveManager.IncrementNumReloads</c>) are compiled long before a hot
+    /// reload adds a detour, and live they bypassed one (see the primer,
+    /// "Newly Added Harmony Targets Need One Full Restart"). The event works
+    /// from the moment it is subscribed. The handler reads back the file the
+    /// game just wrote, so the snapshot is byte-for-byte <c>current_run.save</c>.
     /// </summary>
-    public static void OnRunSaveWriting(SerializableRun save, bool isMultiplayer) => Guard(nameof(OnRunSaveWriting), () =>
+    private static void OnRunSaved() => Guard(nameof(OnRunSaved), () =>
     {
-        if (save == null) return;
         if (RunManager.Instance.NetService?.Type == NetGameType.Replay) return;
+        if (!TryReadLatestRunSave(out byte[] json, out bool isMultiplayer)) return;
 
-        byte[] json = JsonSerializer.SerializeToUtf8Bytes(save, JsonSerializationUtility.GetTypeInfo<SerializableRun>());
+        var save = JsonSerializer.Deserialize(json, JsonSerializationUtility.GetTypeInfo<SerializableRun>());
+        if (save == null) return;
         string key = SavePointKey(save);
 
         lock (_lock)
@@ -295,6 +310,26 @@ public static class ReplayRecorder
             }
         }
     });
+
+    /// <summary>
+    /// The run save file the game most recently wrote. <c>Saved</c> does not
+    /// say which file, and <c>RunManager.NetService</c> is not yet the new
+    /// run's while <c>SetUpSaved*</c> re-saves, so pick the newer of the
+    /// singleplayer and multiplayer saves.
+    /// </summary>
+    private static bool TryReadLatestRunSave(out byte[] bytes, out bool isMultiplayer)
+    {
+        bytes = Array.Empty<byte>();
+        isMultiplayer = false;
+        var rsm = SaveManager.Instance._runSaveManager;
+        string sp = Godot.ProjectSettings.GlobalizePath(rsm._saveStore.GetFullPath(rsm.CurrentRunSavePath));
+        string mp = Godot.ProjectSettings.GlobalizePath(rsm._saveStore.GetFullPath(rsm.CurrentMultiplayerRunSavePath));
+        bool spExists = File.Exists(sp), mpExists = File.Exists(mp);
+        if (!spExists && !mpExists) return false;
+        isMultiplayer = mpExists && (!spExists || File.GetLastWriteTimeUtc(mp) > File.GetLastWriteTimeUtc(sp));
+        bytes = File.ReadAllBytes(isMultiplayer ? mp : sp);
+        return bytes.Length > 0;
+    }
 
     // -------- Combat replay copies (Harmony prefix + postfix on RunManager.WriteReplay) --------
 

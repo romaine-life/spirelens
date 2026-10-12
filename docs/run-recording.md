@@ -12,10 +12,42 @@ Code:
 - `Core/Replay/ReplayFormat.cs` holds the pure format logic: line shape,
   save-point key and timeline cut. It has no game dependencies, so an offline
   tool can reuse it.
+- `Core/Replay/DecisionCapture.cs` reads the state and the legal options at
+  each decision.
+- `Core/Replay/DecisionFormat.cs` holds the pure decision-record shape and
+  the join logic.
 - The hooks are in `Core/Patches/Replay*Patch.cs`.
 
 To turn recording off, set the environment variable
 `SPIRELENS_DISABLE_RUN_RECORDING=1`. It is read once per Core load.
+
+## Decisions
+
+These product decisions were made by the user on 2026-10-12. They constrain
+every later change to this format.
+
+- **Replay means SpireLens drives the real game as the player.** It is not a
+  separate simulator or a video. The replay driver re-issues the recorded
+  inputs through the game's own entry points.
+- **Recordings play only on the exact game build that made them.** Older
+  recordings are kept but are not playable on a newer build. The player must
+  refuse a mismatch clearly, comparing `header.game.commit` and
+  `model_id_hash`, and never attempt a best-effort replay.
+- **A database is wanted for two uses:** an in-game run list, and
+  out-of-game stats. It is derived from these files; it does not replace
+  them.
+- **The user plans to train a model to play from these recordings.** That is
+  why every local decision gets a self-contained record (see "Decision
+  records"): state, legal options and the choice. Training data must never
+  depend on re-simulating, because re-simulation breaks across game builds.
+- **Storage:** the recordings live on this laptop, and the raw recordings are
+  backed up to a Synology NAS. The NAS sync is outside SpireLens. Files are
+  append-only or closed-then-gzipped, so a file-level sync tool sees each
+  file change only while it is being written.
+- **Past runs:** the roughly 764 existing game `history/*.run` files will be
+  imported later as summaries. They are not replayable.
+- **Retention: keep everything forever.** That includes abandoned branches,
+  old-build recordings and every snapshot. Nothing here deletes recordings.
 
 ## What is recorded, and why it is enough to replay
 
@@ -50,6 +82,8 @@ To turn recording off, set the environment variable
     events.jsonl
     snapshots\0000.json.gz, 0001.json.gz, ...     gzip of the exact current_run.save JSON
     combats\0000-f03.mcr, ...                     game-native CombatReplay (PacketWriter binary), NNNN-f<floor>
+    decisions\s000301.jsonl.gz, ...               per-decision training records, one segment per save point
+             \s000377.jsonl                       the open segment (plain until the next save point / run end)
 ```
 
 This is deliberately **not** under `user://SpireLens/runs/`, which
@@ -167,6 +201,190 @@ Not captured yet:
   only through state;
 - cursor, hover and map drawing (cosmetic);
 - multiplayer remote players' non-action decisions.
+
+## Decision records (training data)
+
+`decisions/` holds one record per decision the **local** player makes. Each
+record is self-contained: the full state at that instant, the legal options
+that were available, and the option taken. A trainer reads these records
+alone. It never re-simulates, so the data stays usable on any later game
+build.
+
+`header.decisions_format_version` is the record format version. It is
+currently `1`, and each record also carries it as `format_version`. Changes
+are **additive only**: new fields may appear, and existing fields keep their
+meaning. A breaking change would bump the version.
+
+### Which decisions get a record
+
+| `kind` | source event | options |
+|---|---|---|
+| `play_card`, `use_potion`, `discard_potion`, `end_turn` | `action` | Every legal combat action: playable hand cards (`CardModel.CanPlay`) × valid targets (`IsValidTarget`, including the no-target case), usable potions (`CombatOnly`/`AnyTime`) × valid targets, potion discards, and end turn. |
+| `use_potion` / `discard_potion` out of combat | `action` | `AnyTime` potions × targets, and discards |
+| `undo_end_turn`, `vote_next_act` | `action` | the single option |
+| `map_vote` | `action` | Map nodes reachable from the current point (`CurrentMapPoint.Children`, or `Map.startMapPoints` at an act start), each with its `point_type`. |
+| `pick_relic` | `action` (treasure room) | `TreasureRoomRelicSynchronizer.CurrentRelics` by index, plus skip (`index: -1`) |
+| `card_reward` | `choice` | The card reward screen's cards, then its alternatives (reroll and similar, `index = cards + j`). Skip is no index. |
+| `card_select` | `choice` | Whatever selection screen offered the choice: choose-a-card, the simple, deck, upgrade, transform, enchant or combat-pile grids, a bundle, a relic, or an in-hand selection. `selection` adds the screen name, `min_select`, `max_select` and `can_skip`. |
+| `event_option` | `decision` | the event's current options: `id` = text key, plus `locked`, `proceed` and `relic`. This covers Neow and the Ancients. |
+| `rest_option` | `decision` | the rest site options: `id` = option id, plus `enabled` |
+| `reward_take`, `reward_skip` | `decision` | the rewards screen's rewards (cards, relic, potion, text), then skip at `index = rewards.Count` |
+| `shop_buy`, `shop_remove_card` | `decision` | The whole shop: `id` = category (`character_card`, `colorless_card`, `relic`, `potion`, `card_removal`), `index` = slot, plus cost, stocked and affordable. Purchases made by game logic (`auto`) get no record. |
+| `treasure_chest_open` | `decision` | the single option |
+
+Leaving a shop or event is not a separate decision. The next decision is the
+`map_vote`.
+
+### Record shape
+
+Each record is one JSON line:
+
+```
+format_version, dseq, event_seq, event_type, anchor_save_seq, t, kind,
+phase ("combat" | "run"), player, context {floor, act, coord, in_combat, run_time},
+chosen          readable form of what was taken (the event's sem / data)
+chosen_index    index into options (null if the taken action was not in the enumeration)
+chosen_indexes  multi-select choices (card_select / card_reward)
+options         [{kind, index?, combat_card_index?, target?, target_player?, slot?, id?, label?, ...detail}]
+options_complete  false when the option set is known to be partial (see notes)
+selection       {screen, min_select, max_select, can_skip, filter_known}   (choices only)
+state           readable state (below)
+hidden          information the player could NOT see (below); a trainer should exclude it
+net_state       {form, b64}: the game's own exact encoding (below)
+notes           ["options_unavailable: ...", "chosen_not_in_enumerated_options", ...]
+```
+
+**`state.run`** is always present:
+
+- `character`, `hp`, `max_hp`, `gold`, `floor`, `act`, `coord`, `room_type`, `ascension`, `max_energy`
+- `deck`: a list of `{id, upgrade, enchantment{id, amount}, deck_index}`
+- `relics`: a list of `{id, counter?, status}`
+- `potions`: one entry per slot, either `{slot, id, usage, target_type}` or `null`
+
+**`state.combat`** is present in combat:
+
+- `round`, `side`, `turn`, `energy`, `max_energy`, `stars`, `hp`, `max_hp`, `block`
+- `powers`: `[{id, amount}]`
+- `orbs`: `[{id, passive, evoke}]`
+- `hand`: one entry per card, with:
+  - `id`, `upgrade`, `enchantment`
+  - `combat_card_index`, `type`, `target_type`
+  - `cost` (with modifiers), `star_cost`, `affliction`
+  - `playable` and `unplayable_reason`
+  - `hand_index`
+- `draw_pile_count` and `draw_pile`. The draw pile is **sorted**: its
+  composition is visible in game, but its order is not.
+- `discard_pile` and `exhaust_pile`, in pile order
+- `creatures`: one entry per combatant, with:
+  - `combat_id`, `side`, `monster` / `player`
+  - `hp`, `max_hp`, `block`, `alive`, `powers`
+  - for monsters, `intents`: `[{type, damage?, hits?}]`. Damage is the same
+    preview the intent UI shows. A hidden intent reports only its type.
+
+**`hidden`** holds information the player cannot see:
+
+- `draw_pile_order`: the true order of the draw pile;
+- `monster_moves`: each monster's next move id.
+
+**`net_state`** is the game's own exact encoding, base64 of `PacketWriter`
+output:
+
+- In combat, `form` is `NetFullCombatState`, built by `NetFullCombatState.FromRun`.
+  This is the same state the game checksums for multiplayer desync detection:
+  creatures, powers, piles **in order**, orbs, potions, relics and **RNG
+  state**.
+- Out of combat, `form` is `SerializablePlayer`, built by `Player.ToSerializable`.
+  It holds the deck, relics, potions and the player's RNG.
+
+Both forms contain hidden information (draw order, RNG) and decode only on the
+same build, so treat them as an audit and exactness channel, not as trainer
+input.
+
+### Joining and branches
+
+- Every decision event in `events.jsonl` (`action`, `choice` or `decision`)
+  carries `data.dseq`.
+- The record carries `event_seq` (the event's `seq`) and `event_type`.
+- `dseq` is monotonic per run and resumes after a hot reload or restart from
+  the last `dseq` linked in `events.jsonl`.
+- **Records follow the event timeline.** A record is canonical if and only if
+  its `event_seq` is on the canonical path, so a load cuts records exactly
+  like events (`DecisionFormat.CanonicalRecords`).
+- `anchor_save_seq` is the `save_point` the record's segment belongs to.
+
+### Storage choice: segmented by save point, gzipped when closed
+
+Records go to `decisions/s<anchor>.jsonl`, where `<anchor>` is the seq of the
+`save_point` that opened the segment, or `0` before the first save. Each new
+`save_point` closes the previous segment, and so does the run end. Closing
+gzips the segment off the game thread into `s<anchor>.jsonl.gz`; a reopened
+segment gets `s<anchor>.<n>.jsonl.gz`. A Core load sweeps up stale plain
+segments.
+
+Why this layout:
+
+- **It keeps `events.jsonl` light.** Records are about 5-30 KB each, mostly
+  state. The event log stays small and grep-able.
+- **Segment boundaries are exactly the points where a load can cut the
+  timeline.** A branch is a contiguous set of whole segments, plus at most
+  the tail of one.
+- **Only the current room is uncompressed.** A crash loses no closed data,
+  because closed segments are complete gzip files, and at most the
+  still-queued tail of the open one.
+- **Closed files never change again**, which suits the NAS backup.
+
+### Game-thread cost (expected; not measured)
+
+Synchronous, on the game thread, before the decision applies:
+
+- the readable state;
+- the legal-option enumeration. In combat this is about hand × (creatures + 1)
+  `CanPlay`/`IsValidTarget` calls, plus one damage preview per monster intent;
+- the detached snapshot (`NetFullCombatState.FromRun` or `Player.ToSerializable`,
+  which copy cards, relics and RNG);
+- one events.jsonl line.
+
+The expected cost is roughly 0.3-2 ms per decision, depending on hand and deck
+size. Packet-encoding the snapshot, JSON-serializing the record, appending it
+and gzipping closed segments all run on the background chain. Decisions come
+at human pace, a few per second at most.
+
+### Capture points
+
+No new Harmony targets; see the primer.
+
+- Actions use the existing `ActionQueueSet.ActionEnqueued` subscription. It
+  fires before the action executes, so the state is pre-decision.
+- Choices use the existing `PlayerChoiceSynchronizer.PlayerChoiceReceived`.
+  The offered options come from a snapshot taken when the selection UI opened:
+  - **Overlay screens:** `NOverlayStack.Changed`, a plain C# event raised on
+    every push. The handler reads the top screen's `_cards`, `_options`,
+    `_extraOptions`, `_bundles`, `_relics` and `_prefs`.
+  - **In-hand selections:** `NPlayerHand.ModeChanged`. Prefs and filter are
+    read with a deferred call, because `SelectCards` sets them after the mode
+    change.
+
+  The screens close before the choice syncs, which is why the snapshot is
+  taken at open. Both subscriptions are refreshed lazily, because the objects
+  are recreated per run and per combat. They are dropped at Core shutdown.
+- Non-action decisions use the existing decision prefixes (event, rest site,
+  reward, shop, treasure chest). Those were installed by the previous build;
+  their hot-reload behavior is covered in the primer.
+
+### Known limits
+
+- **Stale selection snapshots.** A choice made without a preceding snapshot
+  (for example an auto-resolved selection with no screen) is recorded with
+  `options: []` and a note. A snapshot left over from a screen that never
+  produced a choice could be attached to the next choice. The record's
+  `selection.screen` lets a trainer check consistency.
+- **Treasure relic voting** is recorded per vote. In singleplayer, the vote is
+  the pick.
+- **Multiplayer:** records are written only for the local player.
+- **Potion usability** is decided by `Usage` and `IsValidTarget`. Any
+  per-potion custom usability check the game applies elsewhere is not
+  modeled. The option set can then be slightly too large; it is never too
+  small.
 
 ## Save points, loads and the canonical timeline
 

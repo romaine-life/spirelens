@@ -314,6 +314,55 @@ Run recording (`Core/Replay/`, format in [run-recording.md](run-recording.md)) r
 - Main-menu Continue, RoomResetter restart and death undo all call `RunManager.SetUpSavedSingleplayer(RunState state, SerializableRun save)`.
 - `ReplayLoadMarkerPatch` prefixes it, so the `load` marker precedes the `IncrementNumReloads` re-save.
 
+### Selection Screens Close Before Their Choice Syncs
+
+Per-decision training records need the options a selection screen offered.
+By the time `PlayerChoiceSynchronizer.SyncLocalChoice` runs, the screen is
+usually gone:
+
+- `NChooseACardSelectionScreen.CardsSelected` removes the screen from
+  `NOverlayStack` before returning.
+- `NDeckCardSelectScreen` removes itself as it completes.
+- `NPlayerHand.SelectCards` clears `_prefs` and the selection filter in
+  `AfterCardsSelected`, before `CardSelectCmd.FromHand` syncs the choice.
+
+So the options are snapshot when the screen opens.
+
+**`NOverlayStack.Changed`**
+
+- It is a plain C# event: the generated add/remove touch a backing delegate,
+  and the Godot signal raise invokes it.
+- `Push` emits it after the screen has been added. `Peek()` then returns the
+  new screen with its `_cards`, `_prefs`, `_options` and `_extraOptions`
+  already set by `ShowScreen` / `Create`.
+
+**`NPlayerHand.ModeChanged`**
+
+- It is the same kind of plain C# event, emitted from the `CurrentMode` setter.
+- `SelectCards` sets `CurrentMode` **before** it stores `_prefs` and
+  `_currentSelectionFilter`. The handler therefore reads them through a
+  deferred `Callable` call, by which point `SelectCards` has reached its
+  `await`.
+
+**Lifetime and hot reload**
+
+- Both objects are recreated per run (`NOverlayStack` lives under `NRun`) or
+  per combat (`NPlayerHand` lives under `NCombatRoom`). Subscriptions are
+  refreshed lazily from frequent recorder callbacks and removed at Core
+  shutdown.
+- No Harmony target is involved, so the restart caveat above does not apply.
+
+**Side effects of reading legal actions and intents**
+
+- Reading legal actions calls `CardModel.CanPlay` / `IsValidTarget` and
+  `PotionModel.IsValidTarget`. Reading intents calls
+  `AttackIntent.GetSingleDamage`, which runs `Hook.ModifyDamage` with no card
+  source.
+- The UI makes the same calls continuously. SpireLens's damage-modifier
+  patches (`PenNibModifyDamageMultiplicativePatch`,
+  `PaperPhrogVulnerableModifyDamagePatch`) only act on a real card play or an
+  active damage command frame, so a preview records nothing.
+
 ## RunStarted Is Not Deck-Ready
 
 Do not use `RunStarted` as the source of truth for starter deck population.

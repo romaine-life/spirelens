@@ -271,6 +271,45 @@ The game-over screen then banks the run's score into `Progress.CurrentScore` and
 
 `RunManagerOnEndedDeathRestorePatch` is a prefix on `OnEnded`, so it runs ahead of all of it. `RoomResetter.CaptureDeathRestorePoint` keeps the run save (still the room's opening state), `Progress.ToSerializable()`, and the SpireLens run id whose room-entry snapshot matches, in `user://SpireLens/death-restore.json`. Undoing the death restores the progress object and rewrites `progress.save`, deletes `{StartTime}.run`, rewinds the ended SpireLens record with `RunTracker.RollBackEndedRunToRoomEntry` (which un-stamps `outcome=loss`), and then takes the ordinary Continue path, which writes the run save back. The metrics upload and any achievement are outside the machine and are not reversed. The kept point is discarded as stale once a run save exists again or a newer history entry appears, because restoring it then would roll progress back over later runs.
 
+### Run Recording Hooks Into The Same Save And Input Choke Points
+
+Run recording (`Core/Replay/`, format in [run-recording.md](run-recording.md)) relies on the following runtime facts.
+
+**The game already records combats.**
+
+- `RunManager` always constructs a `CombatReplayWriter`. It is disabled only in `TestMode`, so it runs in singleplayer too.
+- Its initial state is `RunManager.ToSave(null)`, taken on every map-node entry.
+- It writes `<profile>/replays/latest.mcr` at every combat end via `RunManager.WriteReplay(bool stopRecording)`, overwriting the file each time.
+- `RunManager.CleanUp` writes the file again if the writer is still recording. That covers Save and Quit, abandon, and a RoomResetter restart. Outside combat that write carries zero events.
+- `ReplayCombatReplayCopyPatch` reads the in-memory event count (`CombatReplayWriter._replay.events`) in a prefix, because a `stopRecording` write clears it. It copies only non-empty replays.
+
+**Every run-save write goes through one method.**
+
+- `RunSaveManager.SaveRun(SerializableRun save, bool isMultiplayer)` is that method.
+- The `SaveRun(AbstractRoom)` overload that `RunSaveSnapshotPatch` uses builds the `SerializableRun` and calls it, but it is not the only caller.
+- `SaveManager.IncrementNumReloads` calls the `SerializableRun` overload directly, on every `SetUpSavedSingleplayer` / `SetUpSavedMultiplayer`.
+- `ReplaySaveSnapshotPatch` therefore patches the `SerializableRun` overload and sees the exact object about to be serialized.
+- It serializes with `JsonSerializationUtility.GetTypeInfo<SerializableRun>()`, so the snapshot matches `current_run.save`.
+
+**Inputs reach public per-run events.**
+
+- `ActionQueueSet.ActionEnqueued` fires inside `EnqueueWithoutSynchronizing` for every `GameAction`. That covers player actions in and out of combat, map votes and moves, treasure relic picks, next-act votes, console commands and `GenericHookGameAction`s. `GameAction.Id` is already assigned when it fires.
+- The event fires *before* the queue decides to cancel the action, so a cancellation is only visible through `GameAction.BeforeCancelled`.
+- `PlayerChoiceSynchronizer.PlayerChoiceReceived` fires inside `SyncLocalChoice` for local choices in singleplayer. It does **not** fire for selections made through `CardSelectCmd.Selector` / `LocalSelector`; those are test and AutoSlay seams.
+- These objects are recreated by `RunManager.InitializeShared` for every run, before `Launch()` raises `RunStarted`. Subscriptions must therefore be redone per run, and on Core `Initialize` when a run is live.
+
+**Non-action decisions are single local methods.**
+
+- Event options, rest site options, reward take or skip, shop purchases and opening the treasure chest each go through one `*Synchronizer` (or `MerchantEntry`) method.
+- In multiplayer, that method broadcasts an index message, which is what makes it the local-decision choke point.
+- `MerchantEntry.OnTryPurchaseWrapper` is also called by game logic (Lord's Parasol), with `ignoreCost: true`.
+- `MerchantCardRemovalEntry` has its own three-parameter `OnTryPurchaseWrapper`. The UI calls that one. AutoSlay reaches removal through the base two-parameter method.
+
+**Resumes go through `SetUpSaved*`.**
+
+- Main-menu Continue, RoomResetter restart and death undo all call `RunManager.SetUpSavedSingleplayer(RunState state, SerializableRun save)`.
+- `ReplayLoadMarkerPatch` prefixes it, so the `load` marker precedes the `IncrementNumReloads` re-save.
+
 ## RunStarted Is Not Deck-Ready
 
 Do not use `RunStarted` as the source of truth for starter deck population.

@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Entities.Merchant;
 using MegaCrit.Sts2.Core.Multiplayer.Game;
@@ -105,6 +104,6 @@ public static class ReplayTreasureChestPatch
     public static void Prefix()
     {
         PatchGuard.Run(nameof(ReplayTreasureChestPatch), () =>
-            ReplayRecorder.RecordDecision("treasure_chest_open", new Dictionary<string, object?>()));
+            ReplayRecorder.OnTreasureChestOpened());
     }
 }

@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using MegaCrit.Sts2.Core.Combat;
+using MegaCrit.Sts2.Core.Context;
 using MegaCrit.Sts2.Core.Debug;
 using MegaCrit.Sts2.Core.DevConsole;
 using MegaCrit.Sts2.Core.Entities.Merchant;
@@ -16,6 +17,8 @@ using MegaCrit.Sts2.Core.Modding;
 using MegaCrit.Sts2.Core.Multiplayer.Game;
 using MegaCrit.Sts2.Core.Multiplayer.Replay;
 using MegaCrit.Sts2.Core.Multiplayer.Serialization;
+using MegaCrit.Sts2.Core.Nodes.Combat;
+using MegaCrit.Sts2.Core.Nodes.Screens.Overlays;
 using MegaCrit.Sts2.Core.Rewards;
 using MegaCrit.Sts2.Core.Rooms;
 using MegaCrit.Sts2.Core.Runs;
@@ -133,6 +136,8 @@ public static class ReplayRecorder
         lock (_lock)
         {
             UnsubscribeRunObjectsLocked();
+            UnsubscribeUiLocked();
+            _pendingSelection = null;
             _session?.Dispose();
             _session = null;
         }
@@ -206,6 +211,7 @@ public static class ReplayRecorder
                 h.FinalFloor = floor;
                 h.SpirelensRunId ??= runId;
             });
+            session.CloseDecisionSegment();
         }
     });
 
@@ -251,7 +257,7 @@ public static class ReplayRecorder
                 ReplayStorage.Enqueue("snapshot write", () => ReplayStorage.WriteGzip(abs, json));
             }
 
-            session.Append(ReplayFormat.EvSavePoint, Context(), new Dictionary<string, object?>
+            long savePointSeq = session.Append(ReplayFormat.EvSavePoint, Context(), new Dictionary<string, object?>
             {
                 ["key"] = key,
                 ["snapshot"] = rel,
@@ -263,6 +269,7 @@ public static class ReplayRecorder
                 ["is_multiplayer"] = isMultiplayer,
                 ["bytes"] = json.Length,
             });
+            session.OnSavePointAppended(savePointSeq);
 
             if (session.Header.SpirelensRunId == null && RunTracker.Current?.RunId is { } runId)
                 session.UpdateHeader(h => h.SpirelensRunId = runId);
@@ -385,14 +392,33 @@ public static class ReplayRecorder
 
     // -------- Non-action decisions (Harmony prefixes) --------
 
-    public static void RecordDecision(string kind, Dictionary<string, object?> data) => Guard("RecordDecision." + kind, () =>
-    {
-        data["kind"] = kind;
-        lock (_lock)
+    /// <summary>
+    /// Log a non-action decision. With <paramref name="training"/>, also write
+    /// its decision record (state + options + choice), linked both ways.
+    /// </summary>
+    internal static void RecordDecision(string kind, Dictionary<string, object?> data, TrainingSpec? training = null) =>
+        Guard("RecordDecision." + kind, () =>
         {
-            LiveSessionLocked()?.Append(ReplayFormat.EvDecision, Context(), data);
-        }
-    });
+            data["kind"] = kind;
+            lock (_lock)
+            {
+                var session = LiveSessionLocked();
+                if (session == null) return;
+                EnsureUiSubscriptionsLocked();
+                var player = training == null ? null : DecisionCapture.LocalPlayer(RunManager.Instance.State);
+                if (training == null || player == null)
+                {
+                    session.Append(ReplayFormat.EvDecision, Context(), data);
+                    return;
+                }
+                EmitWithDecisionRecordLocked(session, ReplayFormat.EvDecision, data, kind, player,
+                    training.Chosen ?? data, training.Options, training.ChosenIndex, null,
+                    optionsComplete: true, selection: null, notes: null);
+            }
+        });
+
+    /// <summary>Options and choice for one non-action decision's training record.</summary>
+    internal sealed record TrainingSpec(List<DecisionCapture.Option> Options, int? ChosenIndex, object? Chosen = null);
 
     public static void OnEventOptionChosen(EventSynchronizer sync, int index)
     {
@@ -411,7 +437,21 @@ public static class ReplayRecorder
                 data["is_proceed"] = options[index].IsProceed;
             }
         });
-        RecordDecision("event_option", data);
+        var offered = new List<DecisionCapture.Option>();
+        Try(() =>
+        {
+            var options = sync.GetLocalEvent().CurrentOptions;
+            for (int i = 0; i < options.Count; i++)
+            {
+                var o = options[i];
+                var detail = new Dictionary<string, object?>();
+                Try(() => detail["locked"] = o.IsLocked);
+                Try(() => detail["proceed"] = o.IsProceed);
+                Try(() => detail["relic"] = o.Relic?.Id.ToString());
+                offered.Add(new DecisionCapture.Option(new LegalOption("event_option", Index: i, Id: o.TextKey), detail));
+            }
+        });
+        RecordDecision("event_option", data, new TrainingSpec(offered, index >= 0 && index < offered.Count ? index : null));
     }
 
     public static void OnRestSiteOptionChosen(RestSiteSynchronizer sync, int index)
@@ -424,7 +464,20 @@ public static class ReplayRecorder
             var options = sync._restSites[slot].options;
             if (index >= 0 && index < options.Count) data["option_id"] = options[index].OptionId;
         });
-        RecordDecision("rest_option", data);
+        var offered = new List<DecisionCapture.Option>();
+        Try(() =>
+        {
+            int slot = sync._playerCollection.GetPlayerSlotIndex(sync.LocalPlayer);
+            var options = sync._restSites[slot].options;
+            for (int i = 0; i < options.Count; i++)
+            {
+                var detail = new Dictionary<string, object?>();
+                var o = options[i];
+                Try(() => detail["enabled"] = o.IsEnabled);
+                offered.Add(new DecisionCapture.Option(new LegalOption("rest_option", Index: i, Id: o.OptionId), detail));
+            }
+        });
+        RecordDecision("rest_option", data, new TrainingSpec(offered, index >= 0 && index < offered.Count ? index : null));
     }
 
     public static void OnRewardSelected(RewardsSetSynchronizer sync, Reward reward)
@@ -438,7 +491,14 @@ public static class ReplayRecorder
             data["index"] = reward == null ? null : set.Rewards.IndexOf(reward);
         });
         Try(() => data["reward"] = reward?.ToString());
-        RecordDecision("reward_take", data);
+        TrainingSpec? training = null;
+        Try(() =>
+        {
+            var set = sync.GetRewardStateForPlayer(sync.LocalPlayer).rewardsStack.Last().set;
+            int idx = reward == null ? -1 : set.Rewards.IndexOf(reward);
+            training = new TrainingSpec(DecisionCapture.RewardOptions(set), idx >= 0 ? idx : null);
+        });
+        RecordDecision("reward_take", data, training);
     }
 
     public static void OnRewardsSkipped(RewardsSetSynchronizer sync)
@@ -446,7 +506,13 @@ public static class ReplayRecorder
         if (!IsRecording) return;
         var data = new Dictionary<string, object?>();
         Try(() => data["set_id"] = sync.GetRewardStateForPlayer(sync.LocalPlayer).rewardsStack.Last().set.Id);
-        RecordDecision("reward_skip", data);
+        TrainingSpec? training = null;
+        Try(() =>
+        {
+            var set = sync.GetRewardStateForPlayer(sync.LocalPlayer).rewardsStack.Last().set;
+            training = new TrainingSpec(DecisionCapture.RewardOptions(set), set.Rewards.Count);
+        });
+        RecordDecision("reward_skip", data, training);
     }
 
     public static void OnMerchantPurchaseAttempt(MerchantEntry entry, MerchantInventory? inventory, bool ignoreCost, bool? cancelable)
@@ -494,7 +560,18 @@ public static class ReplayRecorder
                     break;
             }
         });
-        RecordDecision(entry is MerchantCardRemovalEntry ? "shop_remove_card" : "shop_buy", data);
+        TrainingSpec? training = null;
+        if (!ignoreCost)
+        {
+            Try(() =>
+            {
+                inventory ??= (RunManager.Instance.State?.CurrentRoom as MerchantRoom)?.GetLocalInventory();
+                var offered = DecisionCapture.MerchantOptions(inventory);
+                int idx = offered.FindIndex(o => ReferenceEquals(o.Ref, entry));
+                training = new TrainingSpec(offered, idx >= 0 ? idx : null);
+            });
+        }
+        RecordDecision(entry is MerchantCardRemovalEntry ? "shop_remove_card" : "shop_buy", data, training);
     }
 
     private static int? IndexOrNull<T>(IReadOnlyList<T>? list, T item) where T : class
@@ -601,7 +678,9 @@ public static class ReplayRecorder
                 data["sem"] = DescribeNetAction(net, action.OwnerId);
             }
 
-            session.Append(ReplayFormat.EvAction, Context(), data);
+            EnsureUiSubscriptionsLocked();
+            if (!TryEmitActionDecisionLocked(session, action, net, data))
+                session.Append(ReplayFormat.EvAction, Context(), data);
 
             if (playerDriven) action.BeforeCancelled += OnActionCancelled;
         }
@@ -655,7 +734,7 @@ public static class ReplayRecorder
         {
             var session = LiveSessionLocked();
             if (session == null) return;
-            session.Append(ReplayFormat.EvChoice, Context(), new Dictionary<string, object?>
+            var data = new Dictionary<string, object?>
             {
                 ["player"] = player?.NetId,
                 ["choice_id"] = choiceId,
@@ -668,7 +747,37 @@ public static class ReplayRecorder
                     playerChoiceResult = result,
                 }),
                 ["sem"] = DescribeChoice(player, result),
-            });
+            };
+
+            // The screen that offered this choice was snapshot when it opened
+            // (it has usually closed by the time the choice syncs).
+            var selection = _pendingSelection;
+            _pendingSelection = null;
+
+            if (player == null || !LocalContext.IsMe(player))
+            {
+                session.Append(ReplayFormat.EvChoice, Context(), data);
+                return;
+            }
+
+            var options = selection?.Options ?? new List<DecisionCapture.Option>();
+            List<int> chosen;
+            if (selection != null) chosen = DecisionCapture.ChosenIndexes(selection, result, player);
+            else chosen = result.indexes?.ToList() ?? new List<int>();
+            var notes = new List<string>();
+            if (selection == null) notes.Add("options_unavailable: no selection screen snapshot preceded this choice");
+            else if (!selection.FilterKnown) notes.Add("options_filter_unknown");
+            string kind = selection?.Screen == "card_reward" ? "card_reward" : "card_select";
+            data["selection_screen"] = selection?.Screen;
+
+            EmitWithDecisionRecordLocked(session, ReplayFormat.EvChoice, data, kind, player,
+                chosen: data["sem"],
+                options: options,
+                chosenIndex: chosen.Count == 1 ? chosen[0] : null,
+                chosenIndexes: chosen,
+                optionsComplete: selection != null && selection.FilterKnown,
+                selection: selection?.Describe(),
+                notes: notes);
         }
     });
 
@@ -678,6 +787,7 @@ public static class ReplayRecorder
         // the value, which is what a replay compares against.
         lock (_lock)
         {
+            EnsureUiSubscriptionsLocked();
             LiveSessionLocked()?.Append(ReplayFormat.EvChecksum, null, new Dictionary<string, object?>
             {
                 ["id"] = checksum.id,
@@ -685,6 +795,248 @@ public static class ReplayRecorder
                 ["context"] = context,
             });
         }
+    });
+
+    // -------- Decision records (training data) --------
+
+    private static readonly HashSet<string> TrainableActionKinds = new(StringComparer.Ordinal)
+    {
+        "play_card", "use_potion", "discard_potion", "end_turn", "undo_end_turn",
+        "map_vote", "pick_relic", "vote_next_act",
+    };
+
+    /// <summary>
+    /// A local player's decision action: capture state + legal options
+    /// (before the action executes; ActionEnqueued fires before execution)
+    /// and log the event with its decision record. False when the action is
+    /// not a local decision; the caller logs it plainly.
+    /// </summary>
+    private static bool TryEmitActionDecisionLocked(ReplaySession session, GameAction action, INetAction? net, Dictionary<string, object?> data)
+    {
+        if (net == null || !data.TryGetValue("sem", out var semObj) || semObj is not Dictionary<string, object?> sem) return false;
+        if (!sem.TryGetValue("kind", out var k) || k is not string kind || !TrainableActionKinds.Contains(kind)) return false;
+        if (LocalContext.NetId.HasValue && action.OwnerId != LocalContext.NetId.Value) return false;
+
+        var rm = RunManager.Instance;
+        var state = rm.State;
+        var player = state?.Players.FirstOrDefault(p => p.NetId == action.OwnerId);
+        if (state == null || player == null) return false;
+
+        List<DecisionCapture.Option> options = new();
+        LegalOption? chosen = null;
+        Try(() =>
+        {
+            switch (net)
+            {
+                case NetPlayCardAction p:
+                    options = DecisionCapture.ActionOptions(player);
+                    chosen = new LegalOption("play_card", CombatCardIndex: p.card.CombatCardIndex, TargetCombatId: p.targetId);
+                    break;
+                case NetUsePotionAction u:
+                    options = DecisionCapture.ActionOptions(player);
+                    chosen = new LegalOption("use_potion", TargetCombatId: u.targetId, TargetPlayerId: u.targetPlayerId, PotionSlot: (int)u.potionIndex);
+                    break;
+                case NetDiscardPotionGameAction dp:
+                    options = DecisionCapture.ActionOptions(player);
+                    chosen = new LegalOption("discard_potion", PotionSlot: (int)dp.potionSlotIndex);
+                    break;
+                case NetEndPlayerTurnAction:
+                    options = DecisionCapture.ActionOptions(player);
+                    chosen = new LegalOption("end_turn");
+                    break;
+                case NetUndoEndPlayerTurnAction:
+                    chosen = new LegalOption("undo_end_turn");
+                    options = new() { new DecisionCapture.Option(chosen, new()) };
+                    break;
+                case NetVoteForMapCoordAction v:
+                    options = DecisionCapture.MapOptions(state);
+                    chosen = new LegalOption("map_vote",
+                        Id: v.destination.HasValue ? $"{v.destination.Value.coord.col},{v.destination.Value.coord.row}" : null);
+                    break;
+                case NetPickRelicAction r:
+                    options = DecisionCapture.TreasureRelicOptions(rm.TreasureRoomRelicSynchronizer?.CurrentRelics);
+                    chosen = new LegalOption("pick_relic", Index: r.relicIndex ?? -1);
+                    break;
+                case NetVoteToMoveToNextActAction:
+                    chosen = new LegalOption("vote_next_act");
+                    options = new() { new DecisionCapture.Option(chosen, new()) };
+                    break;
+            }
+        });
+        if (chosen == null) return false;
+
+        int? chosenIndex = DecisionFormat.FindChosenIndex(options.Select(o => o.Identity).ToList(), chosen);
+        var notes = new List<string>();
+        if (chosenIndex == null) notes.Add("chosen_not_in_enumerated_options");
+        EmitWithDecisionRecordLocked(session, ReplayFormat.EvAction, data, kind, player,
+            chosen: sem, options: options, chosenIndex: chosenIndex, chosenIndexes: null,
+            optionsComplete: chosenIndex != null, selection: null, notes: notes);
+        return true;
+    }
+
+    /// <summary>Opening the treasure chest: a one-option decision, recorded for its state.</summary>
+    public static void OnTreasureChestOpened()
+    {
+        if (!IsRecording) return;
+        var open = new LegalOption("treasure_chest_open");
+        RecordDecision("treasure_chest_open", new Dictionary<string, object?>(),
+            new TrainingSpec(new List<DecisionCapture.Option> { new(open, new()) }, 0));
+    }
+
+    /// <summary>
+    /// Capture state synchronously (before the decision mutates anything),
+    /// append the event carrying <c>dseq</c>, and queue the record (linked
+    /// back by <c>event_seq</c>) for encoding and writing off the game thread.
+    /// </summary>
+    private static void EmitWithDecisionRecordLocked(
+        ReplaySession session,
+        string eventType,
+        Dictionary<string, object?> eventData,
+        string kind,
+        Player player,
+        object? chosen,
+        List<DecisionCapture.Option> options,
+        int? chosenIndex,
+        IReadOnlyList<int>? chosenIndexes,
+        bool optionsComplete,
+        object? selection,
+        List<string>? notes)
+    {
+        var state = RunManager.Instance.State;
+        DecisionCapture.Capture? capture = null;
+        if (state != null)
+        {
+            try { capture = DecisionCapture.CaptureState(state, player); }
+            catch (Exception e) { (notes ??= new()).Add("state_capture_failed: " + e.Message); }
+        }
+
+        long dseq = session.NextDecisionSeq();
+        eventData["dseq"] = dseq;
+        var context = Context();
+        long eventSeq = session.Append(eventType, context, eventData);
+
+        if (session.Header.DecisionsFormatVersion == null)
+            session.UpdateHeader(h => h.DecisionsFormatVersion = DecisionFormat.FormatVersion);
+
+        long anchor = session.LastSavePointSeq;
+        var utc = DateTime.UtcNow;
+        var optionJson = options.Select(o => (object?)o.ToJson()).ToList();
+        string phase = capture?.Phase ?? DecisionFormat.PhaseRun;
+        var stateJson = capture?.State;
+        var hidden = capture?.Hidden is { Count: > 0 } h ? h : null;
+        string? form = capture?.NetForm;
+        var snapshot = capture?.NetSnapshot;
+        ulong playerId = player.NetId;
+
+        // Encoding the detached snapshot and JSON-serializing the record run
+        // on the background chain, in order with the segment's other writes.
+        session.QueueDecisionRecord(() =>
+        {
+            string? b64 = null;
+            if (snapshot != null)
+            {
+                try
+                {
+                    var writer = new PacketWriter { WarnOnGrow = false };
+                    writer.Write(snapshot);
+                    b64 = Convert.ToBase64String(writer.Buffer, 0, writer.BytePosition);
+                }
+                catch (Exception e)
+                {
+                    CoreMain.LogDebug($"Run recording: net state encode failed: {e.Message}");
+                }
+            }
+            return DecisionFormat.FormatRecord(new DecisionRecordParts
+            {
+                DecisionSeq = dseq,
+                EventSeq = eventSeq,
+                EventType = eventType,
+                AnchorSaveSeq = anchor,
+                Utc = utc,
+                Kind = kind,
+                Phase = phase,
+                Player = playerId,
+                Context = context,
+                Chosen = chosen,
+                ChosenIndex = chosenIndex,
+                ChosenIndexes = chosenIndexes,
+                Options = optionJson,
+                OptionsComplete = optionsComplete,
+                Selection = selection,
+                State = stateJson,
+                Hidden = hidden,
+                NetStateForm = b64 == null ? null : form,
+                NetStateBase64 = b64,
+                Notes = notes,
+            });
+        });
+    }
+
+    // -------- Selection-screen snapshots (NOverlayStack.Changed / NPlayerHand.ModeChanged) --------
+
+    private static DecisionCapture.Selection? _pendingSelection;
+    private static NOverlayStack? _overlay;
+    private static NPlayerHand? _hand;
+
+    /// <summary>
+    /// Both UI objects are recreated per run / per combat, so subscriptions
+    /// are refreshed lazily from frequent capture callbacks. Plain C# events
+    /// (the Godot signal raise invokes the delegate); no Harmony involved.
+    /// </summary>
+    private static void EnsureUiSubscriptionsLocked()
+    {
+        try
+        {
+            var overlay = NOverlayStack.Instance;
+            if (!ReferenceEquals(overlay, _overlay))
+            {
+                if (_overlay != null) { try { _overlay.Changed -= OnOverlayChanged; } catch { } }
+                _overlay = overlay;
+                if (overlay != null) overlay.Changed += OnOverlayChanged;
+            }
+        }
+        catch (Exception e) { CoreMain.LogDebug($"Run recording: overlay subscribe failed: {e.Message}"); }
+
+        try
+        {
+            var hand = NPlayerHand.Instance;
+            if (!ReferenceEquals(hand, _hand))
+            {
+                if (_hand != null) { try { _hand.ModeChanged -= OnHandModeChanged; } catch { } }
+                _hand = hand;
+                if (hand != null) hand.ModeChanged += OnHandModeChanged;
+            }
+        }
+        catch (Exception e) { CoreMain.LogDebug($"Run recording: hand subscribe failed: {e.Message}"); }
+    }
+
+    private static void UnsubscribeUiLocked()
+    {
+        if (_overlay != null) { try { _overlay.Changed -= OnOverlayChanged; } catch { } }
+        if (_hand != null) { try { _hand.ModeChanged -= OnHandModeChanged; } catch { } }
+        _overlay = null;
+        _hand = null;
+    }
+
+    private static void OnOverlayChanged() => Guard(nameof(OnOverlayChanged), () =>
+    {
+        var selection = DecisionCapture.SnapshotOverlay(NOverlayStack.Instance?.Peek());
+        if (selection == null) return;
+        lock (_lock) _pendingSelection = selection;
+    });
+
+    private static void OnHandModeChanged() => Guard(nameof(OnHandModeChanged), () =>
+    {
+        var hand = _hand;
+        if (hand == null) return;
+        // ModeChanged fires from the CurrentMode setter, before SelectCards
+        // stores the prefs and filter; read them once the frame settles.
+        Godot.Callable.From(() => Guard("OnHandModeChanged.deferred", () =>
+        {
+            var selection = DecisionCapture.SnapshotHand(hand);
+            if (selection == null) return;
+            lock (_lock) _pendingSelection = selection;
+        })).CallDeferred();
     });
 
     // -------- Readable forms --------

@@ -913,6 +913,18 @@ enrolled class declares (ADR 0004). What makes this sound:
   power instance, seeded from `PowerReceivedEntry` (negative entries scale
   every source down). Stacks a power's own frame adds inherit its sources.
 
+With no live frame, the same bag on `CardAggregate.Outcomes` credits the card
+whose play is resolving for what it did to *other* cards and resources:
+discards (`CardDiscardedEntry`, the played card itself excluded), cards
+created (`Hook.AfterCardGeneratedForCombat`, copies of itself included),
+upgrades and transforms of other cards, Discard/Exhaust→Hand moves
+(`Hook.AfterCardChangedPiles`), top-of-draw placements (`CardPileCmd.Add`
+with `CardPilePosition.Top`), `CardCmd.AutoPlay` of another card (prefix: the
+auto-played card's own play has not started, so the resolving play is still
+the cause), `OrbCmd.EvokeNext/EvokeLast` and `OrbCmd.Passive`, healing of the
+card owner, and the `PlayerCmd.GainGold` balance delta. Draw→Hand is a draw
+and Discard→Draw is a shuffle; neither is a card outcome.
+
 The filtered relic bar treats combat relevance as an effective live state,
 not a mutation of the saved classification. A relic with a finite combat
 duration enters a per-model, combat-local resolved set when its native

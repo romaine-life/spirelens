@@ -718,8 +718,9 @@ New fixtures added going forward do not need a `v*-` prefix.
   for its two averages.
 - `effect-outcomes-run.json`
   The generic effect-frame outcome bags (`Core/Effects`): `outcomes` on a
-  relic aggregate, on a pooled power aggregate, and on a card's applied
-  effect (that card's share of the power's payoff). Keys are written
+  relic aggregate, on a pooled power aggregate, on a card's applied
+  effect (that card's share of the power's payoff), and on a card aggregate
+  (what the card's own plays did to other cards and resources). Keys are written
   verbatim, so the fixture also carries a key this build does not know,
   which must load and survive untouched.
 

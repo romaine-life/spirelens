@@ -41,6 +41,9 @@ Owner-specific attribution (ADR 0001) is implemented once, generically:
    Proportional splitting is a convention; it is exact only for one source.
 6. Tooltips render the bag through `EffectOutcomeRows`, so every enrolled
    owner uses the same vocabulary.
+7. Cards use the same bag (`CardAggregate.Outcomes`) for what a card's own
+   play did to other cards and resources that no dedicated field covers;
+   a live relic/power frame always wins over the resolving card.
 
 Enrolled owners are, by rule, owners without bespoke tracking. The
 hand-written relics and powers keep their windows; migrating them onto the

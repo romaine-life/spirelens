@@ -422,6 +422,13 @@ public class RandomCardGenerationAggregate
 /// <summary>Aggregated per-card attribution stats for this run.</summary>
 public class CardAggregate
 {
+    // Generic outcomes this card's own play caused to OTHER cards and
+    // resources that no dedicated field covers (Core/Effects,
+    // EffectOutcomeKeys): cards discarded, created, transformed, retrieved,
+    // put on the draw pile or auto-played, orbs evoked, HP healed, gold.
+    // Keys are written verbatim. Null on older records.
+    public Dictionary<string, decimal>? Outcomes { get; set; }
+
     // Number of combats that started while this physical card was in the
     // player's permanent deck. Useful denominator for dud cards that may
     // rarely be drawn or played.

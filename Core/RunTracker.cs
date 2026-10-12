@@ -34746,6 +34746,7 @@ public static partial class RunTracker
                 agg.TimesPlacedOnTopFromHand++;
             else if (sourcePile == MegaCrit.Sts2.Core.Entities.Cards.PileType.Discard)
                 agg.TimesPlacedOnTopFromDiscard++;
+            TryCreditResolvingCardLocked(EffectOutcomeKeys.CardsPutOnDrawPile, 1m, otherCard: card);
         }
     }
 
@@ -34759,6 +34760,7 @@ public static partial class RunTracker
                 var instanceId = GetOrAssignInstanceId(card);
                 var agg = GetOrCreateAggregate(_pendingCombat, instanceId);
                 agg.TimesDiscarded++;
+                TryCreditResolvingCardLocked(EffectOutcomeKeys.CardsDiscarded, 1m, otherCard: card);
             }
 
             if (card.Owner is Player player
@@ -35979,6 +35981,11 @@ public static partial class RunTracker
                 if (!ShouldTrackCardStatsDuringCombatLocked()) return;
 
                 RecordAllForOneReturnedCardLocked(card, oldPile);
+                if (card?.Pile?.Type == PileType.Hand
+                    && (oldPile == PileType.Discard || oldPile == PileType.Exhaust))
+                {
+                    TryCreditResolvingCardLocked(EffectOutcomeKeys.CardsRetrieved, 1m, otherCard: card);
+                }
 
                 if (_pendingMakeItSoSummons.Count > 0
                     && card is MakeItSo
@@ -37351,6 +37358,7 @@ public static partial class RunTracker
 
     internal static void MergeAggregateInto(CardAggregate target, CardAggregate source)
     {
+        target.Outcomes = MergeEffectOutcomes(target.Outcomes, source.Outcomes);
         target.CombatsInDeck += source.CombatsInDeck;
         target.TurnsInDeck += source.TurnsInDeck;
         target.CombatsWithTurnsInDeck += source.CombatsWithTurnsInDeck;

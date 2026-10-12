@@ -496,7 +496,8 @@ public static partial class RunTracker
         {
             try
             {
-                TryCreditEffectFrameLocked(creature, EffectOutcomeKeys.HpHealed, restored);
+                if (!TryCreditEffectFrameLocked(creature, EffectOutcomeKeys.HpHealed, restored))
+                    TryCreditResolvingCardLocked(EffectOutcomeKeys.HpHealed, restored, receiver: creature);
             }
             catch (Exception e)
             {
@@ -520,8 +521,10 @@ public static partial class RunTracker
         }
     }
 
-    /// <summary>A card-level change (generated, upgraded, added, removed)
-    /// made while an enrolled owner's hook resolves.</summary>
+    /// <summary>A card-level change (generated, upgraded, transformed,
+    /// added, removed) made while an enrolled owner's hook resolves — or,
+    /// with no frame, by the card being played (deck adds and removals are
+    /// never a card play's outcome and stay frame-only).</summary>
     internal static void RecordEffectFrameCardChange(CardModel? card, string key, decimal amount = 1m)
     {
         if (card == null || amount == 0m) return;
@@ -530,7 +533,13 @@ public static partial class RunTracker
             try
             {
                 if (!IsTrackedCard(card)) return;
-                TryCreditEffectFrameLocked(card.Owner?.Creature, key, amount);
+                if (TryCreditEffectFrameLocked(card.Owner?.Creature, key, amount)) return;
+                if (key is EffectOutcomeKeys.CardsAdded or EffectOutcomeKeys.CardsRemoved) return;
+
+                // A played card creating copies of itself (Anger) is its
+                // outcome; upgrading or transforming itself is not.
+                var exclude = key == EffectOutcomeKeys.CardsGenerated ? null : card;
+                TryCreditResolvingCardLocked(key, amount, otherCard: exclude);
             }
             catch (Exception e)
             {
@@ -610,6 +619,87 @@ public static partial class RunTracker
             if (!_pendingCombat.EffectRelicCombatsCounted.Add(relicId)) continue;
             var agg = GetOrCreatePendingRelicAggregateLocked(relicId);
             agg.Outcomes = AddEffectOutcome(agg.Outcomes, EffectOutcomeKeys.Combats, 1m);
+        }
+    }
+
+    // ---------------- Card plays ----------------
+
+    /// <summary>
+    /// Credit the card whose play is resolving with a generic outcome, unless
+    /// an enrolled relic or power frame owns this moment. <paramref name="otherCard"/>
+    /// excludes the played card acting on itself; <paramref name="receiver"/>
+    /// requires the outcome to land on the card owner's creature.
+    /// </summary>
+    private static bool TryCreditResolvingCardLocked(
+        string key,
+        decimal amount,
+        CardModel? otherCard = null,
+        Creature? receiver = null)
+    {
+        if (amount == 0m) return false;
+        if (!ShouldTrackCardStatsDuringCombatLocked()) return false;
+        if (TryGetLiveEffectFrameLocked(out _)) return false;
+
+        var card = FindCurrentlyResolvingCardPlay()?.Card;
+        if (card == null || !IsTrackedCard(card)) return false;
+        if (otherCard != null && ReferenceEquals(Canonical(card), Canonical(otherCard))) return false;
+        if (receiver != null
+            && card.Owner?.Creature != null
+            && !ReferenceEquals(receiver, card.Owner.Creature))
+            return false;
+
+        _pendingCombat ??= new PendingCombat();
+        var agg = GetOrCreateAggregate(_pendingCombat, GetOrAssignInstanceId(card));
+        agg.Outcomes = AddEffectOutcome(agg.Outcomes, key, amount);
+        return true;
+    }
+
+    /// <summary>Entry point for command patches (auto-play, orb evoke and
+    /// passive) that only need "the card being played caused this".</summary>
+    internal static void RecordResolvingCardOutcome(string key, decimal amount = 1m, CardModel? otherCard = null)
+    {
+        lock (_lock)
+        {
+            try
+            {
+                if (!TryCreditEffectFrameLocked(null, key, amount))
+                    TryCreditResolvingCardLocked(key, amount, otherCard);
+            }
+            catch (Exception e)
+            {
+                CoreMain.LogDebug($"RecordResolvingCardOutcome({key}) failed: {e.Message}");
+            }
+        }
+    }
+
+    /// <summary>The instance id of the tracked card being played, for
+    /// observers that measure after an awaited command completes.</summary>
+    internal static string? CaptureResolvingCardInstanceId()
+    {
+        lock (_lock)
+        {
+            if (!ShouldTrackCardStatsDuringCombatLocked()) return null;
+            if (TryGetLiveEffectFrameLocked(out _)) return null;
+            var card = FindCurrentlyResolvingCardPlay()?.Card;
+            return card != null && IsTrackedCard(card) ? GetOrAssignInstanceId(card) : null;
+        }
+    }
+
+    internal static void CreditCardInstanceOutcome(string instanceId, string key, decimal amount)
+    {
+        if (amount == 0m) return;
+        lock (_lock)
+        {
+            try
+            {
+                if (_pendingCombat == null) return;
+                var agg = GetOrCreateAggregate(_pendingCombat, instanceId);
+                agg.Outcomes = AddEffectOutcome(agg.Outcomes, key, amount);
+            }
+            catch (Exception e)
+            {
+                CoreMain.LogDebug($"CreditCardInstanceOutcome failed: {e.Message}");
+            }
         }
     }
 

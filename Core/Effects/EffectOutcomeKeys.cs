@@ -40,6 +40,12 @@ internal static class EffectOutcomeKeys
     public const string CardsTransformed = "cards_transformed";
     public const string CardsRemoved = "cards_removed";
     public const string CardsAdded = "cards_added";
+    public const string CardsDiscarded = "cards_discarded";
+    public const string CardsRetrieved = "cards_retrieved";
+    public const string CardsPutOnDrawPile = "cards_put_on_draw_pile";
+    public const string CardsAutoPlayed = "cards_autoplayed";
+    public const string OrbsEvoked = "orbs_evoked";
+    public const string OrbPassivesTriggered = "orb_passives_triggered";
 
     private const string SelfPowerPrefix = "power:";
     private const string EnemyPowerPrefix = "debuff:";
@@ -81,8 +87,9 @@ internal static class EffectOutcomeKeys
         HpHealed, HpLost, MaxHp,
         Energy, MaxEnergyBonus, Stars,
         CardsDrawn, HandDrawBonus,
-        Forge, OrbsChanneled,
+        Forge, OrbsChanneled, OrbsEvoked, OrbPassivesTriggered,
         CardsGenerated, CardsUpgraded, CardsTransformed, CardsRemoved, CardsAdded,
+        CardsDiscarded, CardsRetrieved, CardsPutOnDrawPile, CardsAutoPlayed,
         Gold,
     ];
 
@@ -118,6 +125,12 @@ internal static class EffectOutcomeKeys
         CardsTransformed => "Cards transformed",
         CardsRemoved => "Cards removed",
         CardsAdded => "Cards added to deck",
+        CardsDiscarded => "Other cards discarded",
+        CardsRetrieved => "Cards returned to hand",
+        CardsPutOnDrawPile => "Cards put on draw pile",
+        CardsAutoPlayed => "Other cards auto-played",
+        OrbsEvoked => "Orbs evoked",
+        OrbPassivesTriggered => "Orb passives triggered",
         Gold => "Gold gained",
         _ => key,
     };

@@ -26,6 +26,17 @@
       },
       "floor_added": 3,
       "initial_upgrade_level": 0
+    },
+    "CARD.ACROBATICS#1": {
+      "combats_in_deck": 2,
+      "plays": 4,
+      "outcomes": {
+        "cards_discarded": 4,
+        "cards_autoplayed": 1,
+        "gold": 12
+      },
+      "floor_added": 2,
+      "initial_upgrade_level": 0
     }
   },
   "events": [],
@@ -69,9 +80,13 @@
   "instance_numbers_by_def": {
     "CARD.DEMON_FORM": [
       1
+    ],
+    "CARD.ACROBATICS": [
+      1
     ]
   },
   "def_counters": {
-    "CARD.DEMON_FORM": 1
+    "CARD.DEMON_FORM": 1,
+    "CARD.ACROBATICS": 1
   }
 }

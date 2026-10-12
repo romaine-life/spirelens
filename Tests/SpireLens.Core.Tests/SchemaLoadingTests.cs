@@ -6473,6 +6473,12 @@ public class SchemaLoadingTests
             .AppliedEffects["POWER.DEMON_FORM_POWER"].Outcomes!;
         Assert.Equal(14m, share["power:POWER.STRENGTH_POWER"]);
         Assert.Equal(1.5m, share["hp_healed"]);
+
+        var acrobatics = data.Aggregates["CARD.ACROBATICS#1"].Outcomes!;
+        Assert.Equal(4m, acrobatics["cards_discarded"]);
+        Assert.Equal(1m, acrobatics["cards_autoplayed"]);
+        Assert.Equal(12m, acrobatics["gold"]);
+        Assert.Null(data.Aggregates["CARD.DEMON_FORM#1"].Outcomes);
     }
 
     [Fact]

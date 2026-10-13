@@ -345,20 +345,84 @@ internal static class DecisionCapture
     }
 
     /// <summary>Map nodes reachable from the current position (start points at an act's beginning).</summary>
+    /// <summary>
+    /// The map points the player may travel to right now, from the game's own
+    /// travelability. Primary source: the map screen's point nodes in state
+    /// <c>Travelable</c> (set by <c>NMapScreen</c> from
+    /// <c>MapTravel.GetTravelablePointsFrom</c>, which applies
+    /// <c>Hook.ShouldAllowFreeTravel</c> — Winged Boots and anything else —
+    /// plus the boss / second-boss / act-start rules); a vote is only possible
+    /// on such a node. Fallback when the screen is unavailable: the same rule
+    /// re-applied through <see cref="MapTravelRule"/> and <c>MapTravel</c>.
+    /// </summary>
     public static List<Option> MapOptions(RunState state)
     {
-        var options = new List<Option>();
-        var current = state.CurrentMapPoint;
-        IEnumerable<MegaCrit.Sts2.Core.Map.MapPoint> next = current != null
-            ? current.Children
-            : state.Map.startMapPoints;
-        foreach (var p in next.OrderBy(p => p.coord.col).ThenBy(p => p.coord.row))
+        string source = "map_screen";
+        var coords = TravelableFromMapScreen();
+        if (coords.Count == 0)
         {
-            options.Add(new Option(
-                new LegalOption("map_vote", Id: $"{p.coord.col},{p.coord.row}"),
-                new Dictionary<string, object?> { ["point_type"] = p.PointType.ToString() }));
+            source = "map_travel_rule";
+            coords = TravelableByRule(state);
+        }
+
+        var options = new List<Option>();
+        foreach (var (col, row) in coords.Distinct().OrderBy(c => c.Row).ThenBy(c => c.Col))
+        {
+            var detail = new Dictionary<string, object?> { ["source"] = source };
+            Try(() => detail["point_type"] = state.Map.GetPoint(col, row)?.PointType.ToString());
+            options.Add(new Option(new LegalOption("map_vote", Id: $"{col},{row}"), detail));
         }
         return options;
+    }
+
+    private static List<(int Col, int Row)> TravelableFromMapScreen()
+    {
+        var result = new List<(int Col, int Row)>();
+        Try(() =>
+        {
+            var screen = MegaCrit.Sts2.Core.Nodes.Screens.Map.NMapScreen.Instance;
+            if (screen == null) return;
+            var nodes = new List<MegaCrit.Sts2.Core.Nodes.Screens.Map.NMapPoint?>(screen._mapPointDictionary.Values)
+            {
+                screen._bossPointNode,
+                screen._secondBossPointNode,
+                screen._startingPointNode,
+            };
+            foreach (var node in nodes)
+            {
+                if (node == null || !Godot.GodotObject.IsInstanceValid(node)) continue;
+                if (node.State != MegaCrit.Sts2.Core.Map.MapPointState.Travelable || node.Point == null) continue;
+                result.Add((node.Point.coord.col, node.Point.coord.row));
+            }
+        });
+        return result;
+    }
+
+    private static List<(int Col, int Row)> TravelableByRule(RunState state)
+    {
+        var result = new List<(int Col, int Row)>();
+        Try(() =>
+        {
+            var map = state.Map;
+            var visited = state.VisitedMapCoords.Select(c => (c.col, c.row)).ToList();
+            (int, int)? secondBoss = map.SecondBossMapPoint is { } sb ? (sb.coord.col, sb.coord.row) : null;
+            result.AddRange(MapTravelRule.Travelable(
+                visited,
+                map.GetRowCount(),
+                (map.StartingMapPoint.coord.col, map.StartingMapPoint.coord.row),
+                (map.BossMapPoint.coord.col, map.BossMapPoint.coord.row),
+                secondBoss,
+                from =>
+                {
+                    var point = map.GetPoint(from.Col, from.Row);
+                    return point == null
+                        ? null
+                        : MegaCrit.Sts2.Core.Map.MapTravel.GetTravelablePointsFrom(state, point)
+                            .Select(p => (p.coord.col, p.coord.row))
+                            .ToList();
+                }));
+        });
+        return result;
     }
 
     public static List<Option> TreasureRelicOptions(IReadOnlyList<RelicModel>? relics)
@@ -491,7 +555,18 @@ internal static class DecisionCapture
                     sel.MaxSelect = prefs.Value.MaxSelect;
                     sel.CanSkip = prefs.Value.Cancelable;
                 }
-                for (int i = 0; i < g._cards.Count; i++) sel.Options.Add(CardOption(i, g._cards[i]));
+                IReadOnlyList<CardModel> offered = g._cards;
+                bool combat = false;
+                if (g is NCombatPileCardSelectScreen pileScreen)
+                {
+                    // Created with an empty _cards that UpdatePileContents fills
+                    // later from the live pile; read what it will show directly:
+                    // the pile filtered by the screen's own filter.
+                    var filter = pileScreen._filter;
+                    offered = pileScreen._pile.Cards.Where(c => filter?.Invoke(c) ?? true).ToList();
+                    combat = true;
+                }
+                for (int i = 0; i < offered.Count; i++) sel.Options.Add(CardOption(i, offered[i], combat));
                 return sel;
             }
             case NChooseABundleSelectionScreen b:

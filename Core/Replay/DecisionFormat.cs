@@ -182,3 +182,31 @@ public sealed class DecisionRecordParts
     public string? NetStateBase64 { get; init; }
     public IReadOnlyList<string>? Notes { get; init; }
 }
+
+/// <summary>
+/// The game's map travelability rule (<c>NMapScreen</c>'s point-state
+/// refresh), over plain coordinates: nothing visited yet means the act's
+/// starting point; standing on the boss with a second boss means the second
+/// boss; standing on the last row means the boss; otherwise whatever
+/// <c>MapTravel.GetTravelablePointsFrom</c> allows (children, or the whole
+/// next row under free travel such as Winged Boots), falling back to the
+/// starting point when the current point is unknown. Used only when the map
+/// screen's own node states are unavailable.
+/// </summary>
+public static class MapTravelRule
+{
+    public static IReadOnlyList<(int Col, int Row)> Travelable(
+        IReadOnlyList<(int Col, int Row)> visited,
+        int rowCount,
+        (int Col, int Row) start,
+        (int Col, int Row) boss,
+        (int Col, int Row)? secondBoss,
+        Func<(int Col, int Row), IReadOnlyList<(int Col, int Row)>?> travelableFrom)
+    {
+        if (visited.Count == 0) return new[] { start };
+        var last = visited[visited.Count - 1];
+        if (secondBoss.HasValue && last == boss) return new[] { secondBoss.Value };
+        if (last.Row == rowCount - 1) return new[] { boss };
+        return travelableFrom(last) ?? (IReadOnlyList<(int Col, int Row)>)new[] { start };
+    }
+}

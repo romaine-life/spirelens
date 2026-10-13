@@ -80,6 +80,29 @@ public class DecisionRecordFormatTests
     }
 
     [Fact]
+    public void MapTravelRule_MirrorsTheMapScreen()
+    {
+        var start = (3, 0);
+        var boss = (3, 16);
+        IReadOnlyList<(int, int)>? Children((int Col, int Row) from) =>
+            from == (6, 7) ? new[] { (6, 8) } : null;
+        IReadOnlyList<(int, int)>? FreeTravel((int Col, int Row) from) =>
+            new[] { (0, from.Row + 1), (3, from.Row + 1), (6, from.Row + 1) };
+
+        // A new act (nothing visited): only the act's starting point, not row 1.
+        Assert.Equal(new[] { start }, MapTravelRule.Travelable(Array.Empty<(int, int)>(), 16, start, boss, null, Children));
+        // Ordinary travel: the game's travelable set (children).
+        Assert.Equal(new[] { (6, 8) }, MapTravelRule.Travelable(new[] { start, (6, 7) }, 16, start, boss, null, Children));
+        // Free travel (Winged Boots): whatever the game's rule returns, i.e. the whole next row.
+        Assert.Equal(3, MapTravelRule.Travelable(new[] { start, (6, 7) }, 16, start, boss, null, FreeTravel).Count);
+        // Last row leads to the boss; the boss leads to a second boss when there is one.
+        Assert.Equal(new[] { boss }, MapTravelRule.Travelable(new[] { (2, 15) }, 16, start, boss, null, Children));
+        Assert.Equal(new[] { (4, 17) }, MapTravelRule.Travelable(new[] { boss }, 16, start, boss, (4, 17), Children));
+        // Unknown current point falls back to the start, like the screen does.
+        Assert.Equal(new[] { start }, MapTravelRule.Travelable(new[] { (1, 5) }, 16, start, boss, null, Children));
+    }
+
+    [Fact]
     public void SegmentNames_RoundTripTheirAnchor()
     {
         Assert.Equal("s000301.jsonl", DecisionFormat.SegmentFileName(301));

@@ -60,6 +60,16 @@ Historical compatibility is pinned by:
 - [Fixtures/RunSchema](../Fixtures/RunSchema/README.md)
 - [Tests/SpireLens.Core.Tests/SchemaLoadingTests.cs](../Tests/SpireLens.Core.Tests/SchemaLoadingTests.cs)
 
+### Run Recording And The Run Database
+
+- SpireLens also records every run to `user://SpireLens/replays/<start_time>/`
+  (inputs, save-point snapshots, combat replays and per-decision training
+  records). See [docs/run-recording.md](run-recording.md).
+- Those recordings, the game's own `saves/history/*.run` files and the
+  `runs/*.json` stat records are imported into a SQLite database by the
+  standalone Go tool `cmd/spirelens-db`, out of process. SQLite never loads
+  into the hot-reloaded Core. See [docs/run-database.md](run-database.md).
+
 ## Attribution Model
 
 The project tries to answer "what actually happened because of this card?" rather than "what did the card text claim?"

@@ -188,7 +188,16 @@ public static class ReplayRecorder
     });
 
     /// <summary>From <c>RunHistoryUtilitiesCreateEntryPatch</c>: every terminal path (win, loss, abandon incl. main-menu abandon).</summary>
-    public static void OnRunEnded(long gameStartTime, string outcome, int floor) => Guard(nameof(OnRunEnded), () =>
+    public static void OnRunEnded(long gameStartTime, string outcome, int floor)
+    {
+        RecordRunEnd(gameStartTime, outcome, floor);
+        // Outside the recording guard: the game's history file and the stats
+        // record are worth importing even with recording disabled. Queued
+        // behind the run-end writes RecordRunEnd just queued.
+        RunDatabaseImporter.RequestAfterRunEnd();
+    }
+
+    private static void RecordRunEnd(long gameStartTime, string outcome, int floor) => Guard(nameof(OnRunEnded), () =>
     {
         lock (_lock)
         {

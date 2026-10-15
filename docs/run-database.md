@@ -41,6 +41,68 @@ Made by the user on 2026-10-14:
   headline aggregate numbers are typed into columns, and the raw JSON is kept
   so the other ~2000 fields stay reachable with `json_extract`.
 
+## Automatic import
+
+The user approved this on 2026-10-14: SpireLens keeps the database current
+by itself.
+
+- **Where the tool lives:** `%APPDATA%\SlayTheSpire2\SpireLens\tools\spirelens-db.exe`
+  (`user://SpireLens/tools/`). It is optional. Workshop users will not have
+  it, and SpireLens works the same without it.
+- **When SpireLens starts it:** `Core/Replay/RunDatabaseImporter.cs` starts
+  `spirelens-db ingest --quiet --log tools\last-ingest.log` with default
+  paths:
+  - **On every Core load** (game start and each hot reload). This picks up
+    runs that ended while the tool was missing, or before a crash.
+  - **After every run end.** The run-end path is `ReplayRecorder.OnRunEnded`,
+    called from the existing `RunHistoryUtilities.CreateRunHistoryEntry`
+    postfix. It runs after the game has written `history/{start_time}.run`
+    and the stats record has been saved. The launch is queued behind the
+    recorder's pending writes (header rewrite, decision-segment gzip) on the
+    recorder's ordered background chain. This happens even when run
+    recording is disabled.
+  - No new Harmony target was added.
+- **How it is started:**
+  - Both triggers wait 5 seconds first, so writes that land just after the
+    trigger are on disk.
+  - The process runs with no window, at below-normal priority, and is never
+    waited on. The game thread only queues work.
+  - Failures are logged as warnings and swallowed.
+  - `Core.Shutdown` cancels launches that are still pending, so a hot reload
+    never leaves a stray launch behind; the new Core load starts its own.
+- **A missing exe** is logged once per Core load, at debug level
+  (`CUS_DEBUG`), then skipped.
+- **One ingest at a time:**
+  - `ingest` takes an exclusive OS lock on `spirelens.db.ingest.lock` and
+    exits quietly when another ingest holds it. The OS releases the lock when
+    the process exits, so a crash cannot leave a stale lock.
+  - SQLite's `busy_timeout` covers any other reader or writer.
+  - Ingest is incremental, so a launch that finds nothing new takes well
+    under a second.
+- **Seeing what happened:** `tools\last-ingest.log` holds the last
+  background run's summary and warnings.
+- **Turning it off:** set `SPIRELENS_DISABLE_AUTO_IMPORT=1`. It is read at
+  each launch.
+
+### Installing and updating the tool
+
+```
+pwsh scripts/install-spirelens-db.ps1            # build and install
+pwsh scripts/install-spirelens-db.ps1 -Ingest    # ...then run one ingest
+```
+
+Re-run the script after **any change to `cmd/spirelens-db` or
+`internal/rundb`**. The game keeps launching whatever exe is installed. The
+script builds to a temporary name, then renames the old exe aside before
+moving the new one in. Windows allows renaming a running exe but not
+overwriting one, so this works even while an import is running. A newer tool
+migrates the database on its first run. An older tool refuses a database
+with a newer schema, and that error lands in `last-ingest.log`.
+
+Without the script, the same install is:
+`go build -o "$env:APPDATA\SlayTheSpire2\SpireLens\tools\spirelens-db.exe" ./cmd/spirelens-db`
+(this fails if an import is running at that moment).
+
 ## Commands
 
 Build it with `go build -o spirelens-db.exe ./cmd/spirelens-db`, or run it
@@ -48,7 +110,7 @@ with `go run ./cmd/spirelens-db <command>`.
 
 ```
 spirelens-db ingest [--db path] [--replays dir] [--history dir]... [--no-history]
-                    [--spirelens-runs dir] [--force] [--quiet]
+                    [--spirelens-runs dir] [--force] [--quiet] [--log file]
 spirelens-db stats [--db path]
 spirelens-db export-decisions --out file.jsonl [--db path] [--drop-hidden]
                     [--include-abandoned] [--finished-only] [--kinds a,b]
@@ -79,6 +141,10 @@ re-read on the next ingest because its fingerprint will have changed.
   the recording tables are deleted and rewritten in one transaction.
 - **`runs` is rebuilt** from the source tables at the end of every ingest.
 - `--force` re-imports everything.
+- Only one ingest runs at a time (see "Automatic import"). A second one
+  prints a line and exits 0.
+- `--log file` sends all output to that file (overwritten each time) instead
+  of the console. The background import uses it.
 
 It never aborts on bad input. A malformed or unreadable file is skipped with
 a warning, and is counted under `failed` in the summary. Torn lines, which

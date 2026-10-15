@@ -489,7 +489,9 @@ Harmony patches (prefixes unless noted):
 - the decision methods in the table above
 - run end: the existing `RunHistoryUtilities.CreateRunHistoryEntry` postfix
   (`RunHistoryUtilitiesCreateEntryPatch`) also calls `ReplayRecorder.OnRunEnded`
-  with its own `PatchGuard`
+  with its own `PatchGuard`. That method also queues the background
+  run-database import ([run-database.md](run-database.md), "Automatic
+  import").
 
 `RoomResetter` calls `ReplayRecorder.SetPendingLoadReason` immediately before
 `SetUpSavedSingleplayer`, so restarts and death undos are labeled.

@@ -195,10 +195,13 @@ repair backups are ignored.
   (`CARD.STRIKE_IRONCLAD#3`), split into `card_id` and `instance_number`.
   - Typed columns: plays, damage, block, draws, energy, kills,
     `floor_added`, `removed`.
-  - The aggregate's own JSON is in `raw_json`.
 - `spirelens_relic_aggregates` is keyed by relic id. It holds activations,
-  energy, draws, block and healing (healing can be fractional), plus
-  `raw_json`.
+  energy, draws, block and healing (healing can be fractional).
+- Neither aggregate table has its own `raw_json`. Each aggregate already sits
+  verbatim in its run's `spirelens_runs.raw_json`, under `$.aggregates` or
+  `$.relic_aggregates` keyed by `instance_key` or `relic_id`. Schema v2
+  dropped the per-aggregate copies (see "Example queries" for reaching a
+  field that has no column).
 - Older SpireLens builds minted a new record on every Continue, so several
   records can share a `game_start_time`. `runs.spirelens_run_id` picks the
   one the recording header names, or else the most recently updated.
@@ -208,7 +211,14 @@ repair backups are ignored.
 `schema_version` records each applied migration. Migrations are listed in
 `internal/rundb/schema.go`. They are **additive and append-only**: never edit
 a shipped one, add a new version. A database newer than the tool is
-refused.
+refused. A migration that frees a lot of space is followed by a `VACUUM`, so
+the file actually shrinks; this happens once, on the first run of a newer
+tool.
+
+| version | change |
+|---|---|
+| 1 | Initial schema. |
+| 2 | Dropped `raw_json` from `spirelens_card_aggregates` and `spirelens_relic_aggregates`. It duplicated `spirelens_runs.raw_json`. |
 
 | table | key | what |
 |---|---|---|
@@ -266,9 +276,12 @@ SELECT sum(was_picked) * 1.0 / count(*) FROM run_card_choices WHERE card_id = 'C
 SELECT model_id, avg(damage_taken), count(*) FROM run_floors
 WHERE room_type = 'elite' GROUP BY model_id ORDER BY 2 DESC;
 
--- A SpireLens aggregate field that has no column
-SELECT card_id, sum(json_extract(raw_json, '$.times_discarded'))
-FROM spirelens_card_aggregates GROUP BY card_id;
+-- A SpireLens aggregate field that has no column: read it from the run's raw JSON
+SELECT a.card_id, sum(json_extract(j.value, '$.times_discarded'))
+FROM spirelens_card_aggregates a
+JOIN spirelens_runs s USING (run_id)
+JOIN json_each(s.raw_json, '$.aggregates') j ON j.key = a.instance_key
+GROUP BY a.card_id;
 
 -- Canonical combat decisions of one run
 SELECT dseq, kind, chosen_index, option_count FROM decisions
@@ -277,9 +290,10 @@ WHERE game_start_time = 1791840595 AND canonical = 1 AND phase = 'combat';
 
 ## Known limits
 
-- **Size.** About 600 MB on 2026-10-14. Most of it is SpireLens raw JSON:
-  the runs' `raw_json` (about 240 MB) and the per-card aggregate `raw_json`
-  (about 115 MB). Decision records add about 37 MB per 7k records.
+- **Size.** About 392 MB on 2026-10-14, after schema v2 (it was 605 MB with
+  the per-aggregate copies). The largest part is the SpireLens runs'
+  `raw_json` (about 240 MB). Decision records add about 37 MB per 7k
+  records.
 - **Multiplayer history.** `runs.character` is `players[0]`, and the file
   does not say which player was local. `run_floors`, `run_deck` and the other
   per-player tables keep every player.

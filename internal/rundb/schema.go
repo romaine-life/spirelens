@@ -16,10 +16,14 @@ type migration struct {
 	version     int
 	description string
 	sql         string
+	// vacuum asks for a VACUUM after the migration commits, for steps that
+	// free a lot of space (VACUUM cannot run inside a transaction).
+	vacuum bool
 }
 
 var migrations = []migration{
-	{1, "initial run database", schemaV1},
+	{1, "initial run database", schemaV1, false},
+	{2, "drop per-aggregate raw_json (duplicates spirelens_runs.raw_json)", schemaV2, true},
 }
 
 // LatestSchemaVersion is the schema version a fully migrated database has.
@@ -416,6 +420,15 @@ CREATE TABLE spirelens_relic_aggregates (
 CREATE INDEX spirelens_relic_aggregates_relic ON spirelens_relic_aggregates(relic_id);
 `
 
+// schemaV2 drops the per-card and per-relic raw_json columns. Each value was
+// a verbatim copy of an entry already in its run's spirelens_runs.raw_json
+// ($.aggregates / $.relic_aggregates), so it added size but no information.
+// The headline numeric columns stay.
+const schemaV2 = `
+ALTER TABLE spirelens_card_aggregates DROP COLUMN raw_json;
+ALTER TABLE spirelens_relic_aggregates DROP COLUMN raw_json;
+`
+
 // Open opens (creating if needed) the database at path and applies any
 // pending migrations.
 func Open(ctx context.Context, path string) (*sql.DB, error) {
@@ -467,10 +480,13 @@ func migrate(ctx context.Context, db *sql.DB) error {
 	if have > LatestSchemaVersion() {
 		return fmt.Errorf("database schema version %d is newer than this tool (%d); update spirelens-db", have, LatestSchemaVersion())
 	}
+	vacuum := false
 	for _, m := range migrations {
 		if m.version <= have {
 			continue
 		}
+		// A fresh database has nothing to reclaim.
+		vacuum = vacuum || (m.vacuum && have > 0)
 		tx, err := db.BeginTx(ctx, nil)
 		if err != nil {
 			return err
@@ -487,6 +503,13 @@ func migrate(ctx context.Context, db *sql.DB) error {
 		}
 		if err := tx.Commit(); err != nil {
 			return err
+		}
+	}
+	if vacuum {
+		// Rewrites the file so the space the migration freed is returned to
+		// the OS (dropping a column alone only leaves free pages).
+		if _, err := db.ExecContext(ctx, `VACUUM`); err != nil {
+			return fmt.Errorf("vacuum after migration: %w", err)
 		}
 	}
 	return nil

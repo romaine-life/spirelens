@@ -197,13 +197,13 @@ func writeSpireLensRun(ctx context.Context, tx execer, path string, run *spirele
 			INSERT INTO spirelens_card_aggregates (run_id, instance_key, card_id, instance_number, plays, combats_in_deck,
 				turns_in_deck, times_drawn, total_intended, total_effective, total_blocked, total_overkill, kills,
 				total_energy_spent, total_block_gained, total_block_effective, times_exhausted, floor_added,
-				initial_upgrade_level, removed, raw_json)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				initial_upgrade_level, removed)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			run.RunID, key, cardID, number, numberValue(a.Plays), numberValue(a.CombatsInDeck),
 			numberValue(a.TurnsInDeck), numberValue(a.TimesDrawn), numberValue(a.TotalIntended), numberValue(a.TotalEffective),
 			numberValue(a.TotalBlocked), numberValue(a.TotalOverkill), numberValue(a.Kills), numberValue(a.TotalEnergySpent),
 			numberValue(a.TotalBlockGained), numberValue(a.TotalBlockEffective), numberValue(a.TimesExhausted),
-			numberValue(a.FloorAdded), numberValue(a.InitialUpgradeLevel), nullBoolPtr(a.Removed), string(raw)); err != nil {
+			numberValue(a.FloorAdded), numberValue(a.InitialUpgradeLevel), nullBoolPtr(a.Removed)); err != nil {
 			return err
 		}
 	}
@@ -222,10 +222,10 @@ func writeSpireLensRun(ctx context.Context, tx execer, path string, run *spirele
 		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO spirelens_relic_aggregates (run_id, relic_id, activations, energy_generated, additional_cards_drawn,
-				additional_block_gained, total_healing_restored, raw_json)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+				additional_block_gained, total_healing_restored)
+			VALUES (?, ?, ?, ?, ?, ?, ?)`,
 			run.RunID, key, numberValue(a.Activations), numberValue(a.EnergyGenerated), numberValue(a.AdditionalCardsDrawn),
-			numberValue(a.AdditionalBlockGained), numberValue(a.TotalHealingRestored), string(raw)); err != nil {
+			numberValue(a.AdditionalBlockGained), numberValue(a.TotalHealingRestored)); err != nil {
 			return err
 		}
 	}

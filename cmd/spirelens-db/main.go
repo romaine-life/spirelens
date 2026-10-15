@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/romaine-life/spirelens/internal/rundb"
 )
@@ -74,7 +75,7 @@ type stringList []string
 func (s *stringList) String() string     { return strings.Join(*s, ",") }
 func (s *stringList) Set(v string) error { *s = append(*s, v); return nil }
 
-func runIngest(ctx context.Context, args []string) error {
+func runIngest(ctx context.Context, args []string) (retErr error) {
 	fs := flag.NewFlagSet("ingest", flag.ExitOnError)
 	dbPath := fs.String("db", rundb.DefaultDBPath(), "database file")
 	replays := fs.String("replays", rundb.DefaultReplaysDir(), "SpireLens replays directory (\"\" to skip)")
@@ -84,7 +85,30 @@ func runIngest(ctx context.Context, args []string) error {
 	noHistory := fs.Bool("no-history", false, "skip the game's run history files")
 	force := fs.Bool("force", false, "re-ingest every source even if unchanged")
 	quiet := fs.Bool("quiet", false, "do not print per-file warnings")
+	logPath := fs.String("log", "", "write all output to this file (overwritten) instead of the console; used by SpireLens's background import")
 	fs.Parse(args)
+
+	if *logPath != "" {
+		if err := os.MkdirAll(filepath.Dir(*logPath), 0o755); err != nil {
+			return err
+		}
+		f, err := os.Create(*logPath)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			// main prints errors to stderr after this returns, when the file
+			// is closed: record the outcome here instead.
+			if retErr != nil {
+				fmt.Fprintln(f, "spirelens-db:", retErr)
+			} else {
+				fmt.Fprintln(f, "done")
+			}
+			f.Close()
+		}()
+		os.Stdout, os.Stderr = f, f
+		fmt.Printf("spirelens-db ingest started %s\n", time.Now().Format(time.RFC3339))
+	}
 
 	historyDirs := []string(history)
 	if len(historyDirs) == 0 && !*noHistory {
@@ -97,6 +121,19 @@ func runIngest(ctx context.Context, args []string) error {
 	if err := os.MkdirAll(filepath.Dir(*dbPath), 0o755); err != nil {
 		return err
 	}
+	// One ingest at a time: SpireLens starts one at every run end and Core
+	// load, and a user may run one by hand. A second one exits quietly; the
+	// next trigger picks up whatever it would have read.
+	release, locked, err := rundb.AcquireIngestLock(*dbPath)
+	if err != nil {
+		return err
+	}
+	if !locked {
+		fmt.Println("another spirelens-db ingest is running; nothing to do")
+		return nil
+	}
+	defer release()
+
 	db, err := rundb.Open(ctx, *dbPath)
 	if err != nil {
 		return err

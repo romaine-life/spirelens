@@ -32,11 +32,14 @@ the main menu and your data is restored. A finished replay stays on the final sc
 | Slower / faster (0.5x, 1x, 2x, 4x, max) | `-` / `=` (also `[` / `]`, keypad −/+) | LB / RB |
 | Restart the current floor | R | Y |
 | Previous / next floor | Page Up / Page Down | D-pad ↓ / ↑ |
-| Exit (back to the main menu) | Esc | SpireLens menu (R3) → Stop replay |
+| Previous / next run (playlists) | B / N | LT / RT |
+| Restart the current run | Home | X |
+| Exit (back to the main menu; ends the whole playlist) | Esc | SpireLens menu (R3) → Stop replay |
 | SpireLens menu | Left Shift | R3 |
 
 The status bar sits bottom-left. It shows playing or paused, the speed, the floor (`floor N/total`), the input index
-(`input i/n`) and the resync count, plus a short note when something happens.
+(`input i/n`) and the resync count, plus a short note when something happens. While a playlist plays, it adds a line
+with the playlist name and `run i/N — <label>`.
 
 **Pause** stops feeding at the next input boundary. Animations still finish.
 
@@ -48,6 +51,70 @@ The status bar sits bottom-left. It shows playing or paused, the speed, the floo
 While a replay plays, **every other click, key and controller button is swallowed**, so you cannot act on the replayed
 run. Mouse movement still passes, so hover tooltips work. Left Shift / R3 (the SpireLens menu) and F5 (Core hot reload)
 also pass.
+
+## Playlists
+
+A playlist plays a list of recordings back to back. Playlists are made in the run-database web page
+(`spirelens-db serve`, at http://127.0.0.1:8737; see [run-database.md](run-database.md)). The page filters runs and
+writes playlist files. The game reads those files and plays them. Saved playlists are listed with Play buttons in the
+**Playlists** section of the Mods page.
+
+### Playing a list
+
+- **Each run plays exactly like a single replay**: it starts from its first snapshot, uses the same keyframes and
+  resync, and shows the same controls.
+- **Moving on.** When a run reaches its recorded end, or fails in a way playback cannot recover from (it diverged past
+  its last save point, or a load threw), the next run starts after a short pause. That pause is 4 s at 1x, shorter at
+  higher speeds, and held while paused.
+- **Unplayable runs.** A run whose recording is missing, was made on another build, or can't be read is skipped, with
+  a log line and a short note.
+- **Manual navigation.** B/N (LT/RT) move to the previous or next run; Home (X) restarts the current one.
+- **Exiting** (Esc, or Stop replay in the SpireLens menu) stops the whole list, returns to the main menu and restores
+  your data.
+
+**The data guard covers the whole list.** It takes one backup before the first run and does one restore when the list
+ends or is exited. Nothing between runs writes your data, because every run is a playback run under the same guard.
+A backup per run would only copy identical files again, and restoring between runs would need a trip through the main
+menu for nothing. The backup's marker names the first run; crash and hot-reload recovery recognize any playback run,
+because a playback run never saves.
+
+### File contract (shared with the web page)
+
+The directory is `%APPDATA%\SlayTheSpire2\SpireLens\playlists\` (`user://SpireLens/playlists/`).
+
+**Saved playlists** are one file per playlist, `<slug>.json`:
+
+```json
+{"format_version": 1, "name": "Regent wins", "created_at_utc": "...", "updated_at_utc": "...",
+ "filter": {"...": "informational, or null"},
+ "runs": [{"game_start_time": 1792120868, "label": "A10 win, floor 49"}]}
+```
+
+- `game_start_time` is the recording's directory name under `replays/` (the game's run id).
+- `label` is optional; without it the bar shows the recording's own description.
+- Unknown fields are ignored.
+- A file that can't be read is skipped with a log line: invalid JSON, no `runs` array, or `format_version` below 1.
+- A run entry without a positive integer `game_start_time` is skipped.
+- `play-now.json` is never treated as a playlist.
+- A slug containing a path separator or `..` is refused.
+
+**Play now** is the file `play-now.json` in the same directory. It names either a saved playlist or inline runs:
+
+```json
+{"format_version": 1, "requested_at_utc": "...", "playlist": "<slug>"}
+{"format_version": 1, "requested_at_utc": "...", "runs": [{"game_start_time": 1792120868, "label": "..."}]}
+```
+
+The game polls for this file about once a second while SpireLens Core is loaded:
+
+- **At the main menu with no replay playing**, it consumes the request by deleting the file and starts the list.
+- **A file that doesn't parse** is retried for 3 s, in case it was caught mid-write. After that it is deleted with a
+  toast.
+- **Otherwise** (mid-run, or a replay already playing), the file stays where it is. A toast says why, once per file
+  version.
+
+The page treats a file still present after about 10 s as "not picked up". The poll is a stock Godot `Timer` node under
+the scene root (`ReplayPlayNowWatcher`), freed at Core shutdown. No game hook is involved.
 
 ## How it works
 
@@ -136,7 +203,9 @@ On divergence the driver:
 3. reloads the recording's snapshot (the mismatching keyframe, or the next one after an unfeedable input);
 4. continues from the following step.
 
-A keyframe that diverges twice in a row is stepped over. Combat checksums give an earlier, log-only signal; the next
+A keyframe that diverges twice in a row is stepped over. Combat checksums are noise for now: live, they differ on
+many card plays while every keyframe matches. Only the first difference since the last save point is logged, at Info,
+with the count when that segment ends. The next
 keyframe decides.
 
 ## What is protected, and how

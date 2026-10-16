@@ -111,6 +111,15 @@ public static class SpireLensOptionsMenu
         CoreMain.Logger.Info($"SpireLens options menu opened ({source})");
     }
 
+    /// <summary>Redraws an open menu after the Mods page changed a setting.</summary>
+    public static void RefreshIfOpen()
+    {
+        if (!IsOpen) return;
+        RefreshToggleRows();
+        RefreshBuildTimeZoneRow();
+        RefreshBuildInfo();
+    }
+
     public static void Close(string source)
     {
         if (_layer == null || !GodotObject.IsInstanceValid(_layer)) return;

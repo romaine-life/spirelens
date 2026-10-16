@@ -170,6 +170,9 @@ public static class CoreMain
         Patches.RelicCompendiumFilterUi.ReinjectIntoActiveCollections();
         Patches.PotionCompendiumHistoryUi.ReinjectIntoActiveLabs();
         Patches.PowerHistoryPileUi.ReinjectIntoActiveCombat();
+        // The Mods → SpireLens page's Core section and its settings-changed
+        // hook (cleared again first thing in Shutdown).
+        SpireLensSettingsSection.Register();
 
         // Visible confirmation on screen so hot reload has immediate feedback.
         // Kept in Core (not Loader) so toast text/style can be tweaked and
@@ -200,6 +203,10 @@ public static class CoreMain
 
         // Strategy: swallow exceptions per step so one failure doesn't skip
         // later cleanup. A half-cleaned state is better than a no-cleaned state.
+        // The Loader must stop calling into this Core's Mods-page hooks first.
+        try { SpireLensSettingsSection.Unregister(); }
+        catch (Exception e) { Logger.Error($"Shutdown: Mods page hook clear failed: {e}"); }
+
         try { ViewStatsInjectorPatch.TeardownInjectedUI(); }
         catch (Exception e) { Logger.Error($"Shutdown: UI teardown failed: {e}"); }
 

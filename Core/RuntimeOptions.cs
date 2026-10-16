@@ -65,6 +65,7 @@ public static class RuntimeOptionsProvider
     private const string SetShowCombatOnlyRelicsAtCombatScreenMethodName = "SetShowCombatOnlyRelicsAtCombatScreen";
     private const string SetVerboseHandStatsEnabledMethodName = "SetVerboseHandStatsEnabled";
     private const string SetOptionMethodName = "SetOption";
+    private const string RegisterCoreHooksMethodName = "RegisterCoreHooks";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -328,6 +329,40 @@ public static class RuntimeOptionsProvider
 
         Refresh();
         return applied;
+    }
+
+    /// <summary>
+    /// Hands the Loader this Core's Mods-page hooks (or clears them with
+    /// nulls). Returns false when the running Loader predates
+    /// <c>RegisterCoreHooks</c>; its Mods page then simply has no Core
+    /// section, and only a full game restart loads a Loader that has one.
+    /// </summary>
+    public static bool RegisterCoreHooks(
+        Action? optionsChanged,
+        Action<Godot.Control, Func<string, Godot.Control>, Func<string, Godot.Control>, Func<string, string, Action?, Godot.Control>>? settingsSection)
+    {
+        try
+        {
+            var method = ResolveBridgeType()?.GetMethod(
+                RegisterCoreHooksMethodName,
+                BindingFlags.Public | BindingFlags.Static,
+                binder: null,
+                types:
+                [
+                    typeof(Action),
+                    typeof(Action<Godot.Control, Func<string, Godot.Control>, Func<string, Godot.Control>, Func<string, string, Action, Godot.Control>>),
+                ],
+                modifiers: null);
+            if (method == null) return false;
+
+            method.Invoke(null, new object?[] { optionsChanged, settingsSection });
+            return true;
+        }
+        catch (Exception e)
+        {
+            CoreMain.Logger.Warn($"RuntimeOptionsProvider.RegisterCoreHooks failed: {e.InnerException?.Message ?? e.Message}");
+            return false;
+        }
     }
 
     private static void LogSetOptionFailureOnce(string name, string reason)

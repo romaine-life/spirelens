@@ -53,7 +53,7 @@ The Slay the Spire 2 install (`D:\SteamLibrary\steamapps\common\Slay the Spire 2
 
 Allowed entries:
 
-1. The user's own mods — currently **SpireLens** and **SpirePad** (controller fix: follows the last-used pad under Steam Input; private repo [`romaine-life/spire-pad`](https://github.com/romaine-life/spire-pad), source at `D:epos\spire-pad\`, kept out of SpireLens so it doesn't ship to SpireLens users).
+1. The user's own mods — currently **SpireLens** and **SpirePad** (controller fix: follows the last-used pad under Steam Input; private repo [`romaine-life/spire-pad`](https://github.com/romaine-life/spire-pad), source at `D:\repos\spire-pad\`, kept out of SpireLens so it doesn't ship to SpireLens users).
 2. Required prereqs for (1) — currently **BaseLib** (Alchyr), which SpireLens depends on for Harmony patching and node factories.
 3. Tooling prereqs required to validate (1) via the automated verify run — currently **`SpireLensMcp`** (in-house fork at [`romaine-life/spire-lens-mcp`](https://github.com/romaine-life/spire-lens-mcp), source at `D:\repos\spire-lens-mcp\`, vendored from `Gennadiyev/STS2MCP` under MIT). Listens on `localhost:15526` exposing `/api/v1/singleplayer` and `/api/v1/multiplayer`; the Python MCP server in the same repo's `mcp/` directory connects to that endpoint and exposes ~50 game-control tools to Claude. Without it the run's bridge-readiness probe fails before Claude launches.
 

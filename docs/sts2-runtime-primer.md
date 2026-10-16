@@ -363,6 +363,62 @@ So the options are snapshot when the screen opens.
   `PaperPhrogVulnerableModifyDamagePatch`) only act on a real card play or an
   active damage command frame, so a preview records nothing.
 
+### Driving The Game For Replays
+
+The replay player ([replay-player.md](replay-player.md)) relies on these runtime facts.
+
+**What `RunManager.ShouldSave = false` covers, and what it doesn't**
+
+It guards the run save (`RunSaveManager.SaveRun(AbstractRoom)` checks it) and everything `RunManager.OnEnded` does at
+run end: progress update, run history, metrics, current-run delete and the Steam stat.
+
+It does **not** guard:
+
+- `SaveManager.SaveRun`'s own `SaveProgressFile()`, called at every map-node save;
+- in-memory progress mutation during the run: `MarkCardAsSeen`, `UpdateProgressAfterCombatWon`, epochs, game-over
+  score banking.
+
+`SetUpSavedSingleplayer` additionally rewrites `current_run.save` through `IncrementNumReloads`, whatever `ShouldSave`
+says. Playback therefore runs its private `InitializeShared` / `InitializeRunLobby` / `InitializeSavedRun` sequence with
+`shouldSave: false`, without `IncrementNumReloads`, and backs up and restores the rest.
+
+**Save points still fire with ShouldSave off**
+
+`RunSaveManager.SaveRun(AbstractRoom)` is still *called* at every save point; it only skips the write inside. The
+existing `RunSaveSnapshotPatch` prefix (patched since process start) therefore observes replay save points, and
+`RunManager.ToSave(preFinishedRoom)` gives the save that would have been written.
+
+**`CardSelectCmd.LocalSelector` is the game's local selection seam**
+
+- `PushSelector(selector, localOnly: true)` makes every `CardSelectCmd` local-player path ask the selector instead of
+  opening its screen. The choice id is still reserved first, so the flow stays the same.
+- `RunManager.CleanUp` calls `CardSelectCmd.Reset()`, which clears the selector stacks. A selector must be reinstalled
+  after every run load, and popped before `CleanUp` so its scope is not disposed against a cleared stack.
+- The screens that are **not** behind the seam:
+  - `CardReward.OnSelect` always shows `NCardRewardSelectionScreen` for the local player;
+  - `RelicSelectCmd`;
+  - `FromChooseABundleScreen`.
+
+  These complete through their `_completionSource` (or the card reward screen's private `SelectCard` /
+  `OnAlternateRewardSelected`).
+
+**Blocking the player's input**
+
+The loader's `HotReloadInputNode` is added under the scene root after the game's scene, so its `_Input` (and the
+`StatsVisibilityHotkeyPatch` postfix on it) sees events before the game's own nodes. `SetInputAsHandled` there also
+stops GUI processing for that event. Clicks, keys and controller buttons are swallowed during playback this way;
+mouse motion passes, so hover still works.
+
+**Core cannot define its own input-handling nodes**
+
+Core is built without the Godot source generators, so it cannot define nodes with overridden virtuals such as `_Input`.
+Everything input-related goes through that loader node, and UI is plain Godot controls.
+
+**Leaving a run that is not the user's**
+
+`NGame.ReturnToMainMenu()` (fade → `RunManager.CleanUp()` → main menu) is the same path as Save and Quit. With
+`ShouldSave` off, it writes nothing.
+
 ## RunStarted Is Not Deck-Ready
 
 Do not use `RunStarted` as the source of truth for starter deck population.

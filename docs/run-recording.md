@@ -522,6 +522,10 @@ background task chain.
 
 ## For a future replay driver
 
+The in-game replay player that consumes these files is described in
+[replay-player.md](replay-player.md). The notes below remain the format-level
+contract for any other driver.
+
 - **Same build:** start from `snapshots/<n>` for any canonical `save_point`.
   Load it the way `RoomResetter.RestartAsync` does
   (`RunState.FromSerializable`, `SetUpSavedSingleplayer`, `NGame.LoadRun`).

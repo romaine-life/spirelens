@@ -1823,7 +1823,14 @@ public static class RelicHoverShowPatch
             CoreMain.LogDebug($"GetRelicTitle failed: {e.Message}");
         }
 
-        return Effects.EffectOutcomeRows.Humanize(relicModel.Id.ToString());
+        try
+        {
+            return Effects.EffectOutcomeRows.Humanize(relicModel.Id.ToString());
+        }
+        catch
+        {
+            return relicModel.GetType().Name;
+        }
     }
 
     /// <summary>

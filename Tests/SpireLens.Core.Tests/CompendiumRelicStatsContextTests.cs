@@ -106,14 +106,30 @@ public class CompendiumRelicStatsContextTests
     [Fact]
     public void TryBuildEmptyRelicTooltip_DoesNotCreatePanelForUnsupportedRelic()
     {
+        // Circlet is the Toy Box fallback with no effect of its own, so it is
+        // neither hand-tracked nor enrolled in the generic effect frames.
         var ok = CompendiumRelicStatsContext.TryBuildEmptyRelicTooltip(
-            Uninitialized<DreamCatcher>(),
+            Uninitialized<Circlet>(),
             out var title,
             out var body);
 
         Assert.False(ok);
         Assert.Empty(title);
         Assert.Empty(body);
+    }
+
+    [Fact]
+    public void TryBuildEmptyRelicTooltip_EffectFrameRelicGetsGenericPanel()
+    {
+        // Dream Catcher has no hand-written body; it is enrolled in the
+        // generic effect frames (ADR 0004), so it still gets a panel.
+        var ok = CompendiumRelicStatsContext.TryBuildEmptyRelicTooltip(
+            Uninitialized<DreamCatcher>(),
+            out _,
+            out var body);
+
+        Assert.True(ok);
+        Assert.NotEmpty(body);
     }
 
     [Fact]

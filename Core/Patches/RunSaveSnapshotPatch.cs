@@ -30,6 +30,9 @@ public static class RunSaveSnapshotPatch
     {
         try
         {
+            // Replay keyframes: the game reaches this prefix at every save
+            // point even with ShouldSave off (the write is skipped inside).
+            Replay.Playback.ReplayPlayer.OnGameSavePoint(preFinishedRoom);
             if (!RunTracker.GameWritesRunSave()) return;
             RunTracker.OnRunSaveWriting(preFinishedRoom);
         }

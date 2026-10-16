@@ -26,6 +26,11 @@ the main menu; opened in a run, the Mods page shows why and greys out the Play b
 is drawn by the Core each time the page opens, so it is current and follows Core hot reloads; if no Core is loaded the
 page says so in one line.
 
+Above the Replay section, the Mods page draws a **Playlists** section. Each saved playlist is shown with its name, run
+count and playable count, and a Play button; a playlist with nothing playable shows "Unavailable". The section also
+has a one-line hint that playlists are made in the web page (`spirelens-db serve`, http://127.0.0.1:8737). It is
+rebuilt every time the page opens. See [Playlists](#playlists).
+
 To stop a replay: press **Esc**, choose **Stop replay** in the SpireLens overlay, or wait for the end. (The Mods page
 also shows Stop replay while one plays, but playback swallows the clicks needed to get there.) The game returns to the main menu and your data is restored. A finished
 replay stays on the final screen until you exit.

@@ -22,6 +22,55 @@ namespace SpireLens.Core;
 /// </summary>
 internal static class SpireLensSettingsSection
 {
+    /// <summary>
+    /// Saved playlists (playlists/&lt;slug&gt;.json, docs/replay-player.md) with
+    /// their run and playable counts and a Play button. Read fresh each time
+    /// the page opens; playlists themselves are made in the web page.
+    /// </summary>
+    private static void FillPlaylists(
+        Func<string, Control> makeSection,
+        Func<string, Control> makeNote,
+        Func<string, string, Action?, Control> makeRow)
+    {
+        var section = makeSection("Playlists");
+        section.AddChild(makeNote(
+            $"Playlists are made in the run-database web page: run `spirelens-db serve`, then open {PlaylistPageUrl}."));
+
+        string? blocked = ReplayPlayer.StartBlockedReason();
+        var playlists = ReplayPlaylistLibrary.List();
+        if (playlists.Count == 0)
+        {
+            section.AddChild(makeNote("No playlists yet."));
+            return;
+        }
+
+        foreach (var playlist in playlists)
+        {
+            int playable = 0;
+            foreach (var (_, listing) in ReplayPlaylistLibrary.Resolve(playlist.Runs))
+                if (listing is { Playable: true }) playable++;
+
+            string label = $"{playlist.Name}  —  {playlist.Runs.Count} run{(playlist.Runs.Count == 1 ? "" : "s")}, {playable} playable";
+            if (playable == 0)
+            {
+                section.AddChild(makeRow(label, "Unavailable", null));
+                continue;
+            }
+
+            var chosen = playlist;
+            section.AddChild(makeRow(
+                label,
+                "Play",
+                blocked != null
+                    ? null
+                    : () =>
+                    {
+                        CoreMain.Logger.Info($"Mods page: playing playlist '{chosen.Name}'");
+                        ReplayPlayer.StartPlaylist(chosen);
+                    }));
+        }
+    }
+
     public static void Register()
     {
         if (!RuntimeOptionsProvider.RegisterCoreHooks(OnLoaderOptionsChanged, Fill))
@@ -42,23 +91,28 @@ internal static class SpireLensSettingsSection
         SpireLensOptionsMenu.RefreshIfOpen();
     }
 
+    /// <summary>Where the run-database web page that makes playlists listens (docs/run-database.md).</summary>
+    private const string PlaylistPageUrl = "http://127.0.0.1:8737";
+
     private static void Fill(
         Control host,
         Func<string, Control> makeSection,
         Func<string, Control> makeNote,
         Func<string, string, Action?, Control> makeRow)
     {
-        var replay = makeSection("Replay");
-
         if (ReplayPlayer.IsActive)
         {
-            replay.AddChild(makeRow(
+            var playing = makeSection("Replay");
+            playing.AddChild(makeRow(
                 "A replay is playing",
                 "Stop replay",
                 () => ReplayPlayer.RequestStop()));
             return;
         }
 
+        FillPlaylists(makeSection, makeNote, makeRow);
+
+        var replay = makeSection("Replay");
         replay.AddChild(makeNote(
             "Plays a recorded run in the real game. Your saves and progress are backed up and restored."));
 

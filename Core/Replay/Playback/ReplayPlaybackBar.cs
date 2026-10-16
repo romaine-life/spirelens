@@ -13,8 +13,8 @@ internal static class ReplayPlaybackBar
 {
     private const int Layer = 950;
     private const string Hints =
-        "Space pause · . step · −/+ speed · R restart floor · PgUp/PgDn floor · Esc exit\n"
-        + "Pad: Select pause · → step · LB/RB speed · Y restart · ↑/↓ floor · R3 menu";
+        "Space pause · . step · −/+ speed · R restart floor · PgUp/PgDn floor · B/N run · Home restart run · Esc exit\n"
+        + "Pad: Select pause · → step · LB/RB speed · Y restart floor · ↑/↓ floor · LT/RT run · X restart run · R3 menu";
 
     private static CanvasLayer? _layer;
     private static Label? _status;

@@ -85,9 +85,145 @@ public static class RuntimeOptionsBridge
             [nameof(SpireLensConfig.BuildTimeZone)] = TryApplyBuildTimeZone,
         };
 
+    private static Action? _coreOptionsChanged;
+    private static Action<Control, Func<string, Control>, Func<string, Control>, Func<string, string, Action?, Control>>?
+        _coreSettingsSection;
+    private static int _coreHooksGeneration;
+    private static bool _lastHideNonCombatRelicStats;
+    private static bool _lastShowCombatOnlyRelicsAtCombatScreen;
+
     public static void Initialize()
     {
         MigrateLegacyPrefsIfNeeded();
+        RememberRelicFilterState();
+    }
+
+    /// <summary>
+    /// Called by the Core (by reflection) on every Initialize, and with nulls
+    /// on Shutdown, so a hot-reloaded Core replaces the previous one's hooks
+    /// and an orphaned Core is never called back. <paramref name="optionsChanged"/>
+    /// runs after the Mods page changes a setting, so the Core drops any state
+    /// it cached from the config; <paramref name="settingsSection"/> renders
+    /// the Core's part of that page. The signature is a cross-assembly
+    /// contract: keep it stable.
+    ///
+    /// settingsSection receives the host container plus three Loader-made
+    /// factories, so the Core's rows look and navigate exactly like BaseLib's
+    /// own: makeSection(title) adds a collapsible section to the host and
+    /// returns its content container, makeNote(text) returns a quiet label,
+    /// and makeRow(label, buttonText, onPressed) returns an option row with a
+    /// button — or, when onPressed is null, the button text as a greyed
+    /// label. Only BCL and Godot types cross the boundary, because the Core
+    /// does not reference BaseLib or the Loader.
+    /// </summary>
+    public static void RegisterCoreHooks(
+        Action? optionsChanged,
+        Action<Control, Func<string, Control>, Func<string, Control>, Func<string, string, Action?, Control>>? settingsSection)
+    {
+        _coreOptionsChanged = optionsChanged;
+        _coreSettingsSection = settingsSection;
+        _coreHooksGeneration++;
+    }
+
+    internal static bool HasCoreSettingsSection => _coreSettingsSection != null;
+
+    internal static int CoreHooksGeneration => _coreHooksGeneration;
+
+    /// <summary>Lets the registered Core fill its part of the Mods page.</summary>
+    internal static bool TryFillCoreSettingsSection(
+        Control host,
+        Func<string, Control> makeSection,
+        Func<string, Control> makeNote,
+        Func<string, string, Action?, Control> makeRow)
+    {
+        var fill = _coreSettingsSection;
+        if (fill == null) return false;
+
+        try
+        {
+            fill(host, makeSection, makeNote, makeRow);
+            return true;
+        }
+        catch (Exception e)
+        {
+            LoaderMain.Logger.Error($"RuntimeOptionsBridge: Core settings section failed: {e}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// A Mods-page control changed the config (or Restore Defaults ran).
+    /// Keep the relic-bar filter pair exclusive, as the Core's own setters do,
+    /// then tell the Core to re-read everything it caches.
+    /// </summary>
+    internal static void OnSettingsPageChanged()
+    {
+        EnforceRelicFilterExclusivity();
+        NotifyCoreOptionsChanged();
+    }
+
+    private static void NotifyCoreOptionsChanged()
+    {
+        try
+        {
+            _coreOptionsChanged?.Invoke();
+        }
+        catch (Exception e)
+        {
+            LoaderMain.Logger.Error($"RuntimeOptionsBridge: Core options-changed hook failed: {e}");
+        }
+    }
+
+    /// <summary>
+    /// The filter the player ticked last wins: whichever was already on before
+    /// this change is the one turned off.
+    /// </summary>
+    private static void EnforceRelicFilterExclusivity()
+    {
+        if (SpireLensConfig.HideNonCombatRelicStats && SpireLensConfig.ShowCombatOnlyRelicsAtCombatScreen)
+        {
+            if (_lastHideNonCombatRelicStats)
+                SpireLensConfig.HideNonCombatRelicStats = false;
+            else
+                SpireLensConfig.ShowCombatOnlyRelicsAtCombatScreen = false;
+
+            ModConfig.SaveDebounced<SpireLensConfig>();
+            RefreshOpenSettingsPage();
+        }
+
+        RememberRelicFilterState();
+    }
+
+    private static void RememberRelicFilterState()
+    {
+        _lastHideNonCombatRelicStats = SpireLensConfig.HideNonCombatRelicStats;
+        _lastShowCombatOnlyRelicsAtCombatScreen = SpireLensConfig.ShowCombatOnlyRelicsAtCombatScreen;
+    }
+
+    /// <summary>
+    /// Saves a Core-originated change and redraws an open Mods page's
+    /// controls from the config, since the SpireLens overlay can be opened on
+    /// top of that page.
+    /// </summary>
+    private static void SaveFromCore()
+    {
+        ModConfig.SaveDebounced<SpireLensConfig>();
+        RememberRelicFilterState();
+        RefreshOpenSettingsPage();
+    }
+
+    private static void RefreshOpenSettingsPage()
+    {
+        try
+        {
+            // OnConfigReloaded is what BaseLib's own tickboxes and dropdowns
+            // listen to in order to re-read their property.
+            ModConfigRegistry.Get<SpireLensConfig>()?.ConfigReloaded();
+        }
+        catch (Exception e)
+        {
+            LoaderMain.Logger.Warn($"RuntimeOptionsBridge: refreshing the Mods page failed: {e.Message}");
+        }
     }
 
     public static string GetCurrentOptionsJson()
@@ -100,7 +236,7 @@ public static class RuntimeOptionsBridge
         if (SpireLensConfig.ViewStatsToggleEnabled == isEnabled) return;
 
         SpireLensConfig.ViewStatsToggleEnabled = isEnabled;
-        ModConfig.SaveDebounced<SpireLensConfig>();
+        SaveFromCore();
     }
 
     public static void SetShowRemovedCardsInDeckView(bool isEnabled)
@@ -108,7 +244,7 @@ public static class RuntimeOptionsBridge
         if (SpireLensConfig.ShowRemovedCardsInDeckView == isEnabled) return;
 
         SpireLensConfig.ShowRemovedCardsInDeckView = isEnabled;
-        ModConfig.SaveDebounced<SpireLensConfig>();
+        SaveFromCore();
     }
 
     public static void SetShowAllMetaCardsInNotInDeckView(bool isEnabled)
@@ -116,7 +252,7 @@ public static class RuntimeOptionsBridge
         if (SpireLensConfig.ShowAllMetaCardsInNotInDeckView == isEnabled) return;
 
         SpireLensConfig.ShowAllMetaCardsInNotInDeckView = isEnabled;
-        ModConfig.SaveDebounced<SpireLensConfig>();
+        SaveFromCore();
     }
 
     public static void SetShowEnemyStatsOnHover(bool isEnabled)
@@ -124,7 +260,7 @@ public static class RuntimeOptionsBridge
         if (SpireLensConfig.ShowEnemyStatsOnHover == isEnabled) return;
 
         SpireLensConfig.ShowEnemyStatsOnHover = isEnabled;
-        ModConfig.SaveDebounced<SpireLensConfig>();
+        SaveFromCore();
     }
 
     public static void SetShowCardStatsDuringCombat(bool isEnabled)
@@ -132,7 +268,7 @@ public static class RuntimeOptionsBridge
         if (SpireLensConfig.ShowCardStatsDuringCombat == isEnabled) return;
 
         SpireLensConfig.ShowCardStatsDuringCombat = isEnabled;
-        ModConfig.SaveDebounced<SpireLensConfig>();
+        SaveFromCore();
     }
 
     public static void SetHideNonCombatRelicStats(bool isEnabled)
@@ -143,7 +279,7 @@ public static class RuntimeOptionsBridge
         SpireLensConfig.HideNonCombatRelicStats = isEnabled;
         if (isEnabled)
             SpireLensConfig.ShowCombatOnlyRelicsAtCombatScreen = false;
-        ModConfig.SaveDebounced<SpireLensConfig>();
+        SaveFromCore();
     }
 
     public static void SetShowCombatOnlyRelicsAtCombatScreen(bool isEnabled)
@@ -154,7 +290,7 @@ public static class RuntimeOptionsBridge
         SpireLensConfig.ShowCombatOnlyRelicsAtCombatScreen = isEnabled;
         if (isEnabled)
             SpireLensConfig.HideNonCombatRelicStats = false;
-        ModConfig.SaveDebounced<SpireLensConfig>();
+        SaveFromCore();
     }
 
     public static void SetVerboseHandStatsEnabled(bool isEnabled)
@@ -162,7 +298,7 @@ public static class RuntimeOptionsBridge
         if (SpireLensConfig.UseVerboseHandStats == isEnabled) return;
 
         SpireLensConfig.UseVerboseHandStats = isEnabled;
-        ModConfig.SaveDebounced<SpireLensConfig>();
+        SaveFromCore();
     }
 
     /// <summary>
@@ -201,7 +337,7 @@ public static class RuntimeOptionsBridge
         if (current == next) return;
 
         assign(next);
-        ModConfig.SaveDebounced<SpireLensConfig>();
+        SaveFromCore();
     }
 
     private static bool TryApplyBuildTimeZone(string value)
@@ -214,7 +350,7 @@ public static class RuntimeOptionsBridge
         if (SpireLensConfig.BuildTimeZone == zone) return true;
 
         SpireLensConfig.BuildTimeZone = zone;
-        ModConfig.SaveDebounced<SpireLensConfig>();
+        SaveFromCore();
         return true;
     }
 
@@ -267,7 +403,7 @@ public static class RuntimeOptionsBridge
         }
 
         SpireLensConfig.LegacyPrefsMigrated = true;
-        ModConfig.SaveDebounced<SpireLensConfig>();
+        SaveFromCore();
     }
 
     private sealed class LegacyPrefs

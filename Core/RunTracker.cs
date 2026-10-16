@@ -1966,8 +1966,38 @@ public static partial class RunTracker
     /// one, or the mod was hot-loaded into one already in progress.
     /// </summary>
     [MemberNotNullWhen(true, nameof(_currentRun))]
+    /// <summary>
+    /// Replay playback is starting: persist and park the live record (if the
+    /// user left a run in progress) so nothing the replay does reaches it.
+    /// Nothing is un-parked afterwards: the next Continue adopts the record
+    /// from disk exactly as after a game restart.
+    /// </summary>
+    internal static void SuspendForPlayback()
+    {
+        lock (_lock)
+        {
+            try
+            {
+                if (_currentRun != null && _currentRun.Outcome == InProgressOutcome)
+                    SaveCurrentRun();
+            }
+            catch (Exception e)
+            {
+                CoreMain.Logger.Warn($"SuspendForPlayback: saving the live record failed: {e.Message}");
+            }
+            UnsubscribeCardOrbEventsLocked();
+            _currentRun = null;
+            _pendingCombat = null;
+            ResetCombatContextState();
+            ResetRewardContextState();
+            ResetDeckViewCachesLocked();
+            CoreMain.Logger.Info("RunTracker suspended for replay playback");
+        }
+    }
+
     private static bool TryEnsureCurrentRunLocked()
     {
+        if (Replay.Playback.ReplayPlaybackGuard.SuppressTracking) return false;
         if (_currentRun != null) return true;
         if (WouldResurrectEndedRunLocked()) return false;
 
@@ -2196,6 +2226,8 @@ public static partial class RunTracker
     /// </summary>
     public static void TryResumeActiveRun()
     {
+        // A replay (or one interrupted by this reload) owns the live run.
+        if (Replay.Playback.ReplayPlaybackGuard.SuppressTracking) return;
         lock (_lock)
         {
             try
@@ -2691,6 +2723,13 @@ public static partial class RunTracker
 
     private static void OnRunStartedImpl(RunState runState)
     {
+        // The replay player drives a recorded run through the real game; it is
+        // not the user's run and must never be adopted, minted or written.
+        if (Replay.Playback.ReplayPlaybackGuard.SuppressTracking)
+        {
+            CoreMain.Logger.Info("RunStarted: replay playback in progress; not tracking");
+            return;
+        }
         lock (_lock)
         {
             long gameStartTime = 0;

@@ -221,16 +221,30 @@ spirelens-db serve            # then open http://127.0.0.1:8737/
 
 ### The page
 
-- **Filters:**
-  - character, ascension range, outcome (win, loss, abandoned, unfinished);
-  - date range (local dates), floor-reached range, killed by;
-  - **picked card**: picked at a card reward, from game history;
-  - **has relic**: in the final relics, from game history;
-  - source: recorded, or game history only;
-  - **playable only**.
+- **Filters** (the user asked for a compact default on 2026-10-16):
+  - Always shown, on one row: character, outcome (win, loss, abandoned,
+    unfinished), and **Recorded on current game version** (off by default;
+    see "Which runs are playable").
+  - Everything else is added with **+ Add filter**. A hidden filter applies
+    no restriction. An added filter shows as a removable chip with a
+    starting value:
 
-  Picked card and has relic autocomplete from the database and accept a
-  plain name ("defy") or an id (`CARD.DEFY`).
+    | filter | starting value |
+    |---|---|
+    | ascension range | the highest ascension in the database |
+    | date range (local dates) | the last 30 days |
+    | floor-reached range | 1 to the highest floor |
+    | killed by | the most common killer |
+    | **picked card** (at a card reward, game history) | empty |
+    | **has relic** (in the final relics, game history) | empty |
+    | source | recorded (or game history only) |
+
+  - Picked card and has relic autocomplete from the database and accept a
+    plain name ("defy") or an id (`CARD.DEFY`).
+  - The browser remembers the filters, including which optional ones are
+    added, in `localStorage`. The page works the same when storage is
+    unavailable. **Reset filters** returns to the compact default and
+    forgets them.
 - **Results table**, sortable by any column:
   - date, character, ascension, outcome, floor, killed by;
   - deck size, relic count, damage taken (history), run time, canonical
@@ -254,7 +268,9 @@ spirelens-db serve            # then open http://127.0.0.1:8737/
 
 ### Which runs are playable
 
-A run is playable when it has a recording whose header `game.commit` equals
+The page calls this **Recorded on current game version**: the filter, the
+rule line at the top, and the reasons in the replay column all use that
+wording. A run is playable when it has a recording whose header `game.commit` equals
 the current game's commit (case-insensitive) **and** whose
 `game.model_id_hash` equals the current game's model-id hash. That is the
 rule the in-game player applies (`ReplayVersionGate.Check`). The run's

@@ -187,11 +187,11 @@ func checkReplayable(f recordingFacts, cur CurrentBuild) Replayability {
 	case f.commit == "" || f.modelIDHash == "":
 		return Replayability{Reason: "recording does not name its game build"}
 	case !cur.Known || cur.ModelIDHash == "":
-		return Replayability{Reason: "current game build unknown"}
+		return Replayability{Reason: "current game version unknown"}
 	case !strings.EqualFold(f.commit, cur.Commit):
-		return Replayability{Reason: fmt.Sprintf("recorded on %s (%s); current build is %s (%s)", orQ(f.version), f.commit, orQ(cur.Version), cur.Commit)}
+		return Replayability{Reason: fmt.Sprintf("not recorded on current game version: recorded on %s (%s), current is %s (%s)", orQ(f.version), f.commit, orQ(cur.Version), cur.Commit)}
 	case f.modelIDHash != cur.ModelIDHash:
-		return Replayability{Reason: fmt.Sprintf("game content table differs (model_id_hash %s, current %s)", f.modelIDHash, cur.ModelIDHash)}
+		return Replayability{Reason: fmt.Sprintf("not recorded on current game version: same commit, but the game content differs (model_id_hash %s, current %s)", f.modelIDHash, cur.ModelIDHash)}
 	}
 	r := Replayability{Replayable: true}
 	if f.midRun {

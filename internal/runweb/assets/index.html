@@ -36,12 +36,18 @@ h2 { font-size: 15px; margin: 0 0 10px; font-weight: 600; }
 .layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 0 20px 24px; }
 @media (min-width: 1180px) { .layout { grid-template-columns: minmax(0, 1fr) 360px; align-items: start; } }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; box-shadow: var(--shadow); }
-.filters { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px 14px; }
-.field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.field > span { font-size: 12px; color: var(--muted); }
-.pair { display: flex; gap: 6px; align-items: center; }
-.pair input { width: 100%; min-width: 0; }
-.checks { display: flex; flex-wrap: wrap; gap: 4px 10px; padding-top: 2px; }
+.base-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
+.inline { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.optional { display: flex; flex-wrap: wrap; gap: 8px; }
+.optional:not(:empty) { margin-top: 10px; }
+.fchip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 16px;
+  padding: 3px 4px 3px 10px; background: var(--bg); }
+.fchip > .name { font-size: 12px; color: var(--muted); }
+.fchip input[type=number] { width: 4.5em; }
+.fchip input[type=text] { width: 11em; }
+.fchip .x { border: none; background: none; padding: 0 6px; color: var(--muted); font-size: 15px; line-height: 1; }
+.fchip .x:hover { color: var(--bad); }
+.checks { display: flex; flex-wrap: wrap; gap: 4px 10px; }
 .checks label { display: inline-flex; gap: 4px; align-items: center; white-space: nowrap; }
 input, select, button { font: inherit; color: inherit; }
 input[type=text], input[type=number], input[type=date], select {
@@ -96,25 +102,21 @@ details > summary { cursor: pointer; color: var(--muted); font-size: 12px; margi
 <div class="layout">
   <section class="panel">
     <form id="filters" class="filters" autocomplete="off">
-      <label class="field"><span>Character</span><select name="character"><option value="">Any</option></select></label>
-      <div class="field"><span>Ascension</span><div class="pair">
-        <input type="number" name="ascension_min" placeholder="min" min="0"> – <input type="number" name="ascension_max" placeholder="max" min="0"></div></div>
-      <div class="field"><span>Outcome</span><div class="checks">
-        <label><input type="checkbox" name="outcome" value="win"> Win</label>
-        <label><input type="checkbox" name="outcome" value="loss"> Loss</label>
-        <label><input type="checkbox" name="outcome" value="abandoned"> Abandoned</label>
-        <label><input type="checkbox" name="outcome" value="in_progress"> Unfinished</label></div></div>
-      <div class="field"><span>Date from</span><input type="date" name="date_from"></div>
-      <div class="field"><span>Date to</span><input type="date" name="date_to"></div>
-      <div class="field"><span>Floor reached</span><div class="pair">
-        <input type="number" name="floor_min" placeholder="min" min="0"> – <input type="number" name="floor_max" placeholder="max" min="0"></div></div>
-      <label class="field"><span>Killed by</span><select name="killed_by"><option value="">Any</option></select></label>
-      <label class="field"><span>Picked card (at a reward)</span><input type="text" name="picked_card" list="cards" placeholder="e.g. Defy"></label>
-      <label class="field"><span>Has relic (at run end)</span><input type="text" name="has_relic" list="relics" placeholder="e.g. Winged Boots"></label>
-      <label class="field"><span>Source</span><select name="source">
-        <option value="">Any</option><option value="recorded">Recorded</option><option value="history_only">Game history only</option></select></label>
-      <div class="field"><span>&nbsp;</span><label class="checks"><input type="checkbox" name="playable_only"> Playable only</label></div>
-      <div class="field"><span>&nbsp;</span><div><button type="reset">Reset filters</button></div></div>
+      <div class="base-row">
+        <label class="inline"><span class="muted">Character</span>
+          <select name="character"><option value="">Any</option></select></label>
+        <div class="checks" role="group" aria-label="Outcome">
+          <label><input type="checkbox" name="outcome" value="win"> Win</label>
+          <label><input type="checkbox" name="outcome" value="loss"> Loss</label>
+          <label><input type="checkbox" name="outcome" value="abandoned"> Abandoned</label>
+          <label><input type="checkbox" name="outcome" value="in_progress"> Unfinished</label>
+        </div>
+        <label class="inline" title="Only runs recorded on the game version installed now: those are the ones the game can replay">
+          <input type="checkbox" name="playable_only"> Recorded on current game version</label>
+        <select id="add-filter" aria-label="Add filter"><option value="">+ Add filter</option></select>
+        <button type="reset" class="link">Reset filters</button>
+      </div>
+      <div id="optional" class="optional"></div>
       <datalist id="cards"></datalist><datalist id="relics"></datalist>
     </form>
 
@@ -217,7 +219,7 @@ function renderBuild(build) {
   n.hidden = !build;
   if (!build) return;
   n.className = "note" + (build.known && build.source.startsWith("installed") ? "" : " warn");
-  n.textContent = "Playable = recorded on the current game build (same commit and model-id hash). " + build.note;
+  n.textContent = "Recorded on current game version = recorded with the same game commit and content (model-id) hash as the game now installed; only those runs can be replayed. " + build.note;
 }
 
 async function loadMeta() {
@@ -233,30 +235,128 @@ async function loadMeta() {
     sel.value = keep;
   };
   fill(f.character, d.meta.characters);
-  fill(f.killed_by, d.meta.killed_by);
+  if (!state.restored) { state.restored = true; restoreFilters(); }
   $("#cards").replaceChildren(...d.meta.cards.map(o => el("option", { value: o.label })));
   $("#relics").replaceChildren(...d.meta.relics.map(o => el("option", { value: o.label })));
 }
 
 // ---------------- filters / runs
 
+// Optional filters: hidden ones apply no restriction. Each has a starting
+// value, its inputs, and the part of the API filter it contributes.
+const isoDay = offsetDays => { const d = new Date(Date.now() + offsetDays * 864e5);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+const numOr = v => v === "" || v == null ? undefined : Number(v);
+const strOr = v => (v || "").trim() || undefined;
+const input = (part, type, value, attrs) => el("input", Object.assign({ type, "data-part": part, value: value ?? "" }, attrs || {}));
+const range = (v, attrs) => [input("min", "number", v.min, Object.assign({ placeholder: "min", "aria-label": "minimum" }, attrs)), "–",
+  input("max", "number", v.max, Object.assign({ placeholder: "max", "aria-label": "maximum" }, attrs))];
+const OPTIONAL = [
+  { key: "ascension", label: "Ascension", init: m => ({ min: m.ascension[1], max: m.ascension[1] }),
+    render: v => range(v, { min: 0 }), read: v => ({ ascension_min: numOr(v.min), ascension_max: numOr(v.max) }) },
+  { key: "date", label: "Date", init: () => ({ from: isoDay(-30), to: isoDay(0) }),
+    render: v => [input("from", "date", v.from, { "aria-label": "from" }), "–", input("to", "date", v.to, { "aria-label": "to" })],
+    read: v => ({ date_from: strOr(v.from), date_to: strOr(v.to) }) },
+  { key: "floor", label: "Floor reached", init: m => ({ min: 1, max: m.floor[1] }),
+    render: v => range(v, { min: 0 }), read: v => ({ floor_min: numOr(v.min), floor_max: numOr(v.max) }) },
+  { key: "killed_by", label: "Killed by", init: m => ({ value: m.killed_by.length ? m.killed_by[0].value : "" }),
+    render: v => { const sel = el("select", { "data-part": "value", "aria-label": "killed by" },
+      state.meta.killed_by.map(o => el("option", { value: o.value }, `${o.label} (${o.count})`))); sel.value = v.value; return [sel]; },
+    read: v => ({ killed_by: strOr(v.value) }) },
+  { key: "picked_card", label: "Picked card", init: () => ({ value: "" }),
+    render: v => [input("value", "text", v.value, { list: "cards", placeholder: "card name", title: "Picked at a card reward" })],
+    read: v => ({ picked_card: strOr(v.value) }) },
+  { key: "has_relic", label: "Has relic", init: () => ({ value: "" }),
+    render: v => [input("value", "text", v.value, { list: "relics", placeholder: "relic name", title: "Held at run end" })],
+    read: v => ({ has_relic: strOr(v.value) }) },
+  { key: "source", label: "Source", init: () => ({ value: "recorded" }),
+    render: v => { const sel = el("select", { "data-part": "value", "aria-label": "source" },
+      el("option", { value: "recorded" }, "Recorded"), el("option", { value: "history_only" }, "Game history only")); sel.value = v.value; return [sel]; },
+    read: v => ({ source: strOr(v.value) }) },
+];
+const optionalByKey = Object.fromEntries(OPTIONAL.map(o => [o.key, o]));
+
+function chipValues(chip) {
+  const v = {};
+  chip.querySelectorAll("[data-part]").forEach(i => { v[i.dataset.part] = i.value; });
+  return v;
+}
+
+function addOptional(key, values) {
+  const def = optionalByKey[key];
+  if (!def || $(`#optional .fchip[data-key="${key}"]`)) return;
+  const chip = el("div", { class: "fchip", "data-key": key },
+    el("span", { class: "name" }, def.label), def.render(values || def.init(state.meta)),
+    el("button", { type: "button", class: "x", title: `Remove the ${def.label.toLowerCase()} filter`, "aria-label": "Remove filter",
+      onclick: () => { chip.remove(); renderAddMenu(); filtersChanged(0); } }, "×"));
+  $("#optional").append(chip);
+  renderAddMenu();
+}
+
+function renderAddMenu() {
+  const active = new Set([...document.querySelectorAll("#optional .fchip")].map(c => c.dataset.key));
+  const menu = $("#add-filter");
+  menu.replaceChildren(el("option", { value: "" }, "+ Add filter"),
+    ...OPTIONAL.filter(o => !active.has(o.key)).map(o => el("option", { value: o.key }, o.label)));
+  menu.disabled = active.size === OPTIONAL.length;
+}
+
 function readFilter() {
   const f = $("#filters");
-  const num = v => v === "" ? undefined : Number(v);
   const filter = {
     character: f.character.value || undefined,
-    ascension_min: num(f.ascension_min.value), ascension_max: num(f.ascension_max.value),
     outcomes: [...f.querySelectorAll("input[name=outcome]:checked")].map(c => c.value),
-    date_from: f.date_from.value || undefined, date_to: f.date_to.value || undefined,
-    floor_min: num(f.floor_min.value), floor_max: num(f.floor_max.value),
-    killed_by: f.killed_by.value || undefined,
-    picked_card: f.picked_card.value.trim() || undefined,
-    has_relic: f.has_relic.value.trim() || undefined,
-    source: f.source.value || undefined,
     playable_only: f.playable_only.checked || undefined,
   };
   if (!filter.outcomes.length) delete filter.outcomes;
+  document.querySelectorAll("#optional .fchip").forEach(chip => Object.assign(filter, optionalByKey[chip.dataset.key].read(chipValues(chip))));
+  for (const k of Object.keys(filter)) if (filter[k] === undefined) delete filter[k];
   return filter;
+}
+
+// Per-browser memory of the filters. Storage can be missing or throw
+// (private windows, blocked site data); the page works the same without it.
+const STORE_KEY = "spirelens.runBrowser.filters.v1";
+function saveFilters() {
+  const f = $("#filters");
+  const snap = {
+    character: f.character.value,
+    outcomes: [...f.querySelectorAll("input[name=outcome]:checked")].map(c => c.value),
+    playable_only: f.playable_only.checked,
+    optional: [...document.querySelectorAll("#optional .fchip")].map(c => [c.dataset.key, chipValues(c)]),
+  };
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(snap)); } catch { /* not persisted */ }
+}
+function restoreFilters() {
+  renderAddMenu();
+  let snap = null;
+  try { snap = JSON.parse(localStorage.getItem(STORE_KEY) || "null"); } catch { snap = null; }
+  if (!snap || typeof snap !== "object") return;
+  const f = $("#filters");
+  if (typeof snap.character === "string") f.character.value = snap.character;
+  const outs = new Set(Array.isArray(snap.outcomes) ? snap.outcomes : []);
+  f.querySelectorAll("input[name=outcome]").forEach(c => { c.checked = outs.has(c.value); });
+  f.playable_only.checked = !!snap.playable_only;
+  if (Array.isArray(snap.optional)) for (const entry of snap.optional) {
+    if (Array.isArray(entry) && optionalByKey[entry[0]] && entry[1] && typeof entry[1] === "object") addOptional(entry[0], entry[1]);
+  }
+}
+function resetFilters() {
+  const f = $("#filters");
+  f.character.value = "";
+  f.querySelectorAll("input[name=outcome]").forEach(c => { c.checked = false; });
+  f.playable_only.checked = false;
+  $("#optional").replaceChildren();
+  renderAddMenu();
+  try { localStorage.removeItem(STORE_KEY); } catch { /* nothing stored */ }
+  loadRuns();
+}
+
+let debounce = null;
+function filtersChanged(delay) {
+  saveFilters();
+  clearTimeout(debounce);
+  debounce = setTimeout(loadRuns, delay);
 }
 
 let runsSeq = 0;
@@ -302,7 +402,7 @@ function renderRuns() {
     check.checked = state.selected.has(r.game_start_time);
     check.addEventListener("change", () => { check.checked ? state.selected.add(r.game_start_time) : state.selected.delete(r.game_start_time); renderSelection(); });
     const replay = r.replayable
-      ? el("span", { class: "yes", title: r.reason || "Recorded on the current build" }, "✓ playable")
+      ? el("span", { class: "yes", title: r.reason || "Recorded on current game version" }, "✓ playable")
       : el("span", { class: "why", title: r.reason }, r.reason);
     return el("tr", {},
       el("td", {}, check),
@@ -396,8 +496,8 @@ function renderPlaylists() {
     const nameSpan = el("span", { class: "pl-name" }, p.name);
     const head = el("div", { class: "pl-head" },
       nameSpan,
-      el("span", { class: "chip", title: "playable on the current build / total" }, `${playable}/${p.runs.length}`),
-      el("button", { type: "button", class: "primary", disabled: !p.runs.length, title: "The game skips runs from other builds",
+      el("span", { class: "chip", title: "recorded on current game version / total" }, `${playable}/${p.runs.length}`),
+      el("button", { type: "button", class: "primary", disabled: !p.runs.length, title: "The game skips runs not recorded on the current game version",
         onclick: () => sendPlay({ playlist: p.slug }, `playlist “${p.name}”`) }, "Play now"),
       el("button", { type: "button", onclick: () => startRename(p, head, nameSpan) }, "Rename"),
       el("button", { type: "button", onclick: () => deletePlaylist(p) }, "Delete"));
@@ -405,7 +505,7 @@ function renderPlaylists() {
       const li = el("li", { draggable: "true", "data-i": i },
         el("span", { class: "grip", title: "Drag to reorder" }, "⋮⋮"),
         el("span", { class: "lbl", title: r.reason || r.label }, r.label),
-        r.replayable ? el("span", { class: "yes", title: "Playable on the current build" }, "✓") : el("span", { class: "muted small", title: r.reason }, "✕"),
+        r.replayable ? el("span", { class: "yes", title: "Recorded on current game version" }, "✓") : el("span", { class: "muted small", title: r.reason }, "✕"),
         el("button", { type: "button", class: "link", title: "Move up", disabled: i === 0,
           onclick: () => { const a = ids.slice(); [a[i - 1], a[i]] = [a[i], a[i - 1]]; savePlaylistRuns(p, a); } }, "↑"),
         el("button", { type: "button", class: "link", title: "Move down", disabled: i === ids.length - 1,
@@ -455,12 +555,19 @@ async function deletePlaylist(p) {
 
 // ---------------- wiring
 
-let debounce = null;
 $("#filters").addEventListener("input", e => {
-  clearTimeout(debounce);
-  debounce = setTimeout(loadRuns, e.target.type === "text" || e.target.type === "number" ? 300 : 0);
+  if (e.target.id === "add-filter") return;
+  filtersChanged(e.target.type === "text" || e.target.type === "number" ? 300 : 0);
 });
-$("#filters").addEventListener("reset", () => setTimeout(loadRuns, 0));
+$("#filters").addEventListener("reset", e => { e.preventDefault(); resetFilters(); });
+$("#add-filter").addEventListener("change", e => {
+  const key = e.target.value;
+  e.target.value = "";
+  if (!key) return;
+  addOptional(key);
+  filtersChanged(0);
+  $(`#optional .fchip[data-key="${key}"] [data-part]`)?.focus();
+});
 document.querySelectorAll("#runs th.sortable").forEach(th => th.addEventListener("click", () => {
   const key = th.dataset.key;
   state.sort = state.sort.key === key ? { key, dir: -state.sort.dir } : { key, dir: key === "game_start_time" ? -1 : 1 };

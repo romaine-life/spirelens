@@ -163,12 +163,12 @@ func TestCheckReplayable(t *testing.T) {
 		t.Fatalf("good recording refused: %s", r.Reason)
 	}
 	cases := map[string]func(f *recordingFacts){
-		"not recorded":         func(f *recordingFacts) { f.hasRecording = false },
-		"directory is missing": func(f *recordingFacts) { f.dirExists = false },
-		"header":               func(f *recordingFacts) { f.headerOK = false },
-		"no snapshots":         func(f *recordingFacts) { f.snapshots = 0 },
-		"recorded on":          func(f *recordingFacts) { f.commit = "deadbeef" },
-		"content table":        func(f *recordingFacts) { f.modelIDHash = "1" },
+		"not recorded":                         func(f *recordingFacts) { f.hasRecording = false },
+		"directory is missing":                 func(f *recordingFacts) { f.dirExists = false },
+		"header":                               func(f *recordingFacts) { f.headerOK = false },
+		"no snapshots":                         func(f *recordingFacts) { f.snapshots = 0 },
+		"not recorded on current game version": func(f *recordingFacts) { f.commit = "deadbeef" },
+		"content differs":                      func(f *recordingFacts) { f.modelIDHash = "1" },
 	}
 	for want, mutate := range cases {
 		f := good

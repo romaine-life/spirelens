@@ -7,6 +7,7 @@
 //	spirelens-db ingest [--db path] [--replays dir] [--history dir]... [--spirelens-runs dir] [--force]
 //	spirelens-db stats [--db path]
 //	spirelens-db export-decisions --out file.jsonl [--db path] [--drop-hidden] [--include-abandoned] [--finished-only] [--kinds a,b]
+//	spirelens-db serve [--addr 127.0.0.1:8737] [--db path] [--game-dir dir] [--no-ingest]
 package main
 
 import (
@@ -38,6 +39,8 @@ func main() {
 		err = runStats(ctx, os.Args[2:])
 	case "export-decisions":
 		err = runExport(ctx, os.Args[2:])
+	case "serve":
+		err = runServe(ctx, os.Args[2:])
 	case "-h", "--help", "help":
 		usage(os.Stdout)
 		return
@@ -59,6 +62,7 @@ commands:
   ingest             read recordings, game run history and SpireLens run records into the database
   stats              print headline queries
   export-decisions   write canonical decision records as JSONL training data
+  serve              local web page to filter runs and build replay playlists (localhost only)
 
 defaults (from %%APPDATA%%):
   --db              %s

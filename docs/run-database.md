@@ -14,6 +14,9 @@ Code:
 - `internal/rundb/`: schema and migrations (`schema.go`), the three importers
   (`recording.go`, `history.go`, `spirelens.go`), the derived `runs` table
   (`runs.go`), `stats.go` and `export.go`.
+- `internal/runweb/`: the `serve` web page (`assets/index.html`, embedded),
+  its JSON API, the current-build rule (`build.go`) and the playlist files
+  shared with the game (`playlists.go`).
 - `internal/replayformat/`: the Go port of the pure recording-format logic
   in `Core/Replay/ReplayFormat.cs` and `DecisionFormat.cs`. Its tests repeat
   the C# test cases (`RunRecordingFormatTests`, `DecisionRecordFormatTests`).
@@ -114,6 +117,8 @@ spirelens-db ingest [--db path] [--replays dir] [--history dir]... [--no-history
 spirelens-db stats [--db path]
 spirelens-db export-decisions --out file.jsonl [--db path] [--drop-hidden]
                     [--include-abandoned] [--finished-only] [--kinds a,b]
+spirelens-db serve [--addr 127.0.0.1:8737] [--db path] [--replays dir]
+                    [--playlists dir] [--game-dir dir] [--no-ingest]
 ```
 
 Default paths come from `%APPDATA%\SlayTheSpire2`:
@@ -189,6 +194,139 @@ from the `runs` table. `labels.win` is null while a run is in progress.
   A trainer of a fair player should use it.
 - `net_state` is not exported, and is not stored in the database. It is
   build-specific; read it from the recording if needed.
+
+## Run browser and playlists (`serve`)
+
+`spirelens-db serve` is a local web page for filtering runs and building
+replay playlists. The in-game replay player plays them (see
+[replay-player.md](replay-player.md), "Playlists"). The user approved it on
+2026-10-16.
+
+```
+spirelens-db serve            # then open http://127.0.0.1:8737/
+```
+
+- **It binds a loopback address only.** Any other `--addr` is refused.
+  There is no authentication. Everything, page included, is embedded in the
+  binary, so there are no CDN or network calls.
+  - Requests whose `Host` is not loopback are refused, which stops
+    DNS-rebinding pages.
+  - Every state-changing request must carry an `X-SpireLens` header. A
+    cross-site page cannot add one without a CORS preflight, and the server
+    never grants one.
+- **Before serving**, it runs one incremental ingest. If the ingest lock is
+  held (another ingest is running), it skips the ingest and serves the data
+  as it is, and the page says so. **Refresh data** on the page runs another
+  ingest. `--no-ingest` skips it.
+
+### The page
+
+- **Filters:**
+  - character, ascension range, outcome (win, loss, abandoned, unfinished);
+  - date range (local dates), floor-reached range, killed by;
+  - **picked card**: picked at a card reward, from game history;
+  - **has relic**: in the final relics, from game history;
+  - source: recorded, or game history only;
+  - **playable only**.
+
+  Picked card and has relic autocomplete from the database and accept a
+  plain name ("defy") or an id (`CARD.DEFY`).
+- **Results table**, sortable by any column:
+  - date, character, ascension, outcome, floor, killed by;
+  - deck size, relic count, damage taken (history), run time, canonical
+    decisions (recordings);
+  - replay status: "✓ playable", or the reason it is not.
+
+  Each playable run has a **Play** button.
+- **Selection:** a checkbox per recorded run, and **Select all filtered
+  replayable**. Then **Save N as playlist** (named), or **Play selection
+  now**.
+- **Playlists panel:**
+  - every playlist with its playable/total count, **Play now**, **Rename**
+    and **Delete**;
+  - expand a playlist to reorder its runs (drag, or ↑/↓), remove runs, or
+    **Add selected runs**;
+  - each run shows whether it is playable on the current build.
+- **After Play now**, the page says the request was sent. It then watches
+  `play-now.json`: when the file disappears it says the game picked it up.
+  After about 10 seconds it says "the game hasn't picked it up (is it at the
+  main menu?)".
+
+### Which runs are playable
+
+A run is playable when it has a recording whose header `game.commit` equals
+the current game's commit (case-insensitive) **and** whose
+`game.model_id_hash` equals the current game's model-id hash. That is the
+rule the in-game player applies (`ReplayVersionGate.Check`). The run's
+`replays/<game_start_time>/` directory must also exist and hold at least one
+snapshot.
+
+The current build is worked out outside the game, so it is a best guess:
+
+- **The commit** comes from the installed game's `release_info.json`. The
+  install is found through Steam: the `SteamPath` registry value, then every
+  library in `libraryfolders.vdf`. `--game-dir` overrides that.
+- **The model-id hash** is computed by the running game and is not on disk.
+  It is taken from the newest recording made on that commit. If no recording
+  exists on the installed commit, nothing is marked playable, and the page
+  says to play one run on the new build first.
+- **If the install cannot be found**, the newest recording's commit and hash
+  are assumed to be current, and the page says so.
+
+The page shows which rule it used. The game re-checks every run itself and
+skips incompatible ones, so a wrong guess costs a skipped run, never a bad
+replay.
+
+### Playlist files (contract with the game)
+
+The directory is `%APPDATA%\SlayTheSpire2\SpireLens\playlists\`. `serve`
+creates it if it is missing.
+
+**Playlists.** There is one file per playlist, `<slug>.json`. The slug is the
+name in lower-case ASCII letters and digits, with every other run of
+characters turned into `-`, at most 60 characters. A clash gets `-2`, `-3`,
+and so on. `play-now` is reserved. Renaming a playlist renames its file.
+
+```json
+{
+  "format_version": 1,
+  "name": "Regent wins",
+  "created_at_utc": "2026-10-16T15:24:14Z",
+  "updated_at_utc": "2026-10-16T15:24:14Z",
+  "filter": { "character": "CHARACTER.REGENT", "outcomes": ["win"] },
+  "runs": [
+    { "game_start_time": 1792120868, "label": "2026-10-15 Regent A10 WIN f49" }
+  ]
+}
+```
+
+- `filter` is informational: the page filter the playlist was saved from,
+  in the page's own filter shape. It may be `null`.
+- `runs` is in play order. Only recorded runs (with a
+  `replays/<game_start_time>/` directory) are written. Others are dropped,
+  and the page reports them. The game re-checks build compatibility itself
+  and skips runs that do not match.
+- `label` is `<local date> <Character> A<ascension> <WIN|LOSS|ABANDONED|UNFINISHED> f<floor>`.
+  Missing parts are left out.
+
+**Play now.** The page writes `play-now.json` in the same directory, in one
+of two shapes: a saved playlist by slug, or an ad-hoc list (one run for a
+row's **Play** button).
+
+```json
+{ "format_version": 1, "requested_at_utc": "2026-10-16T15:24:14Z", "playlist": "regent-wins" }
+{ "format_version": 1, "requested_at_utc": "2026-10-16T15:24:14Z",
+  "runs": [ { "game_start_time": 1792120868, "label": "2026-10-15 Regent A10 WIN f49" } ] }
+```
+
+The game consumes the file (reads it, then deletes it). A new request
+replaces one the game has not read yet.
+
+**Writing.** Every file is written atomically: a temp file
+`.<name>.<random>.tmp` in the same directory, flushed, then renamed over the
+target. The rename is retried briefly in case the game has the file open.
+Temp names do not end in `.json`, so a reader that lists `*.json` never sees
+a partial file. Timestamps are UTC, `YYYY-MM-DDTHH:MM:SSZ`.
 
 ## Sources
 

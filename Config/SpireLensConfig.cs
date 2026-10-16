@@ -3,17 +3,31 @@ using Godot;
 
 namespace SpireLens.Config;
 
+/// <summary>
+/// BaseLib persistence for SpireLens settings. Every setting is edited in the
+/// in-game SpireLens menu (Core/SpireLensOptionsMenu.cs, opened with a Left
+/// Shift tap or R3), which writes through Loader/RuntimeOptionsBridge.cs.
+///
+/// The property names are legacy on-disk keys: keep them stable. Every
+/// setting is [ConfigHideInUI], which BaseLib still loads and saves normally
+/// but generates no Mods-page row for; the Mods → SpireLens page only points
+/// the player at the menu and shows build info.
+/// </summary>
 public sealed class SpireLensConfig : SimpleModConfig
 {
-    [ConfigSection("Deck View")]
+    [ConfigHideInUI]
     public static bool ViewStatsToggleEnabled { get; set; }
 
+    [ConfigHideInUI]
     public static bool ShowRemovedCardsInDeckView { get; set; } = true;
 
+    [ConfigHideInUI]
     public static bool ShowAllMetaCardsInNotInDeckView { get; set; }
 
+    [ConfigHideInUI]
     public static bool ShowEnemyStatsOnHover { get; set; }
 
+    [ConfigHideInUI]
     public static bool ShowCardStatsDuringCombat { get; set; }
 
     [ConfigHideInUI]
@@ -25,16 +39,16 @@ public sealed class SpireLensConfig : SimpleModConfig
     [ConfigHideInUI]
     public static bool ShowHandTooltips { get; set; } = true;
 
-    [ConfigSection("Tooltips")]
+    [ConfigHideInUI]
     public static bool UseVerboseHandStats { get; set; }
 
-    [ConfigSection("Performance")]
+    [ConfigHideInUI]
     public static bool DisableCardStatsDuringCombat { get; set; }
 
-    [ConfigSection("Diagnostics")]
+    [ConfigHideInUI]
     public static bool EnableDebugLogging { get; set; }
 
-    [ConfigSection("Build")]
+    [ConfigHideInUI]
     public static BuildDisplayTimeZone BuildTimeZone { get; set; } = BuildDisplayTimeZone.Pacific;
 
     [ConfigIgnore]
@@ -57,19 +71,25 @@ public sealed class SpireLensConfig : SimpleModConfig
     [ConfigHideInUI]
     public static bool LegacyPrefsMigrated { get; set; }
 
+    /// <summary>
+    /// With every property hidden, BaseLib would drop SpireLens from the Mods
+    /// list entirely. Keep the page so players looking there find the pointer.
+    /// </summary>
+    public override bool VisibleInModList() => true;
+
     public override void SetupConfigUI(Control root)
     {
-        base.SetupConfigUI(root);
-
-        // These property names are legacy persistence keys. Keep them stable
-        // on disk, but use the current names anywhere the player sees them.
-        RelabelGeneratedOption(root, nameof(ViewStatsToggleEnabled), "SpireLens: on/off");
-        RelabelGeneratedOption(root, nameof(ShowCardStatsDuringCombat), "SpireLens: card stats");
-        RelabelGeneratedOption(root, nameof(ShowRemovedCardsInDeckView), "Show cards not in deck");
-        RelabelGeneratedOption(
-            root,
-            nameof(ShowAllMetaCardsInNotInDeckView),
-            "Show all meta-cards in \"not in deck\" view");
+        // Deliberately not base.SetupConfigUI: there are no generated rows to
+        // show, and its "Restore defaults" button would reset settings behind
+        // the back of the running Core, which caches them until it reloads.
+        var pointer = CreateRawLabelControl(
+            "SpireLens settings live in the SpireLens menu: tap Left Shift on keyboard "
+            + "or press R3 on controller, from anywhere in the game.",
+            22);
+        // Same wrap-and-grow setup BaseLib uses for its own multi-line notice.
+        pointer.FitContent = true;
+        pointer.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+        root.AddChild(pointer);
 
         root.AddChild(CreateSectionHeader("Build Info", false));
         root.AddChild(CreateRawLabelControl($"Build version: {BuildVersion}", 18));
@@ -77,12 +97,5 @@ public sealed class SpireLensConfig : SimpleModConfig
         root.AddChild(CreateRawLabelControl($"Commit: {BuildCommit}", 18));
         root.AddChild(CreateRawLabelControl($"Build date: {BuildDate}", 18));
         root.AddChild(CreateRawLabelControl($"Build timestamp UTC: {BuildTimestampUtc}", 18));
-    }
-
-    private static void RelabelGeneratedOption(Node root, string optionName, string labelText)
-    {
-        var row = root.FindChild(optionName, recursive: true, owned: false);
-        if (row?.GetChildCount() > 0 && row.GetChild(0) is RichTextLabel label)
-            label.Text = labelText;
     }
 }

@@ -233,6 +233,22 @@ internal static class ReplayInputFeeder
             return;
         }
 
+        // An event's last page offers Proceed as an ordinary event option
+        // (EventOption.IsProceed), not the room's proceed button, and the
+        // recorder never sees that click (it is not a decision). Neow and the
+        // other Ancients end the same way.
+        var eventRoom = NEventRoom.Instance;
+        if (eventRoom != null)
+        {
+            var proceedOption = FindAll<NEventOptionButton>(eventRoom)
+                .FirstOrDefault(b => b.Option is { IsProceed: true } && b.IsEnabled && b.IsVisibleInTree());
+            if (proceedOption != null)
+            {
+                proceedOption.ForceClick();
+                return;
+            }
+        }
+
         var room = NRun.Instance?._roomContainer?.CurrentScene as IRoomWithProceedButton;
         if (room?.ProceedButton is { IsEnabled: true } button && button.IsVisibleInTree())
             button.ForceClick();

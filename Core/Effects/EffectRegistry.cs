@@ -18,7 +18,7 @@ namespace SpireLens.Core.Effects;
 /// Rules for enrolling:
 ///   - never enroll a relic or power that already has bespoke tracking; its
 ///     hand-written windows and the frame would both claim the same outcome;
-///   - names are resolved with <see cref="AccessTools.TypeByName"/> at patch
+///   - names are resolved in the game assembly itself at patch
 ///     time, never through ModelDb, which may not exist yet on a cold start;
 ///   - a name the current game no longer has is skipped, not an error.
 /// </summary>
@@ -97,11 +97,15 @@ internal static class EffectRegistry
         "HammerTimePower", "RegenPower", "RoyaltiesPower",
     ];
 
+    // Resolved against the game assembly that defines RelicModel/PowerModel,
+    // never by scanning every loaded assembly: AccessTools.TypeByName's scan
+    // can run another assembly's module initializer, which threw in the test
+    // host, and Lazy<T> would then cache that exception for the process.
     private static readonly Lazy<HashSet<Type>> RelicTypes =
-        new(() => ResolveTypes(RelicNamespace, RelicClassNames));
+        new(() => ResolveTypes(typeof(RelicModel).Assembly, RelicNamespace, RelicClassNames));
 
     private static readonly Lazy<HashSet<Type>> PowerTypes =
-        new(() => ResolveTypes(PowerNamespace, PowerClassNames));
+        new(() => ResolveTypes(typeof(PowerModel).Assembly, PowerNamespace, PowerClassNames));
 
     public static bool IsEnrolledRelic(RelicModel? relic)
         => relic != null && RelicTypes.Value.Contains(relic.GetType());
@@ -173,15 +177,25 @@ internal static class EffectRegistry
         return baseDefinition.DeclaringType != method.DeclaringType;
     }
 
-    private static HashSet<Type> ResolveTypes(string ns, IEnumerable<string> names)
+    private static HashSet<Type> ResolveTypes(Assembly gameAssembly, string ns, IEnumerable<string> names)
     {
         var result = new HashSet<Type>();
         foreach (var name in names)
         {
-            var type = AccessTools.TypeByName(ns + name);
+            Type? type = null;
+            try
+            {
+                type = gameAssembly.GetType(ns + name, throwOnError: false);
+            }
+            catch
+            {
+                // A single unresolvable name must not take the registry down.
+            }
+
             if (type == null)
             {
-                CoreMain.LogDebug($"EffectRegistry: {ns}{name} not found in this game build; skipped");
+                try { CoreMain.LogDebug($"EffectRegistry: {ns}{name} not found in this game build; skipped"); }
+                catch { }
                 continue;
             }
             result.Add(type);

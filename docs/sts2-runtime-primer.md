@@ -2478,7 +2478,7 @@ Important surfaces:
   **Icon glossary** mode renders the same cached definitions in its existing
   scrollable content area. This is interactive content inside the pinned native
   SpireLens page, not a second `NHoverTipSet` page.
-- Hand hovers are compact unless verbose hand stats are enabled.
+- Hand hovers are compact unless verbose hand stats are enabled, and are skipped entirely when the default-on `ShowHandTooltips` option is off (a presentation gate only; attribution continues).
 - Deck view and other card-view hovers can show full lineage and stat breakdown.
 - Tooltip aggregate display merges committed run data plus current pending combat so combat stats appear immediately.
 

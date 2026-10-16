@@ -32,6 +32,11 @@ func DefaultSpireLensRunsDir() string {
 	return filepath.Join(GameDataDir(), "SpireLens", "runs")
 }
 
+// DefaultPlaylistsDir is where replay playlists shared with the game live.
+func DefaultPlaylistsDir() string {
+	return filepath.Join(GameDataDir(), "SpireLens", "playlists")
+}
+
 // DefaultHistoryDirs finds every saves\history directory the game keeps:
 // steam\<steamid>\profileN\saves\history and the modded-profile copies under
 // steam\<steamid>\modded\profileN\saves\history.

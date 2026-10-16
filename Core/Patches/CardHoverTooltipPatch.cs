@@ -67,6 +67,11 @@ public static class CardHoverShowPatch
 
         if (IsCardRewardSelectionSurface(holder)) return false;
 
+        // Hand hovers have their own display-only opt-out (default on), so a
+        // player can keep deck/pile card stats without them over the hand.
+        if (holder is NHandCardHolder && !RuntimeOptionsProvider.Current.ShowHandTooltips)
+            return false;
+
         var cardModel = holder.CardModel;
         if (cardModel == null) return false;
 

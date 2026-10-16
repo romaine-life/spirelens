@@ -59,6 +59,21 @@ public static class CoreMain
         if (DebugLogging) Logger.Info(msg);
     }
 
+    /// <summary>
+    /// Re-read the debug gate from both config and env var. The env var
+    /// remains a handy one-off override for development sessions without
+    /// touching the persisted setting. Called on every Core load and when the
+    /// SpireLens menu flips the setting, so it applies without a reload.
+    /// </summary>
+    public static void RefreshDebugLogging()
+    {
+        var envDebug = System.Environment.GetEnvironmentVariable("CUS_DEBUG");
+        var envDebugEnabled = !string.IsNullOrEmpty(envDebug)
+            && envDebug != "0"
+            && !envDebug.Equals("false", StringComparison.OrdinalIgnoreCase);
+        DebugLogging = RuntimeOptionsProvider.Current.EnableDebugLogging || envDebugEnabled;
+    }
+
     private static Harmony? _harmony;
 
     /// <summary>
@@ -70,15 +85,7 @@ public static class CoreMain
     {
         Logger.ActivateGameLogger();
         RuntimeOptionsProvider.Refresh();
-
-        // Read debug gate from both config and env var. The env var remains a
-        // handy one-off override for development sessions without touching the
-        // persisted settings UI toggle.
-        var envDebug = System.Environment.GetEnvironmentVariable("CUS_DEBUG");
-        var envDebugEnabled = !string.IsNullOrEmpty(envDebug)
-            && envDebug != "0"
-            && !envDebug.Equals("false", StringComparison.OrdinalIgnoreCase);
-        DebugLogging = RuntimeOptionsProvider.Current.EnableDebugLogging || envDebugEnabled;
+        RefreshDebugLogging();
 
         Logger.Info($"Core.Initialize starting (harmony_id={_harmonyId}, debug={DebugLogging})");
 

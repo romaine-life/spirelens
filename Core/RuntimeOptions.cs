@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Text.Json;
@@ -19,6 +20,35 @@ public sealed class RuntimeOptions
     public bool DisableCardStatsDuringCombat { get; set; }
     public bool EnableDebugLogging { get; set; }
     public string BuildTimeZoneId { get; set; } = "America/Los_Angeles";
+
+    // Added with the generic bridge setter. An older Loader's snapshot omits
+    // them, which leaves these null.
+    public string? BuildTimeZone { get; set; }
+    public string? BuildVersion { get; set; }
+    public string? BuildSource { get; set; }
+    public string? BuildCommit { get; set; }
+    public string? BuildDate { get; set; }
+    public string? BuildTimestampUtc { get; set; }
+
+    /// <summary>
+    /// The selected build-date zone as its Loader enum member name. Falls back
+    /// to <see cref="BuildTimeZoneId"/> for a Loader whose snapshot predates
+    /// <see cref="BuildTimeZone"/>.
+    /// </summary>
+    public string ResolveBuildTimeZoneName()
+    {
+        if (!string.IsNullOrEmpty(BuildTimeZone)) return BuildTimeZone;
+
+        return BuildTimeZoneId switch
+        {
+            "America/Los_Angeles" => "Pacific",
+            "America/New_York" => "Eastern",
+            "America/Chicago" => "Central",
+            "America/Denver" => "Mountain",
+            "UTC" => "UTC",
+            _ => "Local",
+        };
+    }
 }
 
 public static class RuntimeOptionsProvider
@@ -34,6 +64,7 @@ public static class RuntimeOptionsProvider
     private const string SetHideNonCombatRelicStatsMethodName = "SetHideNonCombatRelicStats";
     private const string SetShowCombatOnlyRelicsAtCombatScreenMethodName = "SetShowCombatOnlyRelicsAtCombatScreen";
     private const string SetVerboseHandStatsEnabledMethodName = "SetVerboseHandStatsEnabled";
+    private const string SetOptionMethodName = "SetOption";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -50,6 +81,8 @@ public static class RuntimeOptionsProvider
     private static MethodInfo? _setHideNonCombatRelicStatsMethod;
     private static MethodInfo? _setShowCombatOnlyRelicsAtCombatScreenMethod;
     private static MethodInfo? _setVerboseHandStatsEnabledMethod;
+    private static MethodInfo? _setOptionMethod;
+    private static readonly HashSet<string> LoggedSetOptionFailures = new(StringComparer.Ordinal);
     private static bool _loggedMissingBridge;
     private static bool _loggedRefreshFailure;
     private static bool _loggedToggleFailure;
@@ -256,6 +289,62 @@ public static class RuntimeOptionsProvider
         }
 
         Refresh();
+    }
+
+    /// <summary>
+    /// True when the running Loader exposes the generic <c>SetOption</c>
+    /// bridge. A Core hot reload cannot add it — the Loader only updates on a
+    /// full game restart — so false means "needs a game restart", not an error.
+    /// </summary>
+    public static bool CanSetOption => ResolveSetOptionMethod() != null;
+
+    public static bool TrySetOption(string name, bool value) =>
+        TrySetOption(name, value ? "true" : "false");
+
+    /// <summary>
+    /// Writes one setting through the Loader's validated generic setter.
+    /// <paramref name="name"/> is the BaseLib property name, which the
+    /// <see cref="RuntimeOptions"/> properties mirror. Returns false without
+    /// throwing when the Loader predates the setter or rejects the value.
+    /// </summary>
+    public static bool TrySetOption(string name, string value)
+    {
+        var method = ResolveSetOptionMethod();
+        if (method == null) return false;
+
+        var applied = false;
+        try
+        {
+            applied = method.Invoke(null, new object?[] { name, value }) is true;
+            if (applied)
+                LoggedSetOptionFailures.Remove(name);
+            else
+                LogSetOptionFailureOnce(name, $"the Loader rejected '{value}'");
+        }
+        catch (Exception e)
+        {
+            LogSetOptionFailureOnce(name, e.InnerException?.Message ?? e.Message);
+        }
+
+        Refresh();
+        return applied;
+    }
+
+    private static void LogSetOptionFailureOnce(string name, string reason)
+    {
+        if (LoggedSetOptionFailures.Add(name))
+            CoreMain.Logger.Warn($"RuntimeOptionsProvider.TrySetOption({name}) failed: {reason}");
+    }
+
+    private static MethodInfo? ResolveSetOptionMethod()
+    {
+        _setOptionMethod ??= ResolveBridgeType()?.GetMethod(
+            SetOptionMethodName,
+            BindingFlags.Public | BindingFlags.Static,
+            binder: null,
+            types: [typeof(string), typeof(string)],
+            modifiers: null);
+        return _setOptionMethod;
     }
 
     private static MethodInfo? ResolveGetCurrentOptionsJsonMethod()

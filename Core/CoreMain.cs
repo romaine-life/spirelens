@@ -59,6 +59,21 @@ public static class CoreMain
         if (DebugLogging) Logger.Info(msg);
     }
 
+    /// <summary>
+    /// Re-read the debug gate from both config and env var. The env var
+    /// remains a handy one-off override for development sessions without
+    /// touching the persisted setting. Called on every Core load and when the
+    /// SpireLens menu flips the setting, so it applies without a reload.
+    /// </summary>
+    public static void RefreshDebugLogging()
+    {
+        var envDebug = System.Environment.GetEnvironmentVariable("CUS_DEBUG");
+        var envDebugEnabled = !string.IsNullOrEmpty(envDebug)
+            && envDebug != "0"
+            && !envDebug.Equals("false", StringComparison.OrdinalIgnoreCase);
+        DebugLogging = RuntimeOptionsProvider.Current.EnableDebugLogging || envDebugEnabled;
+    }
+
     private static Harmony? _harmony;
 
     /// <summary>
@@ -70,15 +85,7 @@ public static class CoreMain
     {
         Logger.ActivateGameLogger();
         RuntimeOptionsProvider.Refresh();
-
-        // Read debug gate from both config and env var. The env var remains a
-        // handy one-off override for development sessions without touching the
-        // persisted settings UI toggle.
-        var envDebug = System.Environment.GetEnvironmentVariable("CUS_DEBUG");
-        var envDebugEnabled = !string.IsNullOrEmpty(envDebug)
-            && envDebug != "0"
-            && !envDebug.Equals("false", StringComparison.OrdinalIgnoreCase);
-        DebugLogging = RuntimeOptionsProvider.Current.EnableDebugLogging || envDebugEnabled;
+        RefreshDebugLogging();
 
         Logger.Info($"Core.Initialize starting (harmony_id={_harmonyId}, debug={DebugLogging})");
 
@@ -163,6 +170,9 @@ public static class CoreMain
         Patches.RelicCompendiumFilterUi.ReinjectIntoActiveCollections();
         Patches.PotionCompendiumHistoryUi.ReinjectIntoActiveLabs();
         Patches.PowerHistoryPileUi.ReinjectIntoActiveCombat();
+        // The Mods → SpireLens page's Core section and its settings-changed
+        // hook (cleared again first thing in Shutdown).
+        SpireLensSettingsSection.Register();
 
         // Visible confirmation on screen so hot reload has immediate feedback.
         // Kept in Core (not Loader) so toast text/style can be tweaked and
@@ -193,6 +203,10 @@ public static class CoreMain
 
         // Strategy: swallow exceptions per step so one failure doesn't skip
         // later cleanup. A half-cleaned state is better than a no-cleaned state.
+        // The Loader must stop calling into this Core's Mods-page hooks first.
+        try { SpireLensSettingsSection.Unregister(); }
+        catch (Exception e) { Logger.Error($"Shutdown: Mods page hook clear failed: {e}"); }
+
         try { ViewStatsInjectorPatch.TeardownInjectedUI(); }
         catch (Exception e) { Logger.Error($"Shutdown: UI teardown failed: {e}"); }
 

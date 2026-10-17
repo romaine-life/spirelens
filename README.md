@@ -35,23 +35,56 @@ Existing stats mods answer "how often did I *pick* this card" ([SlayTheStats](ht
 
 ## How you'd use it
 
-A compact **Open SpireLens menu** shortcut sits beside the game's existing
-"View Upgrades" toggle on the in-run deck view. During an active run, the same
-modal options window can be opened from gameplay screens by tapping **Left
-Shift** on keyboard or pressing **Right Stick (R3)** on controller. The
-shortcuts do nothing on the run's Pause, Settings, Compendium, or Feedback
-screens, or on main-menu surfaces such as the compendium or run history.
-Shift-based chords such as Steam's Shift+Tab and Windows+Shift+S are left
-alone, including chords whose other modifier was pressed before Left Shift.
+Every SpireLens setting lives on the game's own **Settings → Mods →
+SpireLens** page, grouped under section headers: stats display (master
+on/off, card stats, monster stats), deck view (cards not in deck, all
+meta-cards), cards in hand (show card stats when hovering the hand, full
+instead of compact hand stats), the relic bar filter (choose one), performance
+(pause card tracking during combat), diagnostics (debug logging), and build
+(the build date's time zone, plus the build info). The page navigates with
+keyboard and controller like any BaseLib page, has BaseLib's **Restore
+defaults** button, and its changes apply to the running game immediately.
+Settings are saved in the BaseLib mod configuration under their long-standing
+keys, so existing choices carry over.
 
-The modal blocks normal game input while open and contains the master stats
-visibility, card stats, monster stats, and not-in-deck card controls. It does not
-take Godot focus from the game screen beneath it, so closing the menu returns
-to the exact selection and highlight that were already active. The D-pad and
-left stick move the menu's independent highlight between rows, and `A` toggles
-the highlighted option. Any other non-direction controller button closes the
-menu. Mouse selection remains fully supported; Escape, Left Shift, or the
-window's Close button also closes it.
+The same page has a **Replay** section listing your recorded runs (newest
+first: date, character, ascension, outcome, final floor) with a **Play**
+button on each; recordings from another game build are greyed out with the
+reason, and **Stop replay** appears while one is playing. See
+[docs/replay-player.md](docs/replay-player.md). That section comes from the
+hot-reloaded Core; if the Core has not loaded, the page says so in one line.
+
+The SpireLens overlay below is an optional in-game shortcut to the same
+settings — nothing requires it.
+
+A compact **Open SpireLens menu** shortcut sits beside the game's existing
+"View Upgrades" toggle on the in-run deck view. The same modal options window
+opens from anywhere the game is taking input — gameplay, the main menu, and the
+Pause, Settings, and Compendium screens included — by tapping **Left Shift** on
+keyboard or pressing **Right Stick (R3)** on controller. The shortcuts stay out
+of the way while you type in a text field, rebind a key, or have the dev
+console or a platform overlay open. Shift-based chords such as Steam's
+Shift+Tab and Windows+Shift+S are left alone, including chords whose other
+modifier was pressed before Left Shift.
+
+The overlay mirrors the Mods page's settings (same stored values, so a change
+in either shows in the other) and adds in-run actions the page does not have:
+current-run potion history, restarting the current room, and the replay list.
+It ends with a quiet build-info footer.
+
+The modal blocks normal game input while open. It does not take Godot focus
+from the game screen beneath it, so closing the menu returns to the exact
+selection and highlight that were already active. The D-pad and left stick
+move the menu's independent highlight between rows, scrolling it into view,
+and `A` toggles the highlighted option (or steps the time-zone row to the next
+zone). Any other non-direction controller button closes the menu. Mouse
+selection and the mouse wheel remain fully supported; Escape, Left Shift, or
+the window's Close button also closes it.
+
+A few overlay rows need the current SpireLens Loader. Because hot reload
+updates only the Core, a game still running an older Loader shows those rows
+greyed out with "needs a game restart" until the next full restart (the Mods
+page itself is part of the Loader, so it also changes only on restart).
 
 The same modal includes **View current-run potion history**, which opens the
 game's Compendium → Potion Gallery directly in SpireLens's **Current run
@@ -147,8 +180,14 @@ SpireLens.
 A separate, default-off **"SpireLens: card stats"** checkbox controls per-card
 native hover-tip entries on every supported card surface, including the deck,
 hand, combat piles, and run history. It changes presentation only: card
-attribution continues to be recorded while the checkbox is off. Hand hovers
-stay compact unless verbose hand stats are enabled.
+attribution continues to be recorded while the checkbox is off. Within it,
+**"Show card stats when hovering the hand"** (default on) can drop just the
+hand hovers, and hand hovers stay compact unless **"Full card stats in hand"**
+is enabled.
+
+**"Pause card tracking during combat"** is different: it is a performance
+switch that stops recording card attribution while a combat is in progress, so
+card stats for those fights are not collected at all.
 
 **"Show cards not in deck"** switches the native deck screen to a separate
 SpireLens collection: every current deck card leaves the grid, and removed
@@ -161,9 +200,9 @@ enters this view after it appears during the run; **"Show all meta-cards in
 card in the current game database with zeroed stats before it is encountered.
 Both choices persist through the mod configuration.
 
-A separate, default-off **"show monster stats"** checkbox in the deck viewer controls combat monster hover popups when general stats are enabled. Keeping it off bypasses enemy aggregate lookup and tooltip construction on creature focus while leaving card and relic stats enabled.
+A separate, default-off **"Show monster stats"** setting controls combat monster hover popups when general stats are enabled. Keeping it off bypasses enemy aggregate lookup and tooltip construction on creature focus while leaving card and relic stats enabled.
 
-The controls themselves are injected only into the in-run deck viewer for now (not Compendium - lifetime aggregation is deferred, see [issue #2](https://github.com/romaine-life/spirelens/issues/2)).
+The deck viewer's menu shortcut is injected only into the in-run deck viewer for now (not Compendium - lifetime aggregation is deferred, see [issue #2](https://github.com/romaine-life/spirelens/issues/2)); the Left Shift / R3 hotkeys reach the same menu everywhere.
 
 ## Roadmap
 

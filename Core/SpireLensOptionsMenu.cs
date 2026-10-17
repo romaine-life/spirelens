@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Godot;
+using MegaCrit.Sts2.Core.Nodes.HoverTips;
 using MegaCrit.Sts2.Core.Nodes.Screens;
 using MegaCrit.Sts2.Core.Nodes.Screens.MainMenu;
 using MegaCrit.Sts2.Core.Runs;
@@ -13,27 +14,60 @@ namespace SpireLens.Core;
 /// Global modal options surface. It lives in a high CanvasLayer under the
 /// scene root so it remains available above every game screen and consumes
 /// normal mouse/controller input while visible.
+///
+/// This is the only place SpireLens settings are edited; the BaseLib Mods page
+/// just points here. Settings persist in the Loader-owned BaseLib config and
+/// are written through <see cref="RuntimeOptionsProvider"/>. Rows that need
+/// the Loader's generic setter stay visible but disabled when the running
+/// Loader predates it, because a Core hot reload cannot update the Loader.
 /// </summary>
 public static class SpireLensOptionsMenu
 {
     private const int Layer = 1000;
+    private const string RestartNeededNote = "needs a game restart";
+    private const string PotionHistoryText = "View current-run potion history";
 
-    /// <summary>Row index of the destructive "restart this room" action.</summary>
-    private const int RestartRoomIndex = 8;
+    /// <summary>
+    /// Cycle order for the build-date zone row. These are the Loader's
+    /// BuildDisplayTimeZone member names, which the bridge validates.
+    /// </summary>
+    private static readonly string[] BuildTimeZoneNames =
+        ["Pacific", "Eastern", "Central", "Mountain", "UTC", "Local"];
 
-    /// <summary>Row index of "Replay a run…" / "Stop replay".</summary>
-    private const int ReplayIndex = 9;
+    private static readonly Color HeaderColor = new(0.72f, 0.8f, 0.92f);
+    private static readonly Color UnavailableColor = new(0.55f, 0.55f, 0.55f);
+    private static readonly Color QuietColor = new(0.62f, 0.62f, 0.62f);
+
+    private sealed class ToggleRow(
+        string text,
+        Func<bool> get,
+        Action<bool, string> set,
+        Func<bool>? isAvailable)
+    {
+        public string Text { get; } = text;
+        public Func<bool> Get { get; } = get;
+        public Action<bool, string> Set { get; } = set;
+        public bool Available => isAvailable?.Invoke() ?? true;
+        public Button Checkbox { get; set; } = null!;
+        public Button Indicator { get; set; } = null!;
+    }
 
     private static CanvasLayer? _layer;
-    private static readonly List<Button> Checkboxes = new();
+    private static ScrollContainer? _scroll;
+
+    // Indexed by selection index: every selectable row has one entry in each.
     private static readonly List<Button> SelectableButtons = new();
-    private static readonly List<Button> CheckboxIndicators = new();
+    private static readonly List<Control> SelectableRows = new();
     private static readonly List<Panel> SelectionHighlights = new();
+
+    private static readonly Dictionary<int, ToggleRow> ToggleRows = new();
     private static readonly Dictionary<int, Action> RowActions = new();
     private static Button? _restartRoomButton;
+    private static int _restartRoomIndex = -1;
     private static Button? _potionHistoryButton;
+    private static Button? _buildTimeZoneButton;
     private static Button? _replayButton;
-    private const string PotionHistoryText = "View current-run potion history";
+    private static Label? _buildInfoLabel;
     private static bool _restartArmed;
     private static int _selectedIndex;
     private static int _leftStickVerticalDirection;
@@ -59,18 +93,31 @@ public static class SpireLensOptionsMenu
         if (_layer == null || !GodotObject.IsInstanceValid(_layer))
             Build(tree);
 
-        RefreshCheckboxes();
+        RuntimeOptionsProvider.Refresh();
+        RefreshToggleRows();
         _restartArmed = false;
         RefreshRestartRoomRow();
         RefreshPotionHistoryRow();
         RefreshReplayRow();
+        RefreshBuildTimeZoneRow();
+        RefreshBuildInfo();
         _layer!.Visible = true;
         _selectedIndex = Math.Clamp(_selectedIndex, 0, SelectableButtons.Count - 1);
         _leftStickVerticalDirection = 0;
         _leftStickHorizontalDirection = 0;
         _leftTriggerPressed = false;
         RefreshSelectionHighlight();
+        ScrollSelectedIntoView();
         CoreMain.Logger.Info($"SpireLens options menu opened ({source})");
+    }
+
+    /// <summary>Redraws an open menu after the Mods page changed a setting.</summary>
+    public static void RefreshIfOpen()
+    {
+        if (!IsOpen) return;
+        RefreshToggleRows();
+        RefreshBuildTimeZoneRow();
+        RefreshBuildInfo();
     }
 
     public static void Close(string source)
@@ -131,13 +178,17 @@ public static class SpireLensOptionsMenu
         if (_layer != null && GodotObject.IsInstanceValid(_layer))
             _layer.QueueFree();
         _layer = null;
-        Checkboxes.Clear();
+        _scroll = null;
         SelectableButtons.Clear();
-        CheckboxIndicators.Clear();
+        SelectableRows.Clear();
         SelectionHighlights.Clear();
+        ToggleRows.Clear();
         RowActions.Clear();
         _restartRoomButton = null;
+        _restartRoomIndex = -1;
         _potionHistoryButton = null;
+        _buildTimeZoneButton = null;
+        _buildInfoLabel = null;
         _replayButton = null;
         _restartArmed = false;
         _selectedIndex = 0;
@@ -170,7 +221,7 @@ public static class SpireLensOptionsMenu
 
         var panel = new PanelContainer
         {
-            CustomMinimumSize = new Vector2(780, 900),
+            CustomMinimumSize = new Vector2(780, 0),
             MouseFilter = Control.MouseFilterEnum.Stop,
         };
         center.AddChild(panel);
@@ -182,52 +233,101 @@ public static class SpireLensOptionsMenu
         margin.AddThemeConstantOverride("margin_bottom", 34);
         panel.AddChild(margin);
 
-        var rows = new VBoxContainer();
-        rows.AddThemeConstantOverride("separation", 18);
-        margin.AddChild(rows);
+        var frame = new VBoxContainer();
+        frame.AddThemeConstantOverride("separation", 18);
+        margin.AddChild(frame);
 
         var title = NewLabel("SpireLens Options", 32);
         title.HorizontalAlignment = HorizontalAlignment.Center;
-        rows.AddChild(title);
+        frame.AddChild(title);
 
         var help = NewLabel("Up/Down selects • A toggles or opens • Left/Right or LB/LT jumps • Esc closes", 18);
         help.HorizontalAlignment = HorizontalAlignment.Center;
         help.Modulate = new Color(0.82f, 0.82f, 0.82f);
-        rows.AddChild(help);
+        frame.AddChild(help);
 
-        AddOption(rows, "SpireLens: on/off", 0);
-        AddOption(rows, "SpireLens: card stats", 1);
-        AddOption(rows, "Show monster stats", 2);
-        AddOption(rows, "Show cards not in deck", 3);
-        AddOption(rows, "Show all meta-cards in \"not in deck\" view", 4);
+        // The rows outgrew a 1080p-tall panel once every setting moved here,
+        // so they scroll between the fixed title and Close button. Keyboard
+        // and controller selection scroll the highlighted row into view.
+        _scroll = new ScrollContainer
+        {
+            CustomMinimumSize = new Vector2(0, 640),
+            SizeFlagsVertical = Control.SizeFlags.ExpandFill,
+            HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
+        };
+        frame.AddChild(_scroll);
 
-        var relicFilterHeader = NewLabel("Relic bar filter — choose one", 20);
-        relicFilterHeader.Modulate = new Color(0.72f, 0.8f, 0.92f);
-        rows.AddChild(relicFilterHeader);
-        AddOption(rows, "Show combat-only relics at the combat screen", 5);
-        AddOption(rows, "Force show only combat relics on all screens", 6);
+        var rows = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        rows.AddThemeConstantOverride("separation", 18);
+        _scroll.AddChild(rows);
 
-        var runViewsHeader = NewLabel("Run views", 20);
-        runViewsHeader.Modulate = new Color(0.72f, 0.8f, 0.92f);
-        rows.AddChild(runViewsHeader);
-        _potionHistoryButton = AddAction(rows, PotionHistoryText, 7, OpenPotionHistory);
+        AddToggle(rows, "SpireLens: on/off",
+            () => ViewStatsInjectorPatch.StatsVisibilityEnabled,
+            ViewStatsInjectorPatch.SetStatsVisibilityEnabled);
+        AddToggle(rows, "SpireLens: card stats",
+            () => ViewStatsInjectorPatch.CardStatsEnabled,
+            ViewStatsInjectorPatch.SetCardStatsEnabled);
+        AddToggle(rows, "Show monster stats",
+            () => ViewStatsInjectorPatch.EnemyStatsEnabled,
+            ViewStatsInjectorPatch.SetEnemyStatsEnabled);
+        AddToggle(rows, "Show cards not in deck",
+            () => ViewStatsInjectorPatch.ShowCardsNotInDeckEnabled,
+            ViewStatsInjectorPatch.SetShowCardsNotInDeckEnabled);
+        AddToggle(rows, "Show all meta-cards in \"not in deck\" view",
+            () => ViewStatsInjectorPatch.ShowAllMetaCardsInNotInDeckView,
+            ViewStatsInjectorPatch.SetShowAllMetaCardsInNotInDeckView);
+
+        AddHeader(rows, "Cards in hand");
+        AddToggle(rows, "Show card stats when hovering the hand",
+            () => RuntimeOptionsProvider.Current.ShowHandTooltips,
+            SetHandCardStats,
+            () => RuntimeOptionsProvider.CanSetOption);
+        // Every Loader has the dedicated verbose setter, so this row never
+        // needs the generic one.
+        AddToggle(rows, "Full card stats in hand (instead of compact)",
+            () => RuntimeOptionsProvider.Current.UseVerboseHandStats,
+            SetVerboseHandStats);
+
+        AddHeader(rows, "Relic bar filter — choose one");
+        AddToggle(rows, "Show combat-only relics at the combat screen",
+            () => ViewStatsInjectorPatch.ShowCombatOnlyRelicsAtCombatScreen,
+            ViewStatsInjectorPatch.SetShowCombatOnlyRelicsAtCombatScreen);
+        AddToggle(rows, "Force show only combat relics on all screens",
+            () => ViewStatsInjectorPatch.HideNonCombatRelicStats,
+            ViewStatsInjectorPatch.SetHideNonCombatRelicStats);
+
+        AddHeader(rows, "Performance & diagnostics");
+        AddToggle(rows, "Pause card tracking during combat",
+            () => RuntimeOptionsProvider.Current.DisableCardStatsDuringCombat,
+            SetPauseCardTrackingDuringCombat,
+            () => RuntimeOptionsProvider.CanSetOption);
+        AddToggle(rows, "Debug logging",
+            () => RuntimeOptionsProvider.Current.EnableDebugLogging,
+            SetDebugLogging,
+            () => RuntimeOptionsProvider.CanSetOption);
+        _buildTimeZoneButton = AddAction(rows, "", CycleBuildTimeZone);
+
+        AddHeader(rows, "Run views");
+        _potionHistoryButton = AddAction(rows, PotionHistoryText, OpenPotionHistory);
+
+        AddHeader(rows, "Replay");
+        _replayButton = AddAction(rows, "Replay a run…", OnReplayActivated);
+
+        AddHeader(rows, "Practice");
+        _restartRoomIndex = SelectableButtons.Count;
+        _restartRoomButton = AddAction(rows, "Restart this room", OnRestartRoomActivated);
+
+        // Quiet, non-selectable footer: which Loader build is running.
+        _buildInfoLabel = NewLabel("", 17);
+        _buildInfoLabel.Modulate = QuietColor;
+        rows.AddChild(_buildInfoLabel);
+
+        RefreshToggleRows();
         RefreshPotionHistoryRow();
-
-        var practiceHeader = NewLabel("Practice", 20);
-        practiceHeader.Modulate = new Color(0.72f, 0.8f, 0.92f);
-        rows.AddChild(practiceHeader);
-        _restartRoomButton = AddAction(
-            rows,
-            "Restart this room",
-            RestartRoomIndex,
-            OnRestartRoomActivated);
-        RefreshRestartRoomRow();
-
-        var replayHeader = NewLabel("Replay", 20);
-        replayHeader.Modulate = new Color(0.72f, 0.8f, 0.92f);
-        rows.AddChild(replayHeader);
-        _replayButton = AddAction(rows, "Replay a run…", ReplayIndex, OnReplayActivated);
         RefreshReplayRow();
+        RefreshRestartRoomRow();
+        RefreshBuildTimeZoneRow();
+        RefreshBuildInfo();
 
         var close = new Button
         {
@@ -238,7 +338,7 @@ public static class SpireLensOptionsMenu
         };
         close.AddThemeFontSizeOverride("font_size", 20);
         close.Pressed += () => Close("menu button");
-        rows.AddChild(close);
+        frame.AddChild(close);
     }
 
     private static Label NewLabel(string text, int fontSize)
@@ -248,11 +348,24 @@ public static class SpireLensOptionsMenu
         return label;
     }
 
-    private static void AddOption(
+    private static void AddHeader(VBoxContainer parent, string text)
+    {
+        var header = NewLabel(text, 20);
+        header.Modulate = HeaderColor;
+        parent.AddChild(header);
+    }
+
+    private static void AddToggle(
         VBoxContainer parent,
         string text,
-        int index)
+        Func<bool> get,
+        Action<bool, string> set,
+        Func<bool>? isAvailable = null)
     {
+        var index = SelectableButtons.Count;
+        var toggle = new ToggleRow(text, get, set, isAvailable);
+        ToggleRows[index] = toggle;
+
         var row = new HBoxContainer();
         row.AddThemeConstantOverride("separation", 20);
         parent.AddChild(row);
@@ -264,7 +377,7 @@ public static class SpireLensOptionsMenu
             SetSelectedIndex(index);
             ToggleOption(index, "menu checkbox icon");
         };
-        CheckboxIndicators.Add(indicator);
+        toggle.Indicator = indicator;
         row.AddChild(indicator);
 
         var optionHost = new Control
@@ -281,7 +394,6 @@ public static class SpireLensOptionsMenu
             Visible = false,
         };
         selectionHighlight.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
-        SelectionHighlights.Add(selectionHighlight);
         optionHost.AddChild(selectionHighlight);
 
         var checkbox = new Button
@@ -292,28 +404,30 @@ public static class SpireLensOptionsMenu
             Alignment = HorizontalAlignment.Left,
             FocusMode = Control.FocusModeEnum.None,
             MouseDefaultCursorShape = Control.CursorShape.PointingHand,
+            // Pass, not Stop, so the mouse wheel reaches the ScrollContainer.
+            // Clicks are still consumed by the button itself.
+            MouseFilter = Control.MouseFilterEnum.Pass,
         };
         checkbox.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         checkbox.AddThemeFontSizeOverride("font_size", 23);
         checkbox.Toggled += enabled =>
         {
             SetSelectedIndex(index);
-            UpdateIndicator(index, enabled);
-            SetOption(index, enabled, "menu checkbox");
+            ApplyToggle(toggle, enabled, "menu checkbox");
         };
         checkbox.MouseEntered += () => SetSelectedIndex(index);
-        Checkboxes.Add(checkbox);
-        SelectableButtons.Add(checkbox);
+        toggle.Checkbox = checkbox;
         optionHost.AddChild(checkbox);
 
+        RegisterSelectable(checkbox, row, selectionHighlight);
     }
 
     private static Button AddAction(
         VBoxContainer parent,
         string text,
-        int index,
         Action action)
     {
+        var index = SelectableButtons.Count;
         RowActions[index] = action;
 
         var optionHost = new Control
@@ -330,7 +444,6 @@ public static class SpireLensOptionsMenu
             Visible = false,
         };
         selectionHighlight.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
-        SelectionHighlights.Add(selectionHighlight);
         optionHost.AddChild(selectionHighlight);
 
         var button = new Button
@@ -340,6 +453,7 @@ public static class SpireLensOptionsMenu
             Alignment = HorizontalAlignment.Left,
             FocusMode = Control.FocusModeEnum.None,
             MouseDefaultCursorShape = Control.CursorShape.PointingHand,
+            MouseFilter = Control.MouseFilterEnum.Pass,
         };
         button.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         button.AddThemeFontSizeOverride("font_size", 23);
@@ -349,9 +463,17 @@ public static class SpireLensOptionsMenu
             SetSelectedIndex(index);
             action();
         };
-        SelectableButtons.Add(button);
         optionHost.AddChild(button);
+
+        RegisterSelectable(button, optionHost, selectionHighlight);
         return button;
+    }
+
+    private static void RegisterSelectable(Button button, Control row, Panel highlight)
+    {
+        SelectableButtons.Add(button);
+        SelectableRows.Add(row);
+        SelectionHighlights.Add(highlight);
     }
 
     private static Button CreateCheckboxIndicator()
@@ -376,6 +498,7 @@ public static class SpireLensOptionsMenu
             CustomMinimumSize = new Vector2(34, 34),
             FocusMode = Control.FocusModeEnum.None,
             MouseDefaultCursorShape = Control.CursorShape.PointingHand,
+            MouseFilter = Control.MouseFilterEnum.Pass,
         };
         indicator.AddThemeFontSizeOverride("font_size", 24);
         indicator.AddThemeStyleboxOverride("normal", border);
@@ -387,10 +510,77 @@ public static class SpireLensOptionsMenu
 
     private static void ToggleOption(int index, string source)
     {
-        if (index < 0 || index >= Checkboxes.Count) return;
-        RefreshCheckboxes();
-        SetOption(index, !Checkboxes[index].ButtonPressed, source);
-        RefreshCheckboxes();
+        if (!ToggleRows.TryGetValue(index, out var toggle)) return;
+        ApplyToggle(toggle, !SafeGet(toggle), source);
+    }
+
+    /// <summary>
+    /// Applies a toggle when its row is available, then redraws every row from
+    /// the stored state. The redraw both reverts a click on an unavailable row
+    /// and reflects side effects such as the mutually exclusive relic filters.
+    /// </summary>
+    private static void ApplyToggle(ToggleRow toggle, bool enabled, string source)
+    {
+        if (toggle.Available)
+        {
+            try
+            {
+                toggle.Set(enabled, source);
+            }
+            catch (Exception e)
+            {
+                CoreMain.Logger.Error($"SpireLens options: setting '{toggle.Text}' failed: {e}");
+            }
+        }
+
+        RefreshToggleRows();
+    }
+
+    private static bool SafeGet(ToggleRow toggle)
+    {
+        try
+        {
+            return toggle.Get();
+        }
+        catch (Exception e)
+        {
+            CoreMain.Logger.Warn($"SpireLens options: reading '{toggle.Text}' failed: {e.Message}");
+            return false;
+        }
+    }
+
+    private static void SetHandCardStats(bool enabled, string source)
+    {
+        if (!SetRuntimeOption(nameof(RuntimeOptions.ShowHandTooltips), "Hand card stats", enabled, source))
+            return;
+        if (!enabled)
+            NHoverTipSet.Clear();
+    }
+
+    private static void SetVerboseHandStats(bool enabled, string source)
+    {
+        RuntimeOptionsProvider.SetVerboseHandStatsEnabled(enabled);
+        CoreMain.Logger.Info($"Full hand card stats set to {enabled} ({source})");
+    }
+
+    private static void SetPauseCardTrackingDuringCombat(bool enabled, string source) =>
+        SetRuntimeOption(
+            nameof(RuntimeOptions.DisableCardStatsDuringCombat),
+            "Pause card tracking during combat",
+            enabled,
+            source);
+
+    private static void SetDebugLogging(bool enabled, string source)
+    {
+        if (SetRuntimeOption(nameof(RuntimeOptions.EnableDebugLogging), "Debug logging", enabled, source))
+            CoreMain.RefreshDebugLogging();
+    }
+
+    private static bool SetRuntimeOption(string name, string label, bool enabled, string source)
+    {
+        if (!RuntimeOptionsProvider.TrySetOption(name, enabled)) return false;
+        CoreMain.Logger.Info($"{label} set to {enabled} ({source})");
+        return true;
     }
 
     private static void ActivateSelection(int index, string source)
@@ -406,29 +596,58 @@ public static class SpireLensOptionsMenu
     private static void MoveFocus(int delta)
     {
         if (SelectableButtons.Count == 0) return;
-        SetSelectedIndex((_selectedIndex + delta + SelectableButtons.Count) % SelectableButtons.Count);
+        SetSelectedIndex(
+            (_selectedIndex + delta + SelectableButtons.Count) % SelectableButtons.Count,
+            scrollIntoView: true);
     }
 
     private static void JumpToEdge(bool first)
     {
         if (SelectableButtons.Count == 0) return;
-        SetSelectedIndex(first ? 0 : SelectableButtons.Count - 1);
+        SetSelectedIndex(first ? 0 : SelectableButtons.Count - 1, scrollIntoView: true);
     }
 
-    private static void SetSelectedIndex(int index)
+    /// <summary>
+    /// Mouse hover selects without scrolling: scrolling under a hovering
+    /// pointer would move a different row beneath it. Keyboard and controller
+    /// navigation pass <paramref name="scrollIntoView"/>.
+    /// </summary>
+    private static void SetSelectedIndex(int index, bool scrollIntoView = false)
     {
         if (SelectableButtons.Count == 0) return;
         _selectedIndex = Math.Clamp(index, 0, SelectableButtons.Count - 1);
 
         // Moving off the armed destructive row cancels the confirmation, so a
         // stray Enter/A elsewhere in the menu can never land on it.
-        if (_restartArmed && _selectedIndex != RestartRoomIndex)
+        if (_restartArmed && _selectedIndex != _restartRoomIndex)
         {
             _restartArmed = false;
             RefreshRestartRoomRow();
         }
 
         RefreshSelectionHighlight();
+        if (scrollIntoView)
+            ScrollSelectedIntoView();
+    }
+
+    private static void ScrollSelectedIntoView()
+    {
+        if (_scroll == null || !GodotObject.IsInstanceValid(_scroll)) return;
+        if (_selectedIndex < 0 || _selectedIndex >= SelectableRows.Count) return;
+
+        // The last row also reveals the build footer beneath it, which
+        // keyboard and controller players have no other way to scroll to.
+        if (_selectedIndex == SelectableRows.Count - 1)
+        {
+            _scroll.SetDeferred(ScrollContainer.PropertyName.ScrollVertical, int.MaxValue);
+            return;
+        }
+
+        var row = SelectableRows[_selectedIndex];
+        if (!GodotObject.IsInstanceValid(row)) return;
+
+        // Deferred so a just-opened or just-relabelled menu has settled layout.
+        _scroll.CallDeferred(ScrollContainer.MethodName.EnsureControlVisible, row);
     }
 
     private static void RefreshSelectionHighlight()
@@ -503,36 +722,6 @@ public static class SpireLensOptionsMenu
         return false;
     }
 
-    private static void SetOption(int index, bool enabled, string source)
-    {
-        switch (index)
-        {
-            case 0:
-                ViewStatsInjectorPatch.SetStatsVisibilityEnabled(enabled, source);
-                break;
-            case 1:
-                ViewStatsInjectorPatch.SetCardStatsEnabled(enabled, source);
-                break;
-            case 2:
-                ViewStatsInjectorPatch.SetEnemyStatsEnabled(enabled, source);
-                break;
-            case 3:
-                ViewStatsInjectorPatch.SetShowCardsNotInDeckEnabled(enabled, source);
-                break;
-            case 4:
-                ViewStatsInjectorPatch.SetShowAllMetaCardsInNotInDeckView(
-                    enabled,
-                    source);
-                break;
-            case 5:
-                ViewStatsInjectorPatch.SetShowCombatOnlyRelicsAtCombatScreen(enabled, source);
-                break;
-            case 6:
-                ViewStatsInjectorPatch.SetHideNonCombatRelicStats(enabled, source);
-                break;
-        }
-    }
-
     /// <summary>
     /// Two-step confirm. Restarting discards everything done in the room so
     /// far, so the first activation only arms the row and the second commits.
@@ -576,7 +765,7 @@ public static class SpireLensOptionsMenu
         {
             _restartArmed = false;
             _restartRoomButton.Text = $"Restart this room  —  unavailable ({availability.BlockedReason})";
-            _restartRoomButton.Modulate = new Color(0.55f, 0.55f, 0.55f);
+            _restartRoomButton.Modulate = UnavailableColor;
             return;
         }
 
@@ -608,7 +797,7 @@ public static class SpireLensOptionsMenu
             : $"{PotionHistoryText}  —  unavailable (no run in progress)";
         _potionHistoryButton.Modulate = inRun
             ? new Color(1f, 1f, 1f)
-            : new Color(0.55f, 0.55f, 0.55f);
+            : UnavailableColor;
     }
 
     private static void OpenPotionHistory()
@@ -644,6 +833,50 @@ public static class SpireLensOptionsMenu
         {
             CoreMain.Logger.Error($"SpireLens options: opening potion history failed: {e}");
         }
+    }
+
+    /// <summary>
+    /// A cycling row: each activation moves to the next zone. It only changes
+    /// how the build footer's date reads.
+    /// </summary>
+    private static void CycleBuildTimeZone()
+    {
+        if (RuntimeOptionsProvider.CanSetOption)
+        {
+            var current = RuntimeOptionsProvider.Current.ResolveBuildTimeZoneName();
+            var next = BuildTimeZoneNames[
+                (Array.IndexOf(BuildTimeZoneNames, current) + 1) % BuildTimeZoneNames.Length];
+            if (RuntimeOptionsProvider.TrySetOption(nameof(RuntimeOptions.BuildTimeZone), next))
+                CoreMain.Logger.Info($"Build date time zone set to {next} (menu)");
+        }
+
+        RefreshBuildTimeZoneRow();
+        RefreshBuildInfo();
+    }
+
+    private static void RefreshBuildTimeZoneRow()
+    {
+        if (_buildTimeZoneButton == null || !GodotObject.IsInstanceValid(_buildTimeZoneButton))
+            return;
+
+        var text = $"Build date time zone: {RuntimeOptionsProvider.Current.ResolveBuildTimeZoneName()}";
+        var available = RuntimeOptionsProvider.CanSetOption;
+        _buildTimeZoneButton.Text = available ? text : $"{text}  —  {RestartNeededNote}";
+        _buildTimeZoneButton.Modulate = available ? new Color(1f, 1f, 1f) : UnavailableColor;
+    }
+
+    private static void RefreshBuildInfo()
+    {
+        if (_buildInfoLabel == null || !GodotObject.IsInstanceValid(_buildInfoLabel))
+            return;
+
+        var options = RuntimeOptionsProvider.Current;
+        _buildInfoLabel.Text = string.IsNullOrEmpty(options.BuildVersion)
+            // The running Loader's snapshot predates the build fields.
+            ? $"Build info {RestartNeededNote}"
+            : $"Build {options.BuildVersion}  ·  {options.BuildSource}\n"
+              + $"Commit {options.BuildCommit}\n"
+              + $"Built {options.BuildDate}";
     }
 
     /// <summary>
@@ -687,29 +920,23 @@ public static class SpireLensOptionsMenu
         }
     }
 
-    private static void RefreshCheckboxes()
+    private static void RefreshToggleRows()
     {
-        if (Checkboxes.Count != 7) return;
-        SetCheckboxState(0, ViewStatsInjectorPatch.StatsVisibilityEnabled);
-        SetCheckboxState(1, ViewStatsInjectorPatch.CardStatsEnabled);
-        SetCheckboxState(2, ViewStatsInjectorPatch.EnemyStatsEnabled);
-        SetCheckboxState(3, ViewStatsInjectorPatch.ShowCardsNotInDeckEnabled);
-        SetCheckboxState(
-            4,
-            ViewStatsInjectorPatch.ShowAllMetaCardsInNotInDeckView);
-        SetCheckboxState(5, ViewStatsInjectorPatch.ShowCombatOnlyRelicsAtCombatScreen);
-        SetCheckboxState(6, ViewStatsInjectorPatch.HideNonCombatRelicStats);
-    }
+        foreach (var toggle in ToggleRows.Values)
+        {
+            if (!GodotObject.IsInstanceValid(toggle.Checkbox)
+                || !GodotObject.IsInstanceValid(toggle.Indicator))
+                continue;
 
-    private static void SetCheckboxState(int index, bool enabled)
-    {
-        Checkboxes[index].SetPressedNoSignal(enabled);
-        UpdateIndicator(index, enabled);
-    }
+            var enabled = SafeGet(toggle);
+            toggle.Checkbox.SetPressedNoSignal(enabled);
+            toggle.Indicator.Text = enabled ? "✓" : "";
 
-    private static void UpdateIndicator(int index, bool enabled)
-    {
-        if (index < 0 || index >= CheckboxIndicators.Count) return;
-        CheckboxIndicators[index].Text = enabled ? "✓" : "";
+            var available = toggle.Available;
+            toggle.Checkbox.Text = available ? toggle.Text : $"{toggle.Text}  —  {RestartNeededNote}";
+            var color = available ? new Color(1f, 1f, 1f) : UnavailableColor;
+            toggle.Checkbox.Modulate = color;
+            toggle.Indicator.Modulate = color;
+        }
     }
 }

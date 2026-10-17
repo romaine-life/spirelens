@@ -265,6 +265,48 @@ public static class ViewStatsInjectorPatch
     }
 
     /// <summary>
+    /// The Mods page changed the config underneath this cache. Re-read it
+    /// without writing anything back (the next toggle saves the complete set,
+    /// so a stale cache would silently undo the page's edit), then apply the
+    /// same side effects the setters would have.
+    /// </summary>
+    public static void ReloadFromConfig(string source)
+    {
+        EnsurePrefsLoaded();
+        bool oldVisibility = _persistedTicked;
+        bool oldCardStats = _persistedCardStatsTicked;
+        bool oldEnemyStats = _persistedEnemyStatsTicked;
+        bool oldNotInDeck = _persistedShowRemovedCardsTicked;
+        bool oldAllMeta = _persistedShowAllMetaCardsInNotInDeckView;
+        bool oldHideNonCombat = _persistedHideNonCombatRelicStats;
+        bool oldCombatScreen = _persistedShowCombatOnlyRelicsAtCombatScreen;
+
+        _prefsLoaded = false;
+        EnsurePrefsLoaded();
+
+        SetTickboxVisualState(LastInjectedTickbox, _persistedTicked);
+        SetTickboxVisualState(LastInjectedCardStatsTickbox, _persistedCardStatsTicked);
+        SetTickboxVisualState(LastInjectedEnemyStatsTickbox, _persistedEnemyStatsTicked);
+        SetTickboxVisualState(LastInjectedShowCardsNotInDeckTickbox, _persistedShowRemovedCardsTicked);
+
+        if (oldVisibility && !_persistedTicked)
+            StatsTooltipPinManager.ClearPin();
+        if ((oldVisibility && !_persistedTicked)
+            || (oldCardStats && !_persistedCardStatsTicked)
+            || (oldEnemyStats && !_persistedEnemyStatsTicked)
+            || (!oldHideNonCombat && _persistedHideNonCombatRelicStats))
+            NHoverTipSet.Clear();
+        if (oldHideNonCombat != _persistedHideNonCombatRelicStats
+            || oldCombatScreen != _persistedShowCombatOnlyRelicsAtCombatScreen)
+            RelicBarFilterPatch.RefreshAll();
+        if (oldNotInDeck != _persistedShowRemovedCardsTicked
+            || oldAllMeta != _persistedShowAllMetaCardsInNotInDeckView)
+            RefreshDeckView();
+
+        CoreMain.Logger.Info($"SpireLens settings reloaded from config ({source})");
+    }
+
+    /// <summary>
     /// On hot-reload Initialize, scan the scene tree for an active
     /// NDeckViewScreen and re-inject into it. Without this, if the user
     /// was viewing the deck at reload time, their Shutdown-freed checkbox

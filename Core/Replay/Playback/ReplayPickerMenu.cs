@@ -5,7 +5,10 @@ using Godot;
 namespace SpireLens.Core.Replay.Playback;
 
 /// <summary>
-/// "Replay a run" list, opened from the SpireLens options menu. Same modal
+/// "Replay a run" list, opened from the SpireLens options menu. The Mods →
+/// SpireLens page lists the same recordings inline through
+/// <see cref="LoadListings"/> and starts them through <see cref="TryStart"/>
+/// (Core/SpireLensSettingsSection.cs). Same modal
 /// style and controls as that menu: Up/Down (or D-pad / left stick) select,
 /// Enter / A starts, Esc / B closes, mouse works too. Recordings from another
 /// game build are listed but greyed out with the reason.
@@ -30,12 +33,7 @@ internal static class ReplayPickerMenu
         var tree = Engine.GetMainLoop() as SceneTree;
         if (tree == null) return;
         Destroy();
-        try { _listings = ReplayLibrary.List(); }
-        catch (Exception e)
-        {
-            CoreMain.Logger.Error($"Replay list: reading recordings failed: {e.Message}");
-            _listings = new List<ReplayListing>();
-        }
+        _listings = LoadListings();
         Build(tree);
         _selected = Math.Max(0, _listings.FindIndex(l => l.Playable));
         RefreshHighlight();
@@ -44,6 +42,38 @@ internal static class ReplayPickerMenu
     public static void Close()
     {
         Destroy();
+    }
+
+    /// <summary>
+    /// The recordings, newest first. Shared by this list and the Mods page's
+    /// Replay section so both show the same rows.
+    /// </summary>
+    internal static List<ReplayListing> LoadListings()
+    {
+        try { return ReplayLibrary.List(); }
+        catch (Exception e)
+        {
+            CoreMain.Logger.Error($"Replay list: reading recordings failed: {e.Message}");
+            return new List<ReplayListing>();
+        }
+    }
+
+    /// <summary>
+    /// Starts a recording if it can start now; otherwise returns why not and
+    /// starts nothing. <paramref name="beforeStart"/> runs only when the
+    /// replay is about to start (this list closes itself there). Shared by
+    /// this list and the Mods page's Replay section.
+    /// </summary>
+    internal static string? TryStart(ReplayListing listing, string source, Action? beforeStart = null)
+    {
+        if (!listing.Playable) return listing.DisabledReason ?? "this recording can't be played";
+        string? blocked = ReplayPlayer.StartBlockedReason();
+        if (blocked != null) return blocked;
+
+        beforeStart?.Invoke();
+        CoreMain.Logger.Info($"Replay list: starting {listing.GameStartTime} ({source})");
+        ReplayPlayer.Start(listing);
+        return null;
     }
 
     public static void Destroy()
@@ -242,15 +272,8 @@ internal static class ReplayPickerMenu
         if (index < 0 || index >= _listings.Count) return;
         var listing = _listings[index];
         if (!listing.Playable) return;
-        string? blocked = ReplayPlayer.StartBlockedReason();
-        if (blocked != null)
-        {
-            if (_footer != null && GodotObject.IsInstanceValid(_footer))
-                _footer.Text = $"Replay unavailable right now: {blocked}";
-            return;
-        }
-        Close();
-        CoreMain.Logger.Info($"Replay list: starting {listing.GameStartTime}");
-        ReplayPlayer.Start(listing);
+        string? blocked = TryStart(listing, "replay list", Close);
+        if (blocked != null && _footer != null && GodotObject.IsInstanceValid(_footer))
+            _footer.Text = $"Replay unavailable right now: {blocked}";
     }
 }

@@ -49,7 +49,7 @@ give the user precautionary restart chores to cover agent uncertainty.
 
 ## Mod Policy
 
-The Slay the Spire 2 install (`D:\SteamLibrary\steamapps\common\Slay the Spire 2\mods\`) runs **only** the user's own mods plus their required prereqs. No third-party mods.
+The Slay the Spire 2 install (`D:\SteamLibrary\steamapps\common\Slay the Spire 2\mods\` on the Glimmung laptop host; other machines differ, so check the running `SlayTheSpire2.exe` path or the profile CLAUDE.md) runs **only** the user's own mods plus their required prereqs. No third-party mods.
 
 Allowed entries:
 
@@ -79,6 +79,8 @@ When inspecting `mods/`, treat any non-(SpireLens|SpirePad|BaseLib|SpireLensMcp)
   - Combat-generated cards that do not meaningfully exist in the deck may use pooled summaries instead of fake deck-instance identities.
 - Attribution prefers observed outcomes over listed card text whenever the game can diverge from the card face.
   - Examples already in tree: actual energy gained, Regent stars spent/gained, forge granted, observed cards drawn, blocked draw attempts/reasons, successful self-summons to hand, Artifact-blocked debuffs, and downstream poison damage.
+- Every SpireLens setting, the recorded-run list and playlists live on the game's **Mods → SpireLens** page (Core renders its section into the BaseLib page). The Left Shift / R3 overlay is only an optional in-run shortcut; nothing may require it. The user rejected an overlay-first design.
+- Every run is recorded for replay and model training ([docs/run-recording.md](docs/run-recording.md)); the user's product decisions for replay, the database and training are in that doc's "Decisions" section.
 - Tooltip style is intentionally quiet.
   - Hand view stays compact.
   - Rows should be self-describing without noisy section headers.
@@ -92,6 +94,8 @@ When inspecting `mods/`, treat any non-(SpireLens|SpirePad|BaseLib|SpireLensMcp)
 - Read [docs/sts2-runtime-primer.md](docs/sts2-runtime-primer.md) before changing card/relic attribution hooks; it captures stable Slay the Spire 2 lifecycle, combat-history, async hook, pile, and attribution timing behavior.
 - Read [docs/steam-workshop-publishing.md](docs/steam-workshop-publishing.md) for how SpireLens is published/updated on the Steam Workshop (item 3774710835, workspace at `D:\repos\spirelens-workshop\`).
 - For tracking behavior, start in [Core/RunTracker.cs](D:/repos/SpireLens/Core/RunTracker.cs:18).
+- Relics and powers without bespoke tracking go through the generic effect frames ([docs/adr/0004-generic-effect-frames.md](docs/adr/0004-generic-effect-frames.md)); covering a new one is one line in `Core/Effects/EffectRegistry.cs`. Never enroll an owner that already has bespoke tracking. [docs/audits/](docs/audits/README.md) is the backlog for refining individual relics, cards and powers.
+- Run recording, the run database and the in-game replay player: [docs/run-recording.md](docs/run-recording.md), [docs/run-database.md](docs/run-database.md), [docs/replay-player.md](docs/replay-player.md).
 - For tooltip/UI behavior, start in:
   - [Core/Patches/ViewStatsInjectorPatch.cs](D:/repos/SpireLens/Core/Patches/ViewStatsInjectorPatch.cs:11)
   - [Core/Patches/CardHoverTooltipPatch.cs](D:/repos/SpireLens/Core/Patches/CardHoverTooltipPatch.cs:11)
@@ -191,6 +195,24 @@ judge unit tests, and its narration cannot move the unit-test verdict.
 - Loader or config-page changes need the root build/deploy, not the Core project
   alone, and can fail while STS2 holds `SpireLens.dll`. Report that distinction;
   Core-only hot reload may still be deployable.
+- CI compiles against the checked-in `lib/sts2.dll`, which can be older than the
+  installed game, so code that builds locally can fail CI on a missing member.
+  Before pushing, also build against it:
+  `dotnet build Core\SpireLens.Core.csproj -c Debug -p:SkipModsDeploy=true -p:Sts2DataDir=/nonexistent`.
+  The root build installs the BaseLib pinned in `SpireLens.csproj` into
+  `mods\BaseLib\`; keep that pin current (see docs/laptop-host-setup.md).
+- The game itself is agent-operated, like build and deploy:
+  - Launch it with `Start-Process "steam://rungameid/2868840"`; don't ask the
+    user to start it.
+  - Before closing it (loader or BaseLib installs need the DLLs unlocked), look
+    at the game first. Close it at the main menu or between runs, never
+    mid-run. If it isn't running, don't ask anything; just proceed.
+  - See the game: `GET http://localhost:15526/api/v1/screenshot` returns the
+    Godot viewport as `png_base64`, whichever monitor the window is on.
+- Run database tool (Go, `cmd/spirelens-db`): install with
+  `scripts/install-spirelens-db.ps1`; run browser and playlists with
+  `"$env:APPDATA\SlayTheSpire2\SpireLens\tools\spirelens-db.exe" serve`
+  (http://127.0.0.1:8737). Stop `serve` when done; don't leave it running.
 - Build/tests:
   - `dotnet test D:\repos\SpireLens\Tests\SpireLens.Core.Tests\SpireLens.Core.Tests.csproj -c Debug`
 - Focused schema tests:

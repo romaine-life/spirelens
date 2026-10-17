@@ -38,42 +38,6 @@ public class DanseMacabrePowerStatsTests
             "AppendMetaPowerLifetimeStats not found.");
 
     [Fact]
-    [Trait("Category", "RequiresLiveGame")]
-    public void DanseMacabre_UsesTheExactDecimalGainBlockOverload()
-    {
-        var target = AccessTools.Method(
-            typeof(CreatureCmd),
-            nameof(CreatureCmd.GainBlock),
-            new[]
-            {
-                typeof(Creature),
-                typeof(decimal),
-                typeof(ValueProp),
-                typeof(CardPlay),
-                typeof(bool),
-            });
-
-        Assert.NotNull(target);
-    }
-
-    [Theory]
-    [InlineData(0, 2, false)]
-    [InlineData(1, 2, false)]
-    [InlineData(2, 2, true)]
-    [InlineData(3, 2, true)]
-    public void DanseMacabre_TriggerConditionUsesResolvedEnergyCost(
-        int resolvedEnergyCost,
-        int threshold,
-        bool expected)
-    {
-        Assert.Equal(
-            expected,
-            RunTracker.DanseMacabreCardQualifiesForTest(
-                resolvedEnergyCost,
-                threshold));
-    }
-
-    [Fact]
     public void RunMetaStats_DanseMacabrePowerAggregate_DefaultsSafely()
     {
         var agg = new PowerAggregate();
@@ -82,20 +46,6 @@ public class DanseMacabrePowerStatsTests
         Assert.Equal(0m, agg.BlockGained);
         Assert.Equal(0, agg.TurnsActive);
         Assert.Equal(0, agg.CombatsActive);
-    }
-
-    [Fact]
-    public void RunTracker_DanseMacabreHelpers_RecordOnlyPositiveObservations()
-    {
-        var agg = new PowerAggregate();
-
-        RunTracker.RecordDanseMacabreTriggerForTest(agg, 3);
-        RunTracker.RecordDanseMacabreTriggerForTest(agg, 0);
-        RunTracker.RecordDanseMacabreBlockGainedForTest(agg, 14m);
-        RunTracker.RecordDanseMacabreBlockGainedForTest(agg, -2m);
-
-        Assert.Equal(3, agg.TimesTriggered);
-        Assert.Equal(14m, agg.BlockGained);
     }
 
     [Fact]

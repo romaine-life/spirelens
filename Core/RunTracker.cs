@@ -202,8 +202,6 @@ public static partial class RunTracker
     private static readonly List<Creature> _pendingOrnamentalFanBlockHistoryAttributions = new();
     private static readonly List<Creature> _pendingIntimidatingHelmetBlockAttributions = new();
     private static readonly List<Creature> _pendingDaughterOfTheWindBlockAttributions = new();
-    private static readonly List<PendingDanseMacabreBlockAttribution> _pendingDanseMacabreBlockAttributions = new();
-    private static readonly List<PendingFeelNoPainBlockAttribution> _pendingFeelNoPainBlockAttributions = new();
     private static readonly List<Creature> _pendingMercuryHourglassDamageAttributions = new();
     private static readonly List<Creature> _pendingMrStrugglesDamageAttributions = new();
     private static readonly List<Creature> _pendingLostWispDamageAttributions = new();
@@ -2119,8 +2117,6 @@ public static partial class RunTracker
         _pendingOrnamentalFanBlockHistoryAttributions.Clear();
         _pendingIntimidatingHelmetBlockAttributions.Clear();
         _pendingDaughterOfTheWindBlockAttributions.Clear();
-        _pendingDanseMacabreBlockAttributions.Clear();
-        _pendingFeelNoPainBlockAttributions.Clear();
         _pendingMercuryHourglassDamageAttributions.Clear();
         _pendingMrStrugglesDamageAttributions.Clear();
         _pendingLostWispDamageAttributions.Clear();
@@ -7329,128 +7325,6 @@ public static partial class RunTracker
     }
 
     /// <summary>
-    /// Count Danse Macabre's exact owner-card trigger and arm only the
-    /// immediately issued decimal/ValueProp gain-block command.
-    /// </summary>
-    internal static PendingDanseMacabreBlockAttribution?
-        RecordDanseMacabreTriggerAndArmBlockAttribution(
-            DanseMacabrePower? power,
-            CardPlay? cardPlay)
-    {
-        if (power?.Owner?.Player == null || cardPlay?.Card?.Owner?.Creature == null)
-            return null;
-        if (!ReferenceEquals(cardPlay.Card.Owner.Creature, power.Owner))
-            return null;
-
-        int resolvedEnergyCost;
-        int triggerThreshold;
-        try
-        {
-            resolvedEnergyCost = cardPlay.Card.EnergyCost.GetResolved();
-            triggerThreshold = power.DynamicVars.Energy.IntValue;
-        }
-        catch
-        {
-            return null;
-        }
-
-        if (!DanseMacabreCardQualifiesForTest(resolvedEnergyCost, triggerThreshold))
-            return null;
-
-        lock (_lock)
-        {
-            try
-            {
-                if (!ShouldTrackCardStatsDuringCombatLocked()) return null;
-                if (CombatManager.Instance?.IsInProgress != true) return null;
-
-                var player = power.Owner.Player;
-                if (!IsTrackedPlayer(player)) return null;
-
-                _pendingCombat ??= new PendingCombat();
-                RecordDanseMacabrePowerActiveForPlayerLocked(power, player);
-
-                var agg = GetOrCreatePowerAggregate(
-                    _pendingCombat.MetaStats,
-                    power.Id.ToString(),
-                    GetPowerDisplayName(power));
-                RecordDanseMacabreTriggerForTest(agg);
-
-                var attribution = new PendingDanseMacabreBlockAttribution
-                {
-                    PendingCombat = _pendingCombat,
-                    Owner = power.Owner,
-                    PowerId = power.Id.ToString(),
-                    DisplayName = GetPowerDisplayName(power),
-                };
-                _pendingDanseMacabreBlockAttributions.Add(attribution);
-                return attribution;
-            }
-            catch (Exception e)
-            {
-                CoreMain.LogDebug(
-                    $"RecordDanseMacabreTriggerAndArmBlockAttribution failed: {e.Message}");
-                return null;
-            }
-        }
-    }
-
-    internal static PendingDanseMacabreBlockAttribution?
-        TryConsumeDanseMacabreBlockAttribution(Creature? creature)
-    {
-        if (creature == null) return null;
-
-        lock (_lock)
-        {
-            for (int i = 0; i < _pendingDanseMacabreBlockAttributions.Count; i++)
-            {
-                var attribution = _pendingDanseMacabreBlockAttributions[i];
-                if (!ReferenceEquals(attribution.Owner, creature)) continue;
-                if (!ReferenceEquals(attribution.PendingCombat, _pendingCombat)) continue;
-
-                _pendingDanseMacabreBlockAttributions.RemoveAt(i);
-                return attribution;
-            }
-
-            return null;
-        }
-    }
-
-    internal static void DisarmDanseMacabreBlockAttribution(
-        PendingDanseMacabreBlockAttribution? attribution)
-    {
-        if (attribution == null) return;
-        lock (_lock)
-            _pendingDanseMacabreBlockAttributions.Remove(attribution);
-    }
-
-    internal static void RecordDanseMacabreBlockGained(
-        PendingDanseMacabreBlockAttribution? attribution,
-        decimal amount)
-    {
-        if (attribution == null || amount <= 0m) return;
-
-        lock (_lock)
-        {
-            try
-            {
-                if (!ShouldTrackCardStatsDuringCombatLocked()) return;
-                if (!ReferenceEquals(attribution.PendingCombat, _pendingCombat)) return;
-
-                var agg = GetOrCreatePowerAggregate(
-                    _pendingCombat!.MetaStats,
-                    attribution.PowerId,
-                    attribution.DisplayName);
-                RecordDanseMacabreBlockGainedForTest(agg, amount);
-            }
-            catch (Exception e)
-            {
-                CoreMain.LogDebug($"RecordDanseMacabreBlockGained failed: {e.Message}");
-            }
-        }
-    }
-
-    /// <summary>
     /// Count every player turn that begins with Danse Macabre active. Its
     /// first application turn is counted from the observed power application.
     /// </summary>
@@ -7503,126 +7377,6 @@ public static partial class RunTracker
         agg.TurnsActive++;
     }
 
-    internal static bool DanseMacabreCardQualifiesForTest(
-        int resolvedEnergyCost,
-        int triggerThreshold)
-        => resolvedEnergyCost >= triggerThreshold;
-
-    internal static void RecordDanseMacabreTriggerForTest(
-        PowerAggregate agg,
-        int count = 1)
-    {
-        if (agg == null || count <= 0) return;
-        agg.TimesTriggered += count;
-        agg.RateTimesTriggered += count;
-    }
-
-    internal static void RecordDanseMacabreBlockGainedForTest(
-        PowerAggregate agg,
-        decimal amount)
-    {
-        if (agg == null || amount <= 0m) return;
-        agg.BlockGained += amount;
-        agg.RateBlockGained += amount;
-    }
-
-    internal static PendingFeelNoPainBlockAttribution?
-        ArmFeelNoPainBlockAttribution(
-            FeelNoPainPower? power,
-            CardModel? exhaustedCard)
-    {
-        if (power?.Owner?.Player is not Player player
-            || exhaustedCard?.Owner?.Creature == null)
-        {
-            return null;
-        }
-        if (exhaustedCard.Owner.Creature != power.Owner) return null;
-
-        lock (_lock)
-        {
-            try
-            {
-                if (!ShouldTrackCardStatsDuringCombatLocked()) return null;
-                if (CombatManager.Instance?.IsInProgress != true) return null;
-                if (!IsTrackedPlayer(player)) return null;
-
-                _pendingCombat ??= new PendingCombat();
-                RecordFeelNoPainPowerActiveForPlayerLocked(power, player);
-
-                var attribution = new PendingFeelNoPainBlockAttribution
-                {
-                    PendingCombat = _pendingCombat,
-                    Owner = power.Owner,
-                    PowerId = power.Id.ToString(),
-                    DisplayName = GetPowerDisplayName(power),
-                };
-                _pendingFeelNoPainBlockAttributions.Add(attribution);
-                return attribution;
-            }
-            catch (Exception e)
-            {
-                CoreMain.LogDebug(
-                    $"ArmFeelNoPainBlockAttribution failed: {e.Message}");
-                return null;
-            }
-        }
-    }
-
-    internal static PendingFeelNoPainBlockAttribution?
-        TryConsumeFeelNoPainBlockAttribution(Creature? creature)
-    {
-        if (creature == null) return null;
-
-        lock (_lock)
-        {
-            for (int i = 0; i < _pendingFeelNoPainBlockAttributions.Count; i++)
-            {
-                var attribution = _pendingFeelNoPainBlockAttributions[i];
-                if (!ReferenceEquals(attribution.Owner, creature)) continue;
-                if (!ReferenceEquals(attribution.PendingCombat, _pendingCombat)) continue;
-
-                _pendingFeelNoPainBlockAttributions.RemoveAt(i);
-                return attribution;
-            }
-
-            return null;
-        }
-    }
-
-    internal static void DisarmFeelNoPainBlockAttribution(
-        PendingFeelNoPainBlockAttribution? attribution)
-    {
-        if (attribution == null) return;
-        lock (_lock)
-            _pendingFeelNoPainBlockAttributions.Remove(attribution);
-    }
-
-    internal static void RecordFeelNoPainBlockGained(
-        PendingFeelNoPainBlockAttribution? attribution,
-        decimal amount)
-    {
-        if (attribution == null || amount <= 0m) return;
-
-        lock (_lock)
-        {
-            try
-            {
-                if (!ShouldTrackCardStatsDuringCombatLocked()) return;
-                if (!ReferenceEquals(attribution.PendingCombat, _pendingCombat)) return;
-
-                var agg = GetOrCreatePowerAggregate(
-                    _pendingCombat!.MetaStats,
-                    attribution.PowerId,
-                    attribution.DisplayName);
-                RecordFeelNoPainBlockGainedForTest(agg, amount);
-            }
-            catch (Exception e)
-            {
-                CoreMain.LogDebug($"RecordFeelNoPainBlockGained failed: {e.Message}");
-            }
-        }
-    }
-
     public static void RecordFeelNoPainPowerTurnStarted(Player? player)
     {
         if (player?.Creature == null) return;
@@ -7670,142 +7424,6 @@ public static partial class RunTracker
 
         _pendingCombat.FeelNoPainPowerTurnCountedTurns[player] = turnNumber;
         agg.TurnsActive++;
-    }
-
-    internal static void RecordFeelNoPainBlockGainedForTest(
-        PowerAggregate agg,
-        decimal amount)
-    {
-        if (agg == null || amount <= 0m) return;
-        agg.BlockGained += amount;
-        agg.RateBlockGained += amount;
-    }
-
-    internal static PendingViciousDraw? ArmViciousDrawAttribution(
-        ViciousPower? vicious,
-        PowerModel? changedPower,
-        decimal amount,
-        Creature? applier)
-    {
-        if (vicious?.Owner?.Player is not Player player) return null;
-        if (!ViciousTriggerQualifiesForTest(
-                amount,
-                applier == vicious.Owner,
-                changedPower is VulnerablePower))
-        {
-            return null;
-        }
-
-        lock (_lock)
-        {
-            try
-            {
-                if (!ShouldTrackCardStatsDuringCombatLocked()) return null;
-                if (!IsTrackedPlayer(player)) return null;
-
-                _pendingCombat ??= new PendingCombat();
-                var pending = new PendingViciousDraw
-                {
-                    PendingCombat = _pendingCombat,
-                    Owner = player,
-                    PowerId = vicious.Id.ToString(),
-                    DisplayName = GetPowerDisplayName(vicious),
-                };
-                _pendingCombat.PendingViciousDraws[player] = pending;
-                return pending;
-            }
-            catch (Exception e)
-            {
-                CoreMain.LogDebug($"ArmViciousDrawAttribution failed: {e.Message}");
-                return null;
-            }
-        }
-    }
-
-    internal static bool TryConsumeViciousDrawAttribution(
-        Player? player,
-        bool fromHandDraw,
-        out PendingViciousDraw? pending)
-    {
-        pending = null;
-        if (player == null || fromHandDraw) return false;
-
-        lock (_lock)
-        {
-            try
-            {
-                if (_pendingCombat == null) return false;
-                if (!_pendingCombat.PendingViciousDraws.Remove(player, out pending))
-                    return false;
-                if (ReferenceEquals(pending.PendingCombat, _pendingCombat))
-                    return true;
-                pending = null;
-                return false;
-            }
-            catch (Exception e)
-            {
-                CoreMain.LogDebug(
-                    $"TryConsumeViciousDrawAttribution failed: {e.Message}");
-                pending = null;
-                return false;
-            }
-        }
-    }
-
-    internal static void RecordViciousCardsDrawn(
-        PendingViciousDraw? pending,
-        int cardsDrawn)
-    {
-        if (pending == null || cardsDrawn <= 0) return;
-
-        lock (_lock)
-        {
-            try
-            {
-                if (!ReferenceEquals(pending.PendingCombat, _pendingCombat)) return;
-                var agg = GetOrCreatePowerAggregate(
-                    _pendingCombat!.MetaStats,
-                    pending.PowerId,
-                    pending.DisplayName);
-                RecordViciousCardsDrawnForTest(agg, cardsDrawn);
-            }
-            catch (Exception e)
-            {
-                CoreMain.LogDebug($"RecordViciousCardsDrawn failed: {e.Message}");
-            }
-        }
-    }
-
-    internal static void DisarmViciousDrawAttribution(PendingViciousDraw? pending)
-    {
-        if (pending == null) return;
-
-        lock (_lock)
-        {
-            if (_pendingCombat == null) return;
-            if (_pendingCombat.PendingViciousDraws.TryGetValue(
-                    pending.Owner,
-                    out var active)
-                && ReferenceEquals(active, pending))
-            {
-                _pendingCombat.PendingViciousDraws.Remove(pending.Owner);
-            }
-        }
-    }
-
-    internal static bool ViciousTriggerQualifiesForTest(
-        decimal amount,
-        bool applierIsOwner,
-        bool changedPowerIsVulnerable)
-        => amount > 0m && applierIsOwner && changedPowerIsVulnerable;
-
-    internal static void RecordViciousCardsDrawnForTest(
-        PowerAggregate agg,
-        int cardsDrawn)
-    {
-        if (agg == null || cardsDrawn <= 0) return;
-        agg.ViciousCardsDrawn += cardsDrawn;
-        agg.RateViciousCardsDrawn += cardsDrawn;
     }
 
     internal static PendingGamePieceDraw? ArmGamePieceDrawAttribution(
@@ -8172,148 +7790,6 @@ public static partial class RunTracker
         agg.OutbreakExtraPoisonTriggerDamage += effectiveDamage;
     }
 
-    internal static PendingDarkEmbraceDraw?
-        ArmDarkEmbraceImmediateDrawAttribution(
-            DarkEmbracePower? power,
-            CardModel? exhaustedCard,
-            bool causedByEthereal)
-    {
-        if (power?.Owner?.Player is not Player player) return null;
-        if (!DarkEmbraceImmediateDrawQualifiesForTest(
-                exhaustedCard?.Owner?.Creature == power.Owner,
-                causedByEthereal))
-        {
-            return null;
-        }
-
-        return ArmDarkEmbraceDrawAttribution(power, player);
-    }
-
-    internal static PendingDarkEmbraceDraw?
-        ArmDarkEmbraceDeferredDrawAttribution(
-            DarkEmbracePower? power,
-            IEnumerable<Creature>? participants)
-    {
-        if (power?.Owner?.Player is not Player player) return null;
-        if (participants == null || !participants.Contains(power.Owner))
-            return null;
-
-        return ArmDarkEmbraceDrawAttribution(power, player);
-    }
-
-    private static PendingDarkEmbraceDraw? ArmDarkEmbraceDrawAttribution(
-        DarkEmbracePower power,
-        Player player)
-    {
-        lock (_lock)
-        {
-            try
-            {
-                if (!ShouldTrackCardStatsDuringCombatLocked()) return null;
-                if (CombatManager.Instance?.IsInProgress != true) return null;
-                if (!IsTrackedPlayer(player)) return null;
-
-                _pendingCombat ??= new PendingCombat();
-                RecordDarkEmbracePowerActiveForPlayerLocked(power, player);
-
-                var pending = new PendingDarkEmbraceDraw
-                {
-                    PendingCombat = _pendingCombat,
-                    Owner = player,
-                    PowerId = power.Id.ToString(),
-                    DisplayName = GetPowerDisplayName(power),
-                };
-                _pendingCombat.PendingDarkEmbraceDraws[player] = pending;
-                return pending;
-            }
-            catch (Exception e)
-            {
-                CoreMain.LogDebug(
-                    $"ArmDarkEmbraceDrawAttribution failed: {e.Message}");
-                return null;
-            }
-        }
-    }
-
-    internal static bool TryConsumeDarkEmbraceDrawAttribution(
-        Player? player,
-        bool fromHandDraw,
-        out PendingDarkEmbraceDraw? pending)
-    {
-        pending = null;
-        if (player == null || fromHandDraw) return false;
-
-        lock (_lock)
-        {
-            try
-            {
-                if (_pendingCombat == null) return false;
-                if (!_pendingCombat.PendingDarkEmbraceDraws.Remove(
-                        player,
-                        out pending))
-                {
-                    return false;
-                }
-
-                if (ReferenceEquals(pending.PendingCombat, _pendingCombat))
-                    return true;
-                pending = null;
-                return false;
-            }
-            catch (Exception e)
-            {
-                CoreMain.LogDebug(
-                    $"TryConsumeDarkEmbraceDrawAttribution failed: {e.Message}");
-                pending = null;
-                return false;
-            }
-        }
-    }
-
-    internal static void RecordDarkEmbraceCardsDrawn(
-        PendingDarkEmbraceDraw? pending,
-        int cardsDrawn)
-    {
-        if (pending == null || cardsDrawn <= 0) return;
-
-        lock (_lock)
-        {
-            try
-            {
-                if (!ReferenceEquals(pending.PendingCombat, _pendingCombat))
-                    return;
-                var agg = GetOrCreatePowerAggregate(
-                    _pendingCombat!.MetaStats,
-                    pending.PowerId,
-                    pending.DisplayName);
-                RecordDarkEmbraceCardsDrawnForTest(agg, cardsDrawn);
-            }
-            catch (Exception e)
-            {
-                CoreMain.LogDebug(
-                    $"RecordDarkEmbraceCardsDrawn failed: {e.Message}");
-            }
-        }
-    }
-
-    internal static void DisarmDarkEmbraceDrawAttribution(
-        PendingDarkEmbraceDraw? pending)
-    {
-        if (pending == null) return;
-
-        lock (_lock)
-        {
-            if (_pendingCombat == null) return;
-            if (_pendingCombat.PendingDarkEmbraceDraws.TryGetValue(
-                    pending.Owner,
-                    out var active)
-                && ReferenceEquals(active, pending))
-            {
-                _pendingCombat.PendingDarkEmbraceDraws.Remove(pending.Owner);
-            }
-        }
-    }
-
     public static void RecordDarkEmbracePowerTurnStarted(Player? player)
     {
         if (player?.Creature == null) return;
@@ -8399,20 +7875,6 @@ public static partial class RunTracker
             CoreMain.LogDebug(
                 $"RecordDarkEmbraceCombatTurnsForTrackedPlayerLocked failed: {e.Message}");
         }
-    }
-
-    internal static bool DarkEmbraceImmediateDrawQualifiesForTest(
-        bool exhaustedCardBelongsToOwner,
-        bool causedByEthereal)
-        => exhaustedCardBelongsToOwner && !causedByEthereal;
-
-    internal static void RecordDarkEmbraceCardsDrawnForTest(
-        PowerAggregate agg,
-        int cardsDrawn)
-    {
-        if (agg == null || cardsDrawn <= 0) return;
-        agg.DarkEmbraceCardsDrawn += cardsDrawn;
-        agg.RateDarkEmbraceCardsDrawn += cardsDrawn;
     }
 
     internal static void RecordDarkEmbraceCombatTurnsForTest(
@@ -38484,22 +37946,6 @@ internal sealed class PendingFreeSkillUse
     public bool IsAutoPlay { get; init; }
 }
 
-internal sealed class PendingDanseMacabreBlockAttribution
-{
-    public required PendingCombat PendingCombat { get; init; }
-    public required Creature Owner { get; init; }
-    public required string PowerId { get; init; }
-    public required string DisplayName { get; init; }
-}
-
-internal sealed class PendingFeelNoPainBlockAttribution
-{
-    public required PendingCombat PendingCombat { get; init; }
-    public required Creature Owner { get; init; }
-    public required string PowerId { get; init; }
-    public required string DisplayName { get; init; }
-}
-
 internal sealed class PendingOutbreakPoisonTriggerAttribution
 {
     public required PendingCombat PendingCombat { get; init; }
@@ -38512,14 +37958,6 @@ internal sealed class PendingOutbreakDamageAttribution
 {
     public required PendingCombat PendingCombat { get; init; }
     public required string SourceCardInstanceId { get; init; }
-}
-
-internal sealed class PendingDarkEmbraceDraw
-{
-    public required PendingCombat PendingCombat { get; init; }
-    public required Player Owner { get; init; }
-    public required string PowerId { get; init; }
-    public required string DisplayName { get; init; }
 }
 
 internal sealed class PendingForgottenSoulDamageAttribution
@@ -38838,15 +38276,11 @@ internal class PendingCombat
         = new(ReferenceEqualityComparer.Instance);
     public Dictionary<Player, PendingEntropyTransformWindow> PendingEntropyTransformWindows { get; }
         = new(ReferenceEqualityComparer.Instance);
-    public Dictionary<Player, PendingViciousDraw> PendingViciousDraws { get; }
-        = new(ReferenceEqualityComparer.Instance);
     public Dictionary<Player, PendingGamePieceDraw> PendingGamePieceDraws { get; }
         = new(ReferenceEqualityComparer.Instance);
     public HashSet<Player> GamePieceCombatCountedPlayers { get; }
         = new(ReferenceEqualityComparer.Instance);
     public Dictionary<Player, int> GamePieceTurnCountedTurns { get; }
-        = new(ReferenceEqualityComparer.Instance);
-    public Dictionary<Player, PendingDarkEmbraceDraw> PendingDarkEmbraceDraws { get; }
         = new(ReferenceEqualityComparer.Instance);
     public HashSet<Player> DarkEmbracePowerCombatCountedPlayers { get; }
         = new(ReferenceEqualityComparer.Instance);
@@ -39025,14 +38459,6 @@ internal sealed class PendingPollinousCoreDraw
     }
 
     public int CardsRequested { get; }
-}
-
-internal sealed class PendingViciousDraw
-{
-    public required PendingCombat PendingCombat { get; init; }
-    public required Player Owner { get; init; }
-    public required string PowerId { get; init; }
-    public required string DisplayName { get; init; }
 }
 
 internal sealed class PendingGamePieceDraw

@@ -40,47 +40,6 @@ public class FeelNoPainPowerStatsTests
             "AppendPhysicalMetaPowerSummary not found.");
 
     [Fact]
-    [Trait("Category", "RequiresLiveGame")]
-    public void FeelNoPain_UsesExactPowerAndGainBlockTargets()
-    {
-        var powerTarget = AccessTools.Method(
-            typeof(FeelNoPainPower),
-            nameof(FeelNoPainPower.AfterCardExhausted),
-            new[]
-            {
-                typeof(PlayerChoiceContext),
-                typeof(CardModel),
-                typeof(bool),
-            });
-        var blockTarget = AccessTools.Method(
-            typeof(CreatureCmd),
-            nameof(CreatureCmd.GainBlock),
-            new[]
-            {
-                typeof(Creature),
-                typeof(decimal),
-                typeof(ValueProp),
-                typeof(CardPlay),
-                typeof(bool),
-            });
-
-        Assert.NotNull(powerTarget);
-        Assert.NotNull(blockTarget);
-    }
-
-    [Fact]
-    public void RunTracker_FeelNoPainHelper_RecordsOnlyPositiveBlock()
-    {
-        var agg = new PowerAggregate();
-
-        RunTracker.RecordFeelNoPainBlockGainedForTest(agg, 36m);
-        RunTracker.RecordFeelNoPainBlockGainedForTest(agg, 0m);
-        RunTracker.RecordFeelNoPainBlockGainedForTest(agg, -4m);
-
-        Assert.Equal(36m, agg.BlockGained);
-    }
-
-    [Fact]
     public void Promotion_MergesFeelNoPainNumeratorAndDenominator()
     {
         var run = new RunData();
@@ -115,6 +74,33 @@ public class FeelNoPainPowerStatsTests
             [sb, definition, metaStats]);
 
         var body = sb.ToString();
+        Assert.Contains("Avg block gained / active turn", body);
+        Assert.Contains("[b]6[/b]", body);
+    }
+
+    [Fact]
+    public void FeelNoPain_IsTrackedByEffectFrames()
+    {
+        Assert.Contains("FeelNoPainPower", Effects.EffectRegistry.PowerClassNames);
+    }
+
+    [Fact]
+    public void FeelNoPainTooltip_AddsEffectFrameBlockToFrozenLegacyTotal()
+    {
+        var definition = MetaPowerRegistry.All.Single(
+            candidate => candidate.DisplayName == "Feel No Pain");
+        var sb = new StringBuilder();
+        var metaStats = new RunMetaStats();
+        var aggregate = CreateAggregate(block: 12m, turns: 6);
+        aggregate.Outcomes = new() { [Effects.EffectOutcomeKeys.Block] = 24m };
+        metaStats.PowerAggregates[definition.PowerId] = aggregate;
+
+        _ = AppendCanonicalMetaPowerStatsMethod.Invoke(
+            null,
+            [sb, definition, metaStats]);
+
+        var body = sb.ToString();
+        Assert.Contains("[b]36[/b]", body);
         Assert.Contains("Avg block gained / active turn", body);
         Assert.Contains("[b]6[/b]", body);
     }

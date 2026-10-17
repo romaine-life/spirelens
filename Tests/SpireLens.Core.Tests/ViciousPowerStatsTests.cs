@@ -39,27 +39,6 @@ public class ViciousPowerStatsTests
             "AppendPhysicalMetaPowerSummary not found.");
 
     [Fact]
-    public void ViciousTrigger_RequiresPositiveOwnerAppliedVulnerable()
-    {
-        Assert.True(RunTracker.ViciousTriggerQualifiesForTest(
-            amount: 2m,
-            applierIsOwner: true,
-            changedPowerIsVulnerable: true));
-        Assert.False(RunTracker.ViciousTriggerQualifiesForTest(
-            amount: 0m,
-            applierIsOwner: true,
-            changedPowerIsVulnerable: true));
-        Assert.False(RunTracker.ViciousTriggerQualifiesForTest(
-            amount: 2m,
-            applierIsOwner: false,
-            changedPowerIsVulnerable: true));
-        Assert.False(RunTracker.ViciousTriggerQualifiesForTest(
-            amount: 2m,
-            applierIsOwner: true,
-            changedPowerIsVulnerable: false));
-    }
-
-    [Fact]
     public void PowerAggregate_ViciousCardsDrawn_DefaultsAndSerializes()
     {
         var empty = new PowerAggregate();
@@ -79,19 +58,6 @@ public class ViciousPowerStatsTests
     }
 
     [Fact]
-    public void RunTracker_ViciousCardsDrawn_RecordsOnlyPositiveObservedCounts()
-    {
-        var agg = new PowerAggregate();
-
-        RunTracker.RecordViciousCardsDrawnForTest(agg, 5);
-        RunTracker.RecordViciousCardsDrawnForTest(agg, 6);
-        RunTracker.RecordViciousCardsDrawnForTest(agg, 0);
-        RunTracker.RecordViciousCardsDrawnForTest(agg, -1);
-
-        Assert.Equal(11, agg.ViciousCardsDrawn);
-    }
-
-    [Fact]
     public void Promotion_MergesViciousPowerTotals()
     {
         var run = new RunData();
@@ -104,6 +70,24 @@ public class ViciousPowerStatsTests
         Assert.Equal(
             11,
             run.MetaStats.PowerAggregates[ViciousPowerId].ViciousCardsDrawn);
+    }
+
+    [Fact]
+    public void Vicious_IsTrackedByEffectFrames()
+    {
+        Assert.Contains("ViciousPower", Effects.EffectRegistry.PowerClassNames);
+        Assert.Contains("DarkEmbracePower", Effects.EffectRegistry.PowerClassNames);
+        Assert.Contains("DanseMacabrePower", Effects.EffectRegistry.PowerClassNames);
+    }
+
+    [Fact]
+    public void EffectOutcome_ReadsBagAndDefaultsToZero()
+    {
+        var aggregate = new PowerAggregate();
+        Assert.Equal(0m, CardHoverShowPatch.EffectOutcome(aggregate, Effects.EffectOutcomeKeys.CardsDrawn));
+
+        aggregate.Outcomes = new() { [Effects.EffectOutcomeKeys.CardsDrawn] = 7m };
+        Assert.Equal(7m, CardHoverShowPatch.EffectOutcome(aggregate, Effects.EffectOutcomeKeys.CardsDrawn));
     }
 
     [Fact]

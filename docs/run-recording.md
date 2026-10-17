@@ -35,17 +35,21 @@ every later change to this format.
   `model_id_hash`, and never attempt a best-effort replay.
 - **A database is wanted for two uses:** an in-game run list, and
   out-of-game stats. It is derived from these files; it does not replace
-  them.
+  them. It is built by `spirelens-db`; see [run-database.md](run-database.md).
 - **The user plans to train a model to play from these recordings.** That is
   why every local decision gets a self-contained record (see "Decision
   records"): state, legal options and the choice. Training data must never
   depend on re-simulating, because re-simulation breaks across game builds.
 - **Storage:** the recordings live on this laptop, and the raw recordings are
-  backed up to a Synology NAS. The NAS sync is outside SpireLens. Files are
-  append-only or closed-then-gzipped, so a file-level sync tool sees each
-  file change only while it is being written.
-- **Past runs:** the roughly 764 existing game `history/*.run` files will be
-  imported later as summaries. They are not replayable.
+  backed up to a Synology NAS (`\\NelsonNAS\files\Games\SpireLens\replays\`).
+  The copy is done out of process by `spirelens-db backup`, which also runs
+  after every ingest. It is incremental and never deletes anything on the
+  NAS ([run-database.md](run-database.md), "Backup to the NAS"). Files are
+  append-only or closed-then-gzipped, so the backup sees each file change
+  only while it is being written.
+- **Past runs:** the game's own `history/*.run` files are imported into the
+  database as summaries ([run-database.md](run-database.md)). They are not
+  replayable.
 - **Retention: keep everything forever.** That includes abandoned branches,
   old-build recordings and every snapshot. Nothing here deletes recordings.
 
@@ -488,7 +492,9 @@ Harmony patches (prefixes unless noted):
 - the decision methods in the table above
 - run end: the existing `RunHistoryUtilities.CreateRunHistoryEntry` postfix
   (`RunHistoryUtilitiesCreateEntryPatch`) also calls `ReplayRecorder.OnRunEnded`
-  with its own `PatchGuard`
+  with its own `PatchGuard`. That method also queues the background
+  run-database import ([run-database.md](run-database.md), "Automatic
+  import").
 
 `RoomResetter` calls `ReplayRecorder.SetPendingLoadReason` immediately before
 `SetUpSavedSingleplayer`, so restarts and death undos are labeled.
@@ -539,7 +545,13 @@ background task chain.
   The `sem` forms plus the snapshots still give a portable floor-by-floor
   reconstruction.
 
-## For a future database importer
+## For the database importer
+
+The importer exists: `cmd/spirelens-db`, documented in
+[run-database.md](run-database.md). Its Go port of the timeline logic is
+`internal/replayformat`. **A change to `ReplayFormat` or `DecisionFormat`
+needs the same change in that port and its tests.** The notes below are the
+contract it follows.
 
 - Treat these files as the source of truth, and build the database out of
   process from them. Keep SQLite out of the hot-reloaded Core: native DLL
@@ -547,8 +559,8 @@ background task chain.
   way.
 - One run is one directory. `header.json` is the run row.
 - Parse `events.jsonl` line by line and skip unparsable lines. Run
-  `BuildCanonicalTimeline` (or port it: the logic is about 40 lines) to flag
-  canonical versus abandoned-branch events.
+  `BuildCanonicalTimeline` (ported as `replayformat.BuildCanonicalTimeline`)
+  to flag canonical versus abandoned-branch events.
 - Snapshots are gzip JSON in the game's own `SerializableRun` shape (the same
   as `current_run.save`). Join a snapshot to its event through
   `save_point.data.snapshot`.

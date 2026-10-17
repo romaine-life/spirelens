@@ -125,6 +125,9 @@ public static class CoreMain
         // Run recording (docs/run-recording.md). Re-attaches to a run in
         // progress, so it also covers a mid-run hot reload.
         Replay.ReplayRecorder.InitializeHooks();
+        // Background run-database import (docs/run-database.md): picks up
+        // runs that ended while the tool was missing or the game crashed.
+        Replay.RunDatabaseImporter.RequestOnCoreLoad();
 
         // Resume an active run across hot reload. Our static state (current
         // run ref, instance-number map, per-def counters) lives on this Core
@@ -227,6 +230,9 @@ public static class CoreMain
 
         try { PowerHistoryPileUi.TeardownInjectedUi(); }
         catch (Exception e) { Logger.Error($"Shutdown: power history pile teardown failed: {e}"); }
+
+        try { Replay.RunDatabaseImporter.Shutdown(); }
+        catch (Exception e) { Logger.Error($"Shutdown: run database import teardown failed: {e}"); }
 
         try { Replay.ReplayRecorder.TeardownHooks(); }
         catch (Exception e) { Logger.Error($"Shutdown: run recording teardown failed: {e}"); }

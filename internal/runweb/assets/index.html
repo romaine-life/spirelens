@@ -1,0 +1,621 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SpireLens Runs</title>
+<style>
+:root {
+  --bg: #f7f7f5; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #e2e2dc;
+  --accent: #2f6f8f; --accent-text: #ffffff; --ok: #2e7d4f; --warn: #a3620a; --bad: #a33a3a;
+  --row-hover: #f0f0ea; --chip: #ececE6; --shadow: 0 1px 2px rgba(0,0,0,.05);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161716; --panel: #1f201f; --text: #e6e6e1; --muted: #9a9a93; --line: #333432;
+    --accent: #6fb0cf; --accent-text: #0e1a20; --ok: #6cc28e; --warn: #e0a54a; --bad: #e07a7a;
+    --row-hover: #272827; --chip: #2c2d2b; --shadow: none;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; padding: 14px 20px 6px; }
+h1 { font-size: 18px; margin: 0; font-weight: 600; }
+h2 { font-size: 15px; margin: 0 0 10px; font-weight: 600; }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+.note { margin: 0 20px 8px; padding: 8px 12px; border-left: 3px solid var(--line); color: var(--muted); font-size: 13px; }
+.note.warn { border-color: var(--warn); }
+.banner { margin: 0 20px 10px; padding: 8px 12px; border-radius: 6px; background: var(--panel); border: 1px solid var(--line); }
+.banner.ok { border-color: var(--ok); }
+.banner.warn { border-color: var(--warn); }
+.banner.bad { border-color: var(--bad); }
+.layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 0 20px 24px; }
+@media (min-width: 1180px) { .layout { grid-template-columns: minmax(0, 1fr) 360px; align-items: start; } }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; box-shadow: var(--shadow); }
+.base-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
+.inline { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.optional { display: flex; flex-wrap: wrap; gap: 8px; }
+.optional:not(:empty) { margin-top: 10px; }
+.fchip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 16px;
+  padding: 3px 4px 3px 10px; background: var(--bg); }
+.fchip > .name { font-size: 12px; color: var(--muted); }
+.fchip input[type=number] { width: 4.5em; }
+.fchip input[type=text] { width: 11em; }
+.fchip .x { border: none; background: none; padding: 0 6px; color: var(--muted); font-size: 15px; line-height: 1; }
+.fchip .x:hover { color: var(--bad); }
+.checks { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.checks label { display: inline-flex; gap: 4px; align-items: center; white-space: nowrap; }
+input, select, button { font: inherit; color: inherit; }
+input[type=text], input[type=number], input[type=date], select {
+  background: var(--bg); border: 1px solid var(--line); border-radius: 5px; padding: 4px 6px; min-width: 0; }
+button { background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 4px 10px; cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: .45; cursor: default; }
+button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+button.link { border: none; background: none; padding: 0 4px; color: var(--accent); }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 12px 0 8px; }
+.toolbar .grow { flex: 1; }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { font-size: 12px; font-weight: 600; color: var(--muted); position: sticky; top: 0; background: var(--panel); }
+th.sortable { cursor: pointer; user-select: none; }
+th.sortable:hover { color: var(--text); }
+th .arrow { font-size: 10px; }
+td.num, th.num { text-align: right; }
+tbody tr:hover { background: var(--row-hover); }
+.outcome-win { color: var(--ok); font-weight: 600; }
+.outcome-loss { color: var(--bad); }
+.outcome-abandoned, .outcome-in_progress { color: var(--muted); }
+.why { color: var(--muted); font-size: 12px; max-width: 260px; overflow: hidden; text-overflow: ellipsis; display: inline-block; vertical-align: bottom; }
+.yes { color: var(--ok); }
+.playlists { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.pl { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
+.pl-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.pl-name { font-weight: 600; flex: 1; min-width: 120px; overflow-wrap: anywhere; }
+.pl-runs { list-style: none; margin: 8px 0 0; padding: 0; }
+.pl-runs li { display: flex; align-items: center; gap: 6px; padding: 3px 4px; border-radius: 4px; }
+.pl-runs li[draggable=true] { cursor: grab; }
+.pl-runs li.dragging { opacity: .4; }
+.pl-runs li.over { background: var(--row-hover); }
+.pl-runs .lbl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grip { color: var(--muted); }
+.new-pl { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+.new-pl input { flex: 1; min-width: 140px; }
+.chip { background: var(--chip); border-radius: 10px; padding: 0 7px; font-size: 12px; }
+details > summary { cursor: pointer; color: var(--muted); font-size: 12px; margin-top: 4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>SpireLens runs</h1>
+  <span id="status" class="muted small">Loading…</span>
+  <button id="refresh" class="link small" type="button" title="Run an incremental ingest now">Refresh data</button>
+</header>
+<div id="build-note" class="note" hidden></div>
+<div id="banner" class="banner" hidden></div>
+
+<div class="layout">
+  <section class="panel">
+    <form id="filters" class="filters" autocomplete="off">
+      <div class="base-row">
+        <label class="inline"><span class="muted">Character</span>
+          <select name="character"><option value="">Any</option></select></label>
+        <div class="checks" role="group" aria-label="Outcome">
+          <label><input type="checkbox" name="outcome" value="win"> Win</label>
+          <label><input type="checkbox" name="outcome" value="loss"> Loss</label>
+          <label><input type="checkbox" name="outcome" value="abandoned"> Abandoned</label>
+          <label><input type="checkbox" name="outcome" value="in_progress"> Unfinished</label>
+        </div>
+        <label class="inline" title="Only runs recorded on the game version installed now: those are the ones the game can replay">
+          <input type="checkbox" name="playable_only"> Recorded on current game version</label>
+        <select id="add-filter" aria-label="Add filter"><option value="">+ Add filter</option></select>
+        <button type="reset" class="link">Reset filters</button>
+      </div>
+      <div id="optional" class="optional"></div>
+      <datalist id="cards"></datalist><datalist id="relics"></datalist>
+    </form>
+
+    <div class="toolbar">
+      <span id="count" class="muted"></span>
+      <span class="grow"></span>
+      <span id="selected-count" class="muted small"></span>
+      <button id="select-replayable" type="button">Select all filtered replayable</button>
+      <button id="clear-selection" type="button">Clear selection</button>
+    </div>
+    <div class="table-wrap">
+      <table id="runs">
+        <thead><tr>
+          <th><input type="checkbox" id="check-all" title="Select every selectable row shown"></th>
+          <th class="sortable" data-key="game_start_time">Date</th>
+          <th class="sortable" data-key="character">Character</th>
+          <th class="sortable num" data-key="ascension">Asc</th>
+          <th class="sortable" data-key="outcome">Outcome</th>
+          <th class="sortable num" data-key="floor">Floor</th>
+          <th class="sortable" data-key="killed_by">Killed by</th>
+          <th class="sortable num" data-key="deck_size">Deck</th>
+          <th class="sortable num" data-key="relic_count">Relics</th>
+          <th class="sortable num" data-key="damage_taken">Dmg taken</th>
+          <th class="sortable num" data-key="run_time_seconds">Time</th>
+          <th class="sortable num" data-key="decisions">Decisions</th>
+          <th class="sortable" data-key="replayable">Replay</th>
+          <th></th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <aside class="panel">
+    <h2>Playlists</h2>
+    <div class="new-pl">
+      <input type="text" id="new-name" placeholder="New playlist name" maxlength="80">
+      <button id="save-playlist" class="primary" type="button" disabled>Save selection</button>
+      <button id="play-selection" type="button" disabled>Play selection now</button>
+    </div>
+    <p class="muted small" id="pl-dir"></p>
+    <ul id="playlists" class="playlists"></ul>
+  </aside>
+</div>
+
+<script>
+"use strict";
+const $ = (s, root = document) => root.querySelector(s);
+const state = { meta: null, build: null, runs: [], sort: { key: "game_start_time", dir: -1 }, selected: new Set(), playlists: [] };
+
+function el(tag, attrs, ...children) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k === "class") n.className = v;
+    else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+    else if (k === "text") n.textContent = v;
+    else n.setAttribute(k, v === true ? "" : v);
+  }
+  for (const c of children.flat()) if (c != null) n.append(c instanceof Node ? c : document.createTextNode(String(c)));
+  return n;
+}
+
+async function api(method, url, body) {
+  const opts = { method, headers: {} };
+  if (method !== "GET") opts.headers["X-SpireLens"] = "1";
+  if (body !== undefined) { opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
+  const r = await fetch(url, opts);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || r.statusText);
+  return data;
+}
+
+const pretty = id => !id ? "" : id.replace(/^[A-Z_]+\./, "").toLowerCase().split("_").map(w => w ? w[0].toUpperCase() + w.slice(1) : w).join(" ");
+const fmtTime = s => s == null ? "" : s >= 3600 ? `${Math.floor(s / 3600)}h ${Math.round((s % 3600) / 60)}m` : `${Math.round(s / 60)}m`;
+const fmtDate = t => { const d = new Date(t * 1000); return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) + " " + d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }); };
+const outcomeText = { win: "Win", loss: "Loss", abandoned: "Abandoned", in_progress: "Unfinished" };
+
+function banner(text, kind) {
+  const b = $("#banner");
+  b.hidden = !text; b.className = "banner " + (kind || ""); b.textContent = text || "";
+}
+
+// ---------------- meta / status
+
+function renderStatus(ingest) {
+  const parts = [`${state.meta ? state.meta.run_count : 0} runs`];
+  if (ingest) {
+    if (ingest.state === "ok") parts.push("data current as of " + new Date(ingest.at).toLocaleTimeString());
+    else if (ingest.state === "locked") parts.push("another import was running, so this is the data as it was (read-only); Refresh to try again");
+    else if (ingest.state === "failed") parts.push("import failed: " + ingest.message);
+    else if (ingest.message) parts.push(ingest.message);
+  }
+  const b = state.backup;
+  if (b) {
+    if (b.status === "unreachable") parts.push("backup skipped: NAS unreachable" + (b.last_success_utc ? ` (last good ${new Date(b.last_success_utc).toLocaleString()})` : ""));
+    else if (b.status === "disabled") parts.push("backup disabled");
+    else parts.push(`Last backup: ${new Date(b.finished_at_utc).toLocaleString()} (${b.files_copied} files${b.status === "partial" ? ", some failed" : ""})`);
+  }
+  $("#status").textContent = parts.join(" · ");
+}
+
+function renderBuild(build) {
+  state.build = build;
+  const n = $("#build-note");
+  n.hidden = !build;
+  if (!build) return;
+  n.className = "note" + (build.known && build.source.startsWith("installed") ? "" : " warn");
+  n.textContent = "Recorded on current game version = recorded with the same game commit and content (model-id) hash as the game now installed; only those runs can be replayed. " + build.note;
+}
+
+async function loadMeta() {
+  const d = await api("GET", "/api/meta");
+  state.meta = d.meta;
+  state.backup = d.backup;
+  renderBuild(d.build);
+  renderStatus(d.ingest);
+  $("#pl-dir").textContent = "Saved in " + d.playlists_dir;
+  const f = $("#filters");
+  const fill = (sel, opts) => {
+    const keep = sel.value;
+    sel.replaceChildren(el("option", { value: "" }, "Any"), ...opts.map(o => el("option", { value: o.value }, `${o.label} (${o.count})`)));
+    sel.value = keep;
+  };
+  fill(f.character, d.meta.characters);
+  if (!state.restored) { state.restored = true; restoreFilters(); }
+  $("#cards").replaceChildren(...d.meta.cards.map(o => el("option", { value: o.label })));
+  $("#relics").replaceChildren(...d.meta.relics.map(o => el("option", { value: o.label })));
+}
+
+// ---------------- filters / runs
+
+// Optional filters: hidden ones apply no restriction. Each has a starting
+// value, its inputs, and the part of the API filter it contributes.
+const isoDay = offsetDays => { const d = new Date(Date.now() + offsetDays * 864e5);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+const numOr = v => v === "" || v == null ? undefined : Number(v);
+const strOr = v => (v || "").trim() || undefined;
+const input = (part, type, value, attrs) => el("input", Object.assign({ type, "data-part": part, value: value ?? "" }, attrs || {}));
+const range = (v, attrs) => [input("min", "number", v.min, Object.assign({ placeholder: "min", "aria-label": "minimum" }, attrs)), "–",
+  input("max", "number", v.max, Object.assign({ placeholder: "max", "aria-label": "maximum" }, attrs))];
+const OPTIONAL = [
+  { key: "ascension", label: "Ascension", init: m => ({ min: m.ascension[1], max: m.ascension[1] }),
+    render: v => range(v, { min: 0 }), read: v => ({ ascension_min: numOr(v.min), ascension_max: numOr(v.max) }) },
+  { key: "date", label: "Date", init: () => ({ from: isoDay(-30), to: isoDay(0) }),
+    render: v => [input("from", "date", v.from, { "aria-label": "from" }), "–", input("to", "date", v.to, { "aria-label": "to" })],
+    read: v => ({ date_from: strOr(v.from), date_to: strOr(v.to) }) },
+  { key: "floor", label: "Floor reached", init: m => ({ min: 1, max: m.floor[1] }),
+    render: v => range(v, { min: 0 }), read: v => ({ floor_min: numOr(v.min), floor_max: numOr(v.max) }) },
+  { key: "killed_by", label: "Killed by", init: m => ({ value: m.killed_by.length ? m.killed_by[0].value : "" }),
+    render: v => { const sel = el("select", { "data-part": "value", "aria-label": "killed by" },
+      state.meta.killed_by.map(o => el("option", { value: o.value }, `${o.label} (${o.count})`))); sel.value = v.value; return [sel]; },
+    read: v => ({ killed_by: strOr(v.value) }) },
+  { key: "picked_card", label: "Picked card", init: () => ({ value: "" }),
+    render: v => [input("value", "text", v.value, { list: "cards", placeholder: "card name", title: "Picked at a card reward" })],
+    read: v => ({ picked_card: strOr(v.value) }) },
+  { key: "has_relic", label: "Has relic", init: () => ({ value: "" }),
+    render: v => [input("value", "text", v.value, { list: "relics", placeholder: "relic name", title: "Held at run end" })],
+    read: v => ({ has_relic: strOr(v.value) }) },
+  { key: "source", label: "Source", init: () => ({ value: "recorded" }),
+    render: v => { const sel = el("select", { "data-part": "value", "aria-label": "source" },
+      el("option", { value: "recorded" }, "Recorded"), el("option", { value: "history_only" }, "Game history only")); sel.value = v.value; return [sel]; },
+    read: v => ({ source: strOr(v.value) }) },
+];
+const optionalByKey = Object.fromEntries(OPTIONAL.map(o => [o.key, o]));
+
+function chipValues(chip) {
+  const v = {};
+  chip.querySelectorAll("[data-part]").forEach(i => { v[i.dataset.part] = i.value; });
+  return v;
+}
+
+function addOptional(key, values) {
+  const def = optionalByKey[key];
+  if (!def || $(`#optional .fchip[data-key="${key}"]`)) return;
+  const chip = el("div", { class: "fchip", "data-key": key },
+    el("span", { class: "name" }, def.label), def.render(values || def.init(state.meta)),
+    el("button", { type: "button", class: "x", title: `Remove the ${def.label.toLowerCase()} filter`, "aria-label": "Remove filter",
+      onclick: () => { chip.remove(); renderAddMenu(); filtersChanged(0); } }, "×"));
+  $("#optional").append(chip);
+  renderAddMenu();
+}
+
+function renderAddMenu() {
+  const active = new Set([...document.querySelectorAll("#optional .fchip")].map(c => c.dataset.key));
+  const menu = $("#add-filter");
+  menu.replaceChildren(el("option", { value: "" }, "+ Add filter"),
+    ...OPTIONAL.filter(o => !active.has(o.key)).map(o => el("option", { value: o.key }, o.label)));
+  menu.disabled = active.size === OPTIONAL.length;
+}
+
+function readFilter() {
+  const f = $("#filters");
+  const filter = {
+    character: f.character.value || undefined,
+    outcomes: [...f.querySelectorAll("input[name=outcome]:checked")].map(c => c.value),
+    playable_only: f.playable_only.checked || undefined,
+  };
+  if (!filter.outcomes.length) delete filter.outcomes;
+  document.querySelectorAll("#optional .fchip").forEach(chip => Object.assign(filter, optionalByKey[chip.dataset.key].read(chipValues(chip))));
+  for (const k of Object.keys(filter)) if (filter[k] === undefined) delete filter[k];
+  return filter;
+}
+
+// Per-browser memory of the filters. Storage can be missing or throw
+// (private windows, blocked site data); the page works the same without it.
+const STORE_KEY = "spirelens.runBrowser.filters.v1";
+function saveFilters() {
+  const f = $("#filters");
+  const snap = {
+    character: f.character.value,
+    outcomes: [...f.querySelectorAll("input[name=outcome]:checked")].map(c => c.value),
+    playable_only: f.playable_only.checked,
+    optional: [...document.querySelectorAll("#optional .fchip")].map(c => [c.dataset.key, chipValues(c)]),
+  };
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(snap)); } catch { /* not persisted */ }
+}
+function restoreFilters() {
+  renderAddMenu();
+  let snap = null;
+  try { snap = JSON.parse(localStorage.getItem(STORE_KEY) || "null"); } catch { snap = null; }
+  if (!snap || typeof snap !== "object") return;
+  const f = $("#filters");
+  if (typeof snap.character === "string") f.character.value = snap.character;
+  const outs = new Set(Array.isArray(snap.outcomes) ? snap.outcomes : []);
+  f.querySelectorAll("input[name=outcome]").forEach(c => { c.checked = outs.has(c.value); });
+  f.playable_only.checked = !!snap.playable_only;
+  if (Array.isArray(snap.optional)) for (const entry of snap.optional) {
+    if (Array.isArray(entry) && optionalByKey[entry[0]] && entry[1] && typeof entry[1] === "object") addOptional(entry[0], entry[1]);
+  }
+}
+function resetFilters() {
+  const f = $("#filters");
+  f.character.value = "";
+  f.querySelectorAll("input[name=outcome]").forEach(c => { c.checked = false; });
+  f.playable_only.checked = false;
+  $("#optional").replaceChildren();
+  renderAddMenu();
+  try { localStorage.removeItem(STORE_KEY); } catch { /* nothing stored */ }
+  loadRuns();
+}
+
+let debounce = null;
+function filtersChanged(delay) {
+  saveFilters();
+  clearTimeout(debounce);
+  debounce = setTimeout(loadRuns, delay);
+}
+
+let runsSeq = 0;
+async function loadRuns() {
+  const seq = ++runsSeq;
+  try {
+    const d = await api("POST", "/api/runs", readFilter());
+    if (seq !== runsSeq) return;
+    state.runs = d.runs;
+    renderRuns();
+  } catch (e) { banner("Could not load runs: " + e.message, "bad"); }
+}
+
+function sortedRuns() {
+  const { key, dir } = state.sort;
+  const val = r => {
+    const v = r[key];
+    if (key === "replayable") return r.replayable ? 2 : r.has_recording ? 1 : 0;
+    if (typeof v === "boolean") return v ? 1 : 0;
+    return v;
+  };
+  return [...state.runs].sort((a, b) => {
+    const x = val(a), y = val(b);
+    if (x == null && y == null) return b.game_start_time - a.game_start_time;
+    if (x == null) return 1;
+    if (y == null) return -1;
+    const c = typeof x === "string" ? x.localeCompare(y) : x - y;
+    return c * dir || b.game_start_time - a.game_start_time;
+  });
+}
+
+function renderRuns() {
+  const tbody = $("#runs tbody");
+  const rows = sortedRuns();
+  const playable = state.runs.filter(r => r.replayable).length;
+  $("#count").textContent = `${state.runs.length} runs shown · ${playable} replayable`;
+  document.querySelectorAll("#runs th.sortable").forEach(th => {
+    th.querySelector(".arrow")?.remove();
+    if (th.dataset.key === state.sort.key) th.append(el("span", { class: "arrow" }, state.sort.dir > 0 ? " ▲" : " ▼"));
+  });
+  tbody.replaceChildren(...rows.map(r => {
+    const check = el("input", { type: "checkbox", disabled: !r.has_recording, title: r.has_recording ? "Select for a playlist" : "Only recorded runs can go in a playlist" });
+    check.checked = state.selected.has(r.game_start_time);
+    check.addEventListener("change", () => { check.checked ? state.selected.add(r.game_start_time) : state.selected.delete(r.game_start_time); renderSelection(); });
+    const replay = r.replayable
+      ? el("span", { class: "yes", title: r.reason || "Recorded on current game version" }, "✓ playable")
+      : el("span", { class: "why", title: r.reason }, r.reason);
+    return el("tr", {},
+      el("td", {}, check),
+      el("td", { title: r.label }, fmtDate(r.game_start_time)),
+      el("td", {}, pretty(r.character)),
+      el("td", { class: "num" }, r.ascension ?? ""),
+      el("td", { class: "outcome-" + (r.outcome || "") }, outcomeText[r.outcome] || ""),
+      el("td", { class: "num" }, r.floor ?? ""),
+      el("td", { title: r.killed_by || "" }, pretty(r.killed_by)),
+      el("td", { class: "num" }, r.deck_size ?? ""),
+      el("td", { class: "num" }, r.relic_count ?? ""),
+      el("td", { class: "num" }, r.damage_taken ?? ""),
+      el("td", { class: "num" }, fmtTime(r.run_time_seconds)),
+      el("td", { class: "num" }, r.decisions ?? ""),
+      el("td", {}, replay),
+      el("td", {}, el("button", { type: "button", disabled: !r.replayable, title: r.replayable ? "Play this run in the game now" : r.reason,
+        onclick: () => playRuns([r.game_start_time], r.label) }, "Play")));
+  }));
+  renderSelection();
+}
+
+function renderSelection() {
+  const n = state.selected.size;
+  $("#selected-count").textContent = n ? `${n} selected` : "";
+  $("#save-playlist").disabled = !n;
+  $("#play-selection").disabled = !n;
+  $("#save-playlist").textContent = n ? `Save ${n} as playlist` : "Save selection";
+  const selectable = state.runs.filter(r => r.has_recording);
+  const all = $("#check-all");
+  all.checked = selectable.length > 0 && selectable.every(r => state.selected.has(r.game_start_time));
+  all.indeterminate = !all.checked && selectable.some(r => state.selected.has(r.game_start_time));
+  document.querySelectorAll(".add-selected").forEach(b => b.disabled = !n);
+}
+
+function selectedInTableOrder() {
+  const order = sortedRuns().map(r => r.game_start_time).filter(id => state.selected.has(id));
+  const rest = [...state.selected].filter(id => !order.includes(id));
+  return order.concat(rest);
+}
+
+// ---------------- playing
+
+let pollTimer = null;
+async function sendPlay(body, what) {
+  try {
+    const d = await api("POST", "/api/play", body);
+    const dropped = d.dropped && d.dropped.length ? ` (${d.dropped.length} without a recording left out)` : "";
+    banner(`Sent to the game: ${what}${dropped}. Waiting for the game to pick it up…`);
+    watchPlay(Date.now());
+  } catch (e) { banner("Could not send: " + e.message, "bad"); }
+}
+const playRuns = (ids, what) => sendPlay({ runs: ids }, what);
+
+function watchPlay(start) {
+  clearTimeout(pollTimer);
+  pollTimer = setTimeout(async () => {
+    let s;
+    try { s = await api("GET", "/api/play"); } catch { s = { pending: true }; }
+    const age = Date.now() - start;
+    if (!s.pending) { banner("The game picked it up.", "ok"); return; }
+    if (age > 10000) banner("The game hasn't picked it up (is it at the main menu?). The request stays in place until the game reads it.", "warn");
+    if (age < 10 * 60 * 1000) watchPlay(start);
+  }, 1500);
+}
+
+// ---------------- playlists
+
+async function loadPlaylists() {
+  try {
+    const d = await api("GET", "/api/playlists");
+    state.playlists = d.playlists;
+    renderPlaylists();
+  } catch (e) { banner("Could not load playlists: " + e.message, "bad"); }
+}
+
+async function savePlaylistRuns(p, ids) {
+  try { await api("PUT", `/api/playlists/${p.slug}`, { runs: ids }); }
+  catch (e) { banner("Could not save the playlist: " + e.message, "bad"); }
+  await loadPlaylists();
+}
+
+function renderPlaylists() {
+  const ul = $("#playlists");
+  if (!state.playlists.length) { ul.replaceChildren(el("li", { class: "muted small" }, "No playlists yet. Select recorded runs and save them.")); return; }
+  ul.replaceChildren(...state.playlists.map(p => {
+    if (p.error) return el("li", { class: "pl" }, el("div", { class: "pl-head" }, el("span", { class: "pl-name" }, p.slug),
+      el("span", { class: "small" }, "unreadable: " + p.error),
+      el("button", { type: "button", onclick: () => deletePlaylist(p) }, "Delete")));
+    const ids = p.runs.map(r => r.game_start_time);
+    const playable = p.runs.filter(r => r.replayable).length;
+    const nameSpan = el("span", { class: "pl-name" }, p.name);
+    const head = el("div", { class: "pl-head" },
+      nameSpan,
+      el("span", { class: "chip", title: "recorded on current game version / total" }, `${playable}/${p.runs.length}`),
+      el("button", { type: "button", class: "primary", disabled: !p.runs.length, title: "The game skips runs not recorded on the current game version",
+        onclick: () => sendPlay({ playlist: p.slug }, `playlist “${p.name}”`) }, "Play now"),
+      el("button", { type: "button", onclick: () => startRename(p, head, nameSpan) }, "Rename"),
+      el("button", { type: "button", onclick: () => deletePlaylist(p) }, "Delete"));
+    const list = el("ol", { class: "pl-runs" }, p.runs.map((r, i) => {
+      const li = el("li", { draggable: "true", "data-i": i },
+        el("span", { class: "grip", title: "Drag to reorder" }, "⋮⋮"),
+        el("span", { class: "lbl", title: r.reason || r.label }, r.label),
+        r.replayable ? el("span", { class: "yes", title: "Recorded on current game version" }, "✓") : el("span", { class: "muted small", title: r.reason }, "✕"),
+        el("button", { type: "button", class: "link", title: "Move up", disabled: i === 0,
+          onclick: () => { const a = ids.slice(); [a[i - 1], a[i]] = [a[i], a[i - 1]]; savePlaylistRuns(p, a); } }, "↑"),
+        el("button", { type: "button", class: "link", title: "Move down", disabled: i === ids.length - 1,
+          onclick: () => { const a = ids.slice(); [a[i + 1], a[i]] = [a[i], a[i + 1]]; savePlaylistRuns(p, a); } }, "↓"),
+        el("button", { type: "button", class: "link", title: "Remove from playlist",
+          onclick: () => savePlaylistRuns(p, ids.filter((_, j) => j !== i)) }, "✕"));
+      li.addEventListener("dragstart", e => { e.dataTransfer.setData("text/plain", String(i)); e.dataTransfer.effectAllowed = "move"; li.classList.add("dragging"); });
+      li.addEventListener("dragend", () => li.classList.remove("dragging"));
+      li.addEventListener("dragover", e => { e.preventDefault(); li.classList.add("over"); });
+      li.addEventListener("dragleave", () => li.classList.remove("over"));
+      li.addEventListener("drop", e => {
+        e.preventDefault(); li.classList.remove("over");
+        const from = Number(e.dataTransfer.getData("text/plain"));
+        if (Number.isNaN(from) || from === i) return;
+        const a = ids.slice(); const [moved] = a.splice(from, 1); a.splice(i, 0, moved);
+        savePlaylistRuns(p, a);
+      });
+      return li;
+    }));
+    const add = el("button", { type: "button", class: "link small add-selected", disabled: !state.selected.size,
+      onclick: () => savePlaylistRuns(p, ids.concat(selectedInTableOrder().filter(id => !ids.includes(id)))) }, "Add selected runs");
+    const details = el("details", {}, el("summary", {}, `${p.runs.length} run${p.runs.length === 1 ? "" : "s"}`), list, add);
+    return el("li", { class: "pl" }, head, details);
+  }));
+}
+
+function startRename(p, head, nameSpan) {
+  const input = el("input", { type: "text", value: p.name, maxlength: "80" });
+  const done = async save => {
+    if (save && input.value.trim() && input.value.trim() !== p.name) {
+      try { await api("PUT", `/api/playlists/${p.slug}`, { name: input.value.trim() }); }
+      catch (e) { banner("Could not rename: " + e.message, "bad"); }
+    }
+    loadPlaylists();
+  };
+  input.addEventListener("keydown", e => { if (e.key === "Enter") done(true); if (e.key === "Escape") done(false); });
+  head.replaceChildren(input, el("button", { type: "button", class: "primary", onclick: () => done(true) }, "Save"),
+    el("button", { type: "button", onclick: () => done(false) }, "Cancel"));
+  input.focus(); input.select();
+}
+
+async function deletePlaylist(p) {
+  if (!confirm(`Delete playlist “${p.name || p.slug}”? The runs themselves are not touched.`)) return;
+  try { await api("DELETE", `/api/playlists/${p.slug}`); } catch (e) { banner("Could not delete: " + e.message, "bad"); }
+  loadPlaylists();
+}
+
+// ---------------- wiring
+
+$("#filters").addEventListener("input", e => {
+  if (e.target.id === "add-filter") return;
+  filtersChanged(e.target.type === "text" || e.target.type === "number" ? 300 : 0);
+});
+$("#filters").addEventListener("reset", e => { e.preventDefault(); resetFilters(); });
+$("#add-filter").addEventListener("change", e => {
+  const key = e.target.value;
+  e.target.value = "";
+  if (!key) return;
+  addOptional(key);
+  filtersChanged(0);
+  $(`#optional .fchip[data-key="${key}"] [data-part]`)?.focus();
+});
+document.querySelectorAll("#runs th.sortable").forEach(th => th.addEventListener("click", () => {
+  const key = th.dataset.key;
+  state.sort = state.sort.key === key ? { key, dir: -state.sort.dir } : { key, dir: key === "game_start_time" ? -1 : 1 };
+  renderRuns();
+}));
+$("#check-all").addEventListener("change", e => {
+  for (const r of state.runs) if (r.has_recording) e.target.checked ? state.selected.add(r.game_start_time) : state.selected.delete(r.game_start_time);
+  renderRuns();
+});
+$("#select-replayable").addEventListener("click", () => { for (const r of state.runs) if (r.replayable) state.selected.add(r.game_start_time); renderRuns(); });
+$("#clear-selection").addEventListener("click", () => { state.selected.clear(); renderRuns(); });
+$("#save-playlist").addEventListener("click", async () => {
+  const name = $("#new-name").value.trim();
+  if (!name) { $("#new-name").focus(); banner("Give the playlist a name first.", "warn"); return; }
+  try {
+    const d = await api("POST", "/api/playlists", { name, runs: selectedInTableOrder(), filter: readFilter() });
+    const dropped = d.dropped.length ? ` ${d.dropped.length} run(s) without a recording were left out.` : "";
+    banner(`Saved playlist “${d.playlist.name}” with ${d.playlist.runs.length} runs.${dropped}`, "ok");
+    $("#new-name").value = "";
+    loadPlaylists();
+  } catch (e) { banner("Could not save: " + e.message, "bad"); }
+});
+$("#play-selection").addEventListener("click", () => playRuns(selectedInTableOrder(), `${state.selected.size} selected run(s)`));
+$("#refresh").addEventListener("click", async () => {
+  $("#status").textContent = "Importing…";
+  try {
+    const d = await api("POST", "/api/ingest");
+    await loadMeta();
+    renderStatus(d.ingest);
+    await Promise.all([loadRuns(), loadPlaylists()]);
+  } catch (e) { banner("Refresh failed: " + e.message, "bad"); }
+});
+
+(async () => {
+  try {
+    await loadMeta();
+    await Promise.all([loadRuns(), loadPlaylists()]);
+    const s = await api("GET", "/api/play");
+    if (s.pending) { banner("A play request is still waiting for the game (is it at the main menu?).", "warn"); watchPlay(Date.now() - 10000); }
+  } catch (e) { banner("Could not load: " + e.message, "bad"); }
+})();
+</script>
+</body>
+</html>

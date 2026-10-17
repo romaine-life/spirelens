@@ -15,7 +15,7 @@ import (
 // BaseLibMinVersion is the BaseLib version floor enforced during env prep.
 // BaseLib 3.3.7 hard-references the removed MegaInput.releaseCard field from
 // its NPlayerHand patch, preventing every attempted card play on STS2 v0.110.1.
-const BaseLibMinVersion = "3.4.0"
+const BaseLibMinVersion = "3.4.7"
 
 // allowedMods is the AGENTS.md mod allowlist; SpireLensMcp may be absent before
 // install (per-run), so only a name OUTSIDE this set is unexpected.

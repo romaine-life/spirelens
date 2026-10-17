@@ -69,12 +69,20 @@ log; `Loaded 2 mods` means the bridge is not installed yet.
 
 `BaseLib` and `SpireLens` are **host-local persistent state** — they are not
 re-installed per run (only `SpireLensMcp` is), and the per-run checkout sync
-deliberately does not `git clean` the game's `mods/` directory. Whatever is
-deployed under `mods\BaseLib\` stays until a human changes it.
+deliberately does not `git clean` the game's `mods/` directory. The **root
+build** (`dotnet build SpireLens.csproj`) does install BaseLib: it copies the
+version pinned by the `Alchyr.Sts2.BaseLib` PackageReference in
+`SpireLens.csproj` into `mods\BaseLib\`, overwriting whatever is there. Keep
+that pin at or above the floor below; a stale pin silently downgrades the
+host (2026-10-16: the 3.4.0 pin replaced an installed 3.4.5 on a Loader
+deploy).
 
-### BaseLib version floor: **>= v3.4.0**
+### BaseLib version floor: **>= v3.4.7**
 
-`BaseLib` must be **v3.4.0 or newer**. STS2 v0.110.1 removed
+`BaseLib` must be **v3.4.7 or newer**. On STS2 v0.111, BaseLib v3.4.0's
+`CustomActTreasureChest` hard-references the removed `NTreasureRoom._chestNode`
+and throws a `TypeInitializationException` every time a treasure room loads;
+v3.4.7 looks the field up as nullable. Earlier: STS2 v0.110.1 removed
 `MegaInput.releaseCard`; BaseLib v3.3.7 hard-references that field from its
 `NPlayerHand.StartCardPlay` safety patch and throws `MissingFieldException` on
 every attempted card play. BaseLib v3.4.0's beta-compat update uses the current
@@ -93,7 +101,7 @@ if BaseLib is absent or its version is unparseable), and emits
 `BaseLibMinVersion` constant near the top of `internal/host/probe.go`. **Bump
 `BaseLibMinVersion`** when a future STS2 update requires a newer BaseLib. When
 re-provisioning a host, fetch the current Alchyr/BaseLib-StS2 release and confirm
-`mods\BaseLib\BaseLib.json` reports `"version": "v3.4.0"` or newer.
+`mods\BaseLib\BaseLib.json` reports `"version": "v3.4.7"` or newer.
 
 > Game updates land about every two weeks and routinely break this — see
 > [docs/surviving-sts2-updates.md](./surviving-sts2-updates.md) for the full

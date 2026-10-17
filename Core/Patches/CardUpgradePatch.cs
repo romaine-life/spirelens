@@ -45,6 +45,7 @@ public static class CardUpgradePatch
         try
         {
             RunTracker.RecordUpgrade(__instance, __state);
+            RunTracker.RecordEffectFrameCardChange(__instance, Effects.EffectOutcomeKeys.CardsUpgraded);
         }
         catch (Exception e)
         {

@@ -881,6 +881,38 @@ This is intentionally outcome-shaped but still simple. It assumes the relic appl
 
 Relic aggregates live in `RunData.RelicAggregates`, keyed by relic id. Fields are shared across relics; each relic uses only relevant fields.
 
+### Generic Effect Frames
+
+Relics and powers listed in `Core/Effects/EffectRegistry.cs` have no bespoke
+patch. `EffectFrameTaskPatch` frames every `Task`-returning hook override the
+enrolled class declares (ADR 0004). What makes this sound:
+
+- `Hook.*` dispatchers call `await model.AfterX(...)` on `AbstractModel`
+  references, one listener at a time. The call is virtual, so the detour on
+  the override is reached, and frames nest rather than overlap.
+- The frame is an `AsyncLocal` set in the prefix and restored in the
+  postfix. Harmony's replacement method is synchronous, so the prefix's
+  value is in place when the async stub calls `AsyncTaskMethodBuilder.Start`
+  and is captured by the state machine for every later await. Commands the
+  hook awaits (`CreatureCmd.GainBlock`, `CreatureCmd.Damage`,
+  `PlayerCmd.GainEnergy`, `CardPileCmd.Draw`, `PowerCmd.Apply`...) and the
+  history entries they add therefore observe it. Work the game enqueues as a
+  separate `GameAction` would not.
+- A frame is stale once its pending combat is promoted or discarded, and is
+  shadowed while a *different* card play than the one resolving at arm time
+  is resolving — an autoplay the owner caused owns its own outcomes.
+- `Hook.ModifyHandDraw` is only called from `CombatManager` while sizing a
+  turn's opening draw, so a postfix on an enrolled override is one real
+  draw; the game itself compares truncated counts, and so does SpireLens.
+- `PlayerCombatState.MaxEnergy` is recomputed by UI, so max-Energy modifiers
+  are replayed against `Player.MaxEnergy` once per `Hook.AfterEnergyReset`.
+- `RelicModel.Flash(IEnumerable<Creature>)` inside the relic's own frame
+  marks that frame as an activation; outside a frame (modifier hooks flash
+  from value methods) it is one activation by itself.
+- Power payoff is split across the stacks each source contributed to that
+  power instance, seeded from `PowerReceivedEntry` (negative entries scale
+  every source down). Stacks a power's own frame adds inherit its sources.
+
 The filtered relic bar treats combat relevance as an effective live state,
 not a mutation of the saved classification. A relic with a finite combat
 duration enters a per-model, combat-local resolved set when its native

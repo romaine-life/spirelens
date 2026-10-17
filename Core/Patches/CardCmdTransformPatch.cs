@@ -39,6 +39,19 @@ public static class CardCmdTransformPatch
         {
             if (RunTracker.TryCaptureLeafyPoulticeTransformSources(ref transformations, out var orderedSources))
                 __state = orderedSources;
+
+            if (Effects.EffectFrameContext.Current != null)
+            {
+                // Materialize once so counting does not re-run a lazy query
+                // the game is about to enumerate itself.
+                var materialized = transformations as IReadOnlyCollection<CardTransformation>
+                    ?? transformations.ToList();
+                transformations = materialized;
+                foreach (var transformation in materialized)
+                    RunTracker.RecordEffectFrameCardChange(
+                        transformation.Original,
+                        Effects.EffectOutcomeKeys.CardsTransformed);
+            }
         }
         catch (Exception e)
         {

@@ -6420,6 +6420,62 @@ public class SchemaLoadingTests
     }
 
     [Fact]
+    public void HistoricalLoad_AcceptsEffectOutcomesFixture()
+    {
+        var loaded = RunStorage.LoadHistorical(
+            FixturePath("effect-outcomes-run.json"));
+
+        Assert.NotNull(loaded);
+        Assert.True(loaded!.SupportsResume);
+        AssertEffectOutcomesFixture(loaded.Data);
+    }
+
+    [Fact]
+    public void ResumableLoad_AcceptsEffectOutcomesFixture()
+    {
+        var resumed = RunStorage.LoadResumable(
+            FixturePath("effect-outcomes-run.json"));
+
+        Assert.NotNull(resumed);
+        AssertEffectOutcomesFixture(resumed!);
+    }
+
+    [Fact]
+    public void HistoricalLoad_OlderRelicFixtureHasNoEffectOutcomes()
+    {
+        var loaded = RunStorage.LoadHistorical(
+            FixturePath("ice-cream-relic-run.json"));
+
+        Assert.NotNull(loaded);
+        Assert.Null(loaded!.Data.RelicAggregates["RELIC.ICE_CREAM"].Outcomes);
+    }
+
+    private static void AssertEffectOutcomesFixture(RunData data)
+    {
+        var sai = data.RelicAggregates["RELIC.SAI"];
+        Assert.NotNull(sai.Outcomes);
+        Assert.Equal(6m, sai.Outcomes!["triggers"]);
+        Assert.Equal(2m, sai.Outcomes["combats"]);
+        Assert.Equal(42m, sai.Outcomes["block"]);
+        Assert.Equal(30, sai.AdditionalBlockEffective);
+
+        var ashes = data.RelicAggregates["RELIC.CHARONS_ASHES"].Outcomes!;
+        Assert.Equal(37m, ashes["damage"]);
+        Assert.Equal(1m, ashes["kills"]);
+        Assert.Equal(2m, ashes["debuff:POWER.VULNERABLE_POWER"]);
+        Assert.Equal(4m, ashes["some_future_key"]);
+
+        var demonForm = data.MetaStats.PowerAggregates!["POWER.DEMON_FORM_POWER"];
+        Assert.Equal(7m, demonForm.Outcomes!["triggers"]);
+        Assert.Equal(14m, demonForm.Outcomes["power:POWER.STRENGTH_POWER"]);
+
+        var share = data.Aggregates["CARD.DEMON_FORM#1"]
+            .AppliedEffects["POWER.DEMON_FORM_POWER"].Outcomes!;
+        Assert.Equal(14m, share["power:POWER.STRENGTH_POWER"]);
+        Assert.Equal(1.5m, share["hp_healed"]);
+    }
+
+    [Fact]
     public void HistoricalLoad_AcceptsPetrifiedToadRelicFixture()
     {
         var loaded = RunStorage.LoadHistorical(

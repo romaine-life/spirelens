@@ -86,6 +86,12 @@ Examples already implemented:
 - downstream poison damage and poison overkill
 - stacked merged effects like Noxious Fumes preserve per-source contribution ledgers before their poison fanout is charged back into the poison ownership ledger
 
+Relics and powers without bespoke tracking go through the generic effect-frame
+framework ([ADR 0004](adr/0004-generic-effect-frames.md), `Core/Effects/`): an
+enrolled owner's own async hooks are framed, the shared observers credit its
+observed outcomes to one `outcomes` bag, and tooltips render that bag
+generically. Enrolling an owner is one line in `EffectRegistry`.
+
 When attribution is not naturally one-card-to-one-outcome, the code prefers:
 
 - observed outcomes over listed intent

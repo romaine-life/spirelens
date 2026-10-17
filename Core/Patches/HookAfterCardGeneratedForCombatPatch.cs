@@ -21,6 +21,7 @@ public static class HookAfterCardGeneratedForCombatPatch
             RunTracker.RecordSoulGenerated(card);
             RunTracker.RecordStatusGenerated(card);
             RunTracker.RecordSovereignBladeGenerated(card);
+            RunTracker.RecordEffectFrameCardChange(card, Effects.EffectOutcomeKeys.CardsGenerated);
         }
         catch (System.Exception e)
         {

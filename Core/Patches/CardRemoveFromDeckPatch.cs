@@ -30,7 +30,9 @@ public static class CardRemoveFromDeckPatch
         {
             foreach (var card in cards)
             {
-                if (card != null) RunTracker.RecordRemoval(card);
+                if (card == null) continue;
+                RunTracker.RecordRemoval(card);
+                RunTracker.RecordEffectFrameCardChange(card, Effects.EffectOutcomeKeys.CardsRemoved);
             }
         }
         catch (Exception e)

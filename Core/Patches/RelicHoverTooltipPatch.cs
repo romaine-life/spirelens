@@ -1799,7 +1799,79 @@ public static class RelicHoverShowPatch
             return true;
         }
 
+        // Relics without a hand-written body: the generic effect-frame
+        // outcomes their own hooks were observed producing.
+        if (Effects.EffectRegistry.IsEnrolledRelic(relicModel))
+        {
+            title = GetRelicTitle(relicModel);
+            body = BuildEffectOutcomesBodyBBCode(agg, title);
+            return true;
+        }
+
         return false;
+    }
+
+    private static string GetRelicTitle(RelicModel relicModel)
+    {
+        try
+        {
+            var title = relicModel.Title.GetFormattedText();
+            if (!string.IsNullOrWhiteSpace(title)) return title;
+        }
+        catch (Exception e)
+        {
+            CoreMain.LogDebug($"GetRelicTitle failed: {e.Message}");
+        }
+
+        try
+        {
+            return Effects.EffectOutcomeRows.Humanize(relicModel.Id.ToString());
+        }
+        catch
+        {
+            return relicModel.GetType().Name;
+        }
+    }
+
+    /// <summary>
+    /// Generic body for an enrolled relic: every observed outcome its own
+    /// hooks produced, then the payoff of any enrolled power it applied.
+    /// Block it gave keeps the ledger's absorbed/wasted split.
+    /// </summary>
+    internal static string BuildEffectOutcomesBodyBBCode(RelicAggregate agg, string relicName)
+    {
+        var sb = new StringBuilder();
+        foreach (var row in Effects.EffectOutcomeRows.Build(agg.Outcomes, relicName))
+        {
+            if (row.Label == Effects.EffectOutcomeKeys.Label(Effects.EffectOutcomeKeys.Triggers))
+                RelicActivationRow(sb, row.Value, row.Description);
+            else
+                Row3(sb, row.Label, row.Value, "", row.Description);
+        }
+
+        if (agg.AdditionalBlockEffective > 0 || agg.AdditionalBlockWasted > 0)
+        {
+            Row3(sb, BlockLabel("block absorbed damage"), agg.AdditionalBlockEffective.ToString(), "");
+            Row3(sb, BlockLabel("block wasted"), agg.AdditionalBlockWasted.ToString(), "");
+        }
+
+        foreach (var effect in agg.AppliedEffects.Values.OrderBy(e => e.DisplayName, StringComparer.Ordinal))
+        {
+            if (!Effects.EffectOutcomeRows.HasVisibleOutcomes(effect.Outcomes)) continue;
+            var powerName = string.IsNullOrWhiteSpace(effect.DisplayName)
+                ? Effects.EffectOutcomeRows.Humanize(effect.EffectId)
+                : effect.DisplayName;
+            foreach (var row in Effects.EffectOutcomeRows.Build(
+                         effect.Outcomes, powerName, includeTriggers: false, includeRates: false))
+            {
+                Row3(sb, $"{powerName}: {row.Label.ToLowerInvariant()}", row.Value, "", row.Description);
+            }
+        }
+
+        if (sb.Length == 0)
+            Row3(sb, "No observed effect yet", "-", "", $"{relicName} has not produced an observed outcome this run.");
+
+        return sb.ToString();
     }
 
     /// <summary>

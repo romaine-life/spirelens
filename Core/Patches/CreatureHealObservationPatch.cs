@@ -36,6 +36,7 @@ public static class CreatureHealObservationPatch
 
             RunTracker.RecordRunHpGained(__instance.CombatState, __instance, restored);
             RunTracker.RecordRelicHealingHpChanged(__instance, restored);
+            RunTracker.RecordEffectFrameHeal(__instance, restored);
         }
         catch (Exception e)
         {

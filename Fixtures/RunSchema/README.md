@@ -716,6 +716,12 @@ New fixtures added going forward do not need a `v*-` prefix.
   Adds Ice Cream's conserved-Energy total — the pool the start-of-turn reset
   would have discarded — and the zero-inclusive held turn/combat denominators
   for its two averages.
+- `effect-outcomes-run.json`
+  The generic effect-frame outcome bags (`Core/Effects`): `outcomes` on a
+  relic aggregate, on a pooled power aggregate, and on a card's applied
+  effect (that card's share of the power's payoff). Keys are written
+  verbatim, so the fixture also carries a key this build does not know,
+  which must load and survive untouched.
 
 Why these exist:
 

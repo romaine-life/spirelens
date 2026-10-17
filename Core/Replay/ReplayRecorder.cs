@@ -78,7 +78,7 @@ public static class ReplayRecorder
     public static bool IsDisabled => _disabled;
 
     /// <summary>True while this Core load is capturing (enabled and not torn down).</summary>
-    public static bool IsRecording => !_disabled && _active;
+    public static bool IsRecording => !_disabled && _active && !Playback.ReplayPlaybackGuard.SuppressTracking;
 
     private static bool ReadDisabledFromEnvironment()
     {
@@ -1403,7 +1403,8 @@ public static class ReplayRecorder
 
     private static void Guard(string site, Action body)
     {
-        if (_disabled || !_active) return;
+        // Never record a replay being played back (docs/replay-player.md).
+        if (_disabled || !_active || Playback.ReplayPlaybackGuard.SuppressTracking) return;
         PatchGuard.Run("ReplayRecorder." + site, body);
     }
 

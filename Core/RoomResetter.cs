@@ -144,6 +144,7 @@ public static class RoomResetter
         try
         {
             if (_restartInProgress) return Blocked("already restarting");
+            if (Replay.Playback.ReplayPlaybackGuard.SuppressTracking) return Blocked("a replay is playing");
 
             var run = RunManager.Instance;
 
@@ -261,6 +262,8 @@ public static class RoomResetter
     /// </summary>
     public static void CaptureDeathRestorePoint(RunManager run, bool isVictory)
     {
+        // A replayed death is not the user's; its run save is not theirs either.
+        if (Replay.Playback.ReplayPlaybackGuard.SuppressTracking) return;
         // OnEnded does its bookkeeping once per run; a repeat call changes
         // nothing and must not replace the real pre-death capture with a
         // post-death one.

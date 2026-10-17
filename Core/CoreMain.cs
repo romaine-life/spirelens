@@ -121,6 +121,10 @@ public static class CoreMain
             Logger.Info($"[CUS-diag]   {m.DeclaringType?.FullName}.{m.Name}");
 
         RelicClassificationStore.Initialize();
+        // Replay player (docs/replay-player.md): an interrupted replay's data
+        // backup must be noticed before any tracker or recorder attaches.
+        Replay.Playback.ReplayPlayer.OnCoreInitialize();
+        Replay.Playback.ReplayPlayNowWatcher.Initialize();
         RunTracker.InitializeHooks();
         // Run recording (docs/run-recording.md). Re-attaches to a run in
         // progress, so it also covers a mid-run hot reload.
@@ -230,6 +234,15 @@ public static class CoreMain
 
         try { PowerHistoryPileUi.TeardownInjectedUi(); }
         catch (Exception e) { Logger.Error($"Shutdown: power history pile teardown failed: {e}"); }
+
+        try { Replay.Playback.ReplayPickerMenu.Destroy(); }
+        catch (Exception e) { Logger.Error($"Shutdown: replay list teardown failed: {e}"); }
+
+        try { Replay.Playback.ReplayPlayNowWatcher.Shutdown(); }
+        catch (Exception e) { Logger.Error($"Shutdown: play-now watcher teardown failed: {e}"); }
+
+        try { Replay.Playback.ReplayPlayer.ShutdownForReload(); }
+        catch (Exception e) { Logger.Error($"Shutdown: replay player teardown failed: {e}"); }
 
         try { Replay.RunDatabaseImporter.Shutdown(); }
         catch (Exception e) { Logger.Error($"Shutdown: run database import teardown failed: {e}"); }

@@ -21,6 +21,9 @@ public static class SpireLensOptionsMenu
     /// <summary>Row index of the destructive "restart this room" action.</summary>
     private const int RestartRoomIndex = 8;
 
+    /// <summary>Row index of "Replay a run…" / "Stop replay".</summary>
+    private const int ReplayIndex = 9;
+
     private static CanvasLayer? _layer;
     private static readonly List<Button> Checkboxes = new();
     private static readonly List<Button> SelectableButtons = new();
@@ -29,6 +32,7 @@ public static class SpireLensOptionsMenu
     private static readonly Dictionary<int, Action> RowActions = new();
     private static Button? _restartRoomButton;
     private static Button? _potionHistoryButton;
+    private static Button? _replayButton;
     private const string PotionHistoryText = "View current-run potion history";
     private static bool _restartArmed;
     private static int _selectedIndex;
@@ -59,6 +63,7 @@ public static class SpireLensOptionsMenu
         _restartArmed = false;
         RefreshRestartRoomRow();
         RefreshPotionHistoryRow();
+        RefreshReplayRow();
         _layer!.Visible = true;
         _selectedIndex = Math.Clamp(_selectedIndex, 0, SelectableButtons.Count - 1);
         _leftStickVerticalDirection = 0;
@@ -133,6 +138,7 @@ public static class SpireLensOptionsMenu
         RowActions.Clear();
         _restartRoomButton = null;
         _potionHistoryButton = null;
+        _replayButton = null;
         _restartArmed = false;
         _selectedIndex = 0;
         _leftStickVerticalDirection = 0;
@@ -216,6 +222,12 @@ public static class SpireLensOptionsMenu
             RestartRoomIndex,
             OnRestartRoomActivated);
         RefreshRestartRoomRow();
+
+        var replayHeader = NewLabel("Replay", 20);
+        replayHeader.Modulate = new Color(0.72f, 0.8f, 0.92f);
+        rows.AddChild(replayHeader);
+        _replayButton = AddAction(rows, "Replay a run…", ReplayIndex, OnReplayActivated);
+        RefreshReplayRow();
 
         var close = new Button
         {
@@ -632,6 +644,36 @@ public static class SpireLensOptionsMenu
         {
             CoreMain.Logger.Error($"SpireLens options: opening potion history failed: {e}");
         }
+    }
+
+    /// <summary>
+    /// Opens the recording list, or stops the replay that is playing. The list
+    /// itself explains when a replay can't start (for example mid-run).
+    /// </summary>
+    private static void OnReplayActivated()
+    {
+        if (Replay.Playback.ReplayPlayer.IsActive)
+        {
+            Close("stop replay button");
+            Replay.Playback.ReplayPlayer.RequestStop();
+            return;
+        }
+        Close("replay list button");
+        Replay.Playback.ReplayPickerMenu.Open();
+    }
+
+    private static void RefreshReplayRow()
+    {
+        if (_replayButton == null || !GodotObject.IsInstanceValid(_replayButton)) return;
+        if (Replay.Playback.ReplayPlayer.IsActive)
+        {
+            _replayButton.Text = "Stop replay  —  back to the main menu, your data restored";
+            _replayButton.Modulate = new Color(1f, 1f, 1f);
+            return;
+        }
+        string? blocked = Replay.Playback.ReplayPlayer.StartBlockedReason();
+        _replayButton.Text = blocked == null ? "Replay a run…" : $"Replay a run…  —  {blocked}";
+        _replayButton.Modulate = new Color(1f, 1f, 1f);
     }
 
     private static IEnumerable<T> FindNodesOfType<T>(Node? node) where T : Node

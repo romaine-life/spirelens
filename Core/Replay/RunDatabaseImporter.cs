@@ -97,6 +97,7 @@ public static class RunDatabaseImporter
     private static void Schedule(string reason)
     {
         if (IsDisabled()) return;
+        if (Playback.ReplayPlaybackGuard.SuppressTracking) return;
         var token = _cts.Token;
         Task.Delay(SettleDelay, token).ContinueWith(
             t =>

@@ -52,6 +52,13 @@ public static class StatsVisibilityHotkeyPatch
                 return;
             }
 
+            if (Replay.Playback.ReplayPickerMenu.HandleShortcut(evt)
+                || Replay.Playback.ReplayPlayer.HandleInput(evt))
+            {
+                inputManager.GetViewport()?.SetInputAsHandled();
+                return;
+            }
+
             if (!CanToggle(inputManager)) return;
 
             string toggleSource;

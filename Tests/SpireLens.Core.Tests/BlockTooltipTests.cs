@@ -190,8 +190,10 @@ public class BlockTooltipTests
         var text = sb.ToString();
 
         Assert.Contains(StatConceptGlossary.RenderHintedGlyph("energy"), text);
-        Assert.Contains("gained", text);
-        Assert.Contains("[b]2[/b]", text);
+        // Generated and wasted share one row, so the compact view cannot
+        // show the gain without saying how much of it expired.
+        Assert.Contains("gained/wasted", text);
+        Assert.Contains("[b]2/0[/b]", text);
     }
 
     [Trait("Category", "RequiresLiveGame")]

@@ -171,11 +171,9 @@ judge unit tests, and its narration cannot move the unit-test verdict.
   copy so the file stays unlocked while STS2 runs):
   - `dotnet build D:\repos\SpireLens\Core\SpireLens.Core.csproj -c Debug`
   - add `-p:SkipModsDeploy=true` to compile without touching the live install
-  - before deploying, check what is live: `mods/SpireLens/` may hold an
-    integration build of unmerged branches (built from
-    `.claude/worktrees/integration-deploy`). Deploying from `main` or any other
-    branch over it silently drops those features, so redeploy the integration
-    build afterwards, or fold your branch into it
+  - check what you're replacing before you deploy: if the live build has work
+    yours doesn't (e.g. an integration build of unmerged branches), build from
+    something that includes it
 - Hot-reload the deployed Core into the running game — the agent does this, the
   user is never asked to press F5:
   - MCP tool `reload_spirelens_core` when the SpireLensMcp tools are connected

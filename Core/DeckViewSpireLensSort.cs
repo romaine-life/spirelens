@@ -178,6 +178,10 @@ internal static class DeckViewSpireLensSort
         // nothing left to spend the energy on.
         new DeckSortMetric("energy_wasted", "Energy wasted", GroupCost,
             agg => agg.TotalEnergyWasted),
+        // Forge that died with its combat because the Sovereign Blade it was
+        // piling onto never got swung.
+        new DeckSortMetric("forge_wasted", "Forge wasted", GroupCost,
+            agg => (double)agg.TotalForgeWasted),
 
         new DeckSortMetric("times_played", "Times played", GroupFlow,
             agg => agg.Plays),

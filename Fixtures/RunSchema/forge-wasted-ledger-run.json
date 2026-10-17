@@ -1,0 +1,32 @@
+{
+  "run_id": "forge-wasted-ledger-run",
+  "started_at": "2026-10-10T19:00:00Z",
+  "updated_at": "2026-10-10T19:31:00Z",
+  "character": "REGENT",
+  "ascension": 8,
+  "floor_reached": 19,
+  "outcome": "in_progress",
+  "game_start_time": 1796328000,
+  "aggregates": {
+    "CARD.TEMPER#1": {
+      "combats_in_deck": 5,
+      "plays": 6,
+      "times_drawn": 8,
+      "floor_added": 1,
+      "initial_upgrade_level": 0,
+      "total_forge_generated": 18,
+      "total_forge_wasted": 6.5
+    }
+  },
+  "events": [],
+  "relic_aggregates": {},
+  "enemy_aggregates": {},
+  "instance_numbers_by_def": {
+    "CARD.TEMPER": [
+      1
+    ]
+  },
+  "def_counters": {
+    "CARD.TEMPER": 1
+  }
+}

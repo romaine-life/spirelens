@@ -460,8 +460,17 @@ public static class CardHoverShowPatch
 
         if (agg.TotalForgeGenerated > 0m)
         {
+            // One gained/wasted row rather than the two the pair would cost.
+            // Forge dies with the combat it was made in, so the gain reads as
+            // pure profit until the same row says how much of it was never
+            // swung.
             decimal avgGenerated = agg.Plays > 0 ? agg.TotalForgeGenerated / agg.Plays : 0m;
-            Row3(sb, GetForgeStatLabel("gained"), FormatDecimal(agg.TotalForgeGenerated), "");
+            decimal wastedPct = 100m * agg.TotalForgeWasted / agg.TotalForgeGenerated;
+            Row3(
+                sb,
+                GetForgeStatLabel("gained/wasted"),
+                $"{FormatDecimal(agg.TotalForgeGenerated)}/{FormatDecimal(agg.TotalForgeWasted)}",
+                $"{FormatDecimal(wastedPct)}%");
             Row3(sb, GetForgeStatLabel("avg gained"), FormatDecimal(avgGenerated), "");
         }
 
@@ -699,7 +708,11 @@ public static class CardHoverShowPatch
             Row3(sb, GetStarStatLabel("gained"), agg.TotalStarsGenerated.ToString(), "");
 
         if (agg.TotalForgeGenerated > 0m)
-            Row3(sb, GetForgeStatLabel("gained"), FormatDecimal(agg.TotalForgeGenerated), "");
+            Row3(
+                sb,
+                GetForgeStatLabel("gained/wasted"),
+                $"{FormatDecimal(agg.TotalForgeGenerated)}/{FormatDecimal(agg.TotalForgeWasted)}",
+                "");
 
         AppendOrbCreationStats(
             sb,

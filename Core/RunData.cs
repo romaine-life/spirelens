@@ -487,6 +487,19 @@ public class CardAggregate
     // current cards use whole numbers.
     public decimal TotalForgeGenerated { get; set; }
 
+    // The half of that forge that never got swung. Forge is per combat: the
+    // first one of a combat mints a Sovereign Blade into hand and every forge
+    // after it adds damage to the Blade, so forge only becomes damage if the
+    // Blade is actually played before the combat ends. A card that forges 9
+    // across a fight you never swing in generated 9 forge of nothing, and
+    // TotalForgeGenerated alone could not say so.
+    //
+    // Resolved through an ordered ledger like the energy and block totals:
+    // each forge appends a chunk owned by the forging card, playing a Sovereign
+    // Blade cashes in every outstanding chunk, and whatever is still
+    // outstanding when combat ends is charged back newest-first.
+    public decimal TotalForgeWasted { get; set; }
+
     // Orbs successfully channeled while this card was resolving. The game
     // emits OrbChanneledEntry only after the orb actually enters the queue,
     // so full-slot evocations, capacity changes, and failed channels remain

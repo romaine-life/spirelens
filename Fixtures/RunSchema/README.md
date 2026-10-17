@@ -729,6 +729,11 @@ New fixtures added going forward do not need a `v*-` prefix.
   new `total_energy_wasted` / `energy_wasted` counters have a checked-in shape
   alongside the `*_generated` totals they pair with.
 
+- `forge-wasted-ledger-run.json`
+  The counterpart to `total_forge_generated`: forge that died with its combat
+  because the Sovereign Blade never got swung. Decimal-valued, so it also pins
+  that the wasted half keeps the fractional shape the generated half has.
+
 Why these exist:
 
 - new shape work should be validated against real checked-in examples, not memory

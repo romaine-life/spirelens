@@ -227,15 +227,18 @@ public class BlockTooltipTests
             Plays = 2,
             TimesDrawn = 3,
             TotalForgeGenerated = 6m,
+            TotalForgeWasted = 1.5m,
         };
 
         var sb = new StringBuilder();
         _ = AppendCompactBodyMethod.Invoke(null, new object?[] { sb, cardModel, agg });
         var text = sb.ToString();
 
-        Assert.Contains("Forge gained", text);
+        // Generated and wasted share one row, and the fractional wasted half
+        // must survive the compact view rather than rounding.
+        Assert.Contains("Forge gained/wasted", text);
         Assert.DoesNotContain("[img=16x16]", text);
-        Assert.Contains("[b]6[/b]", text);
+        Assert.Contains("[b]6/1.5[/b]", text);
     }
 
     [Trait("Category", "RequiresLiveGame")]

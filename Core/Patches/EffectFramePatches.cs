@@ -10,6 +10,7 @@ using MegaCrit.Sts2.Core.Entities.Creatures;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Hooks;
 using MegaCrit.Sts2.Core.Models;
+using MegaCrit.Sts2.Core.Entities.Cards;
 using SpireLens.Core.Effects;
 
 namespace SpireLens.Core.Patches;
@@ -179,8 +180,9 @@ public static class EffectRelicFlashPatch
 }
 
 /// <summary>
-/// Gold a framed owner actually added. Measured as the balance delta around
-/// the whole command, so gold prevention (Ectoplasm) and truncation count.
+/// Gold a framed owner — or, with no frame, the card being played — actually
+/// added. Measured as the balance delta around the whole command, so gold
+/// prevention (Ectoplasm) and truncation count.
 /// </summary>
 [HarmonyPatch(
     typeof(PlayerCmd),
@@ -189,21 +191,31 @@ public static class EffectRelicFlashPatch
 internal static class EffectGainGoldPatch
 {
     [HarmonyPrefix]
-    public static void Prefix(Player player, out (EffectFrame? Frame, int Before) __state)
+    public static void Prefix(Player player, out GoldGainState __state)
     {
-        __state = (null, 0);
-        var frame = EffectFrameContext.Current;
-        if (frame == null || player == null) return;
-        __state = (frame, player.Gold);
+        __state = default;
+        try
+        {
+            if (player == null) return;
+            var frame = EffectFrameContext.Current;
+            var cardInstanceId = frame == null ? RunTracker.CaptureResolvingCardInstanceId() : null;
+            if (frame == null && cardInstanceId == null) return;
+            __state = new GoldGainState(frame, cardInstanceId, player.Gold);
+        }
+        catch (Exception e)
+        {
+            CoreMain.LogDebug($"EffectGainGoldPatch.Prefix failed: {e.Message}");
+        }
     }
 
     [HarmonyPostfix]
-    public static void Postfix(ref Task __result, Player player, (EffectFrame? Frame, int Before) __state)
+    public static void Postfix(ref Task __result, Player player, GoldGainState __state)
     {
-        if (__state.Frame == null || player == null || __result == null) return;
+        if ((__state.Frame == null && __state.CardInstanceId == null) || player == null || __result == null)
+            return;
         try
         {
-            __result = ObserveAsync(__result, player, __state.Frame, __state.Before);
+            __result = ObserveAsync(__result, player, __state);
         }
         catch (Exception e)
         {
@@ -211,18 +223,94 @@ internal static class EffectGainGoldPatch
         }
     }
 
-    private static async Task ObserveAsync(Task inner, Player player, EffectFrame frame, int before)
+    private static async Task ObserveAsync(Task inner, Player player, GoldGainState state)
     {
         await inner;
         try
         {
-            int delta = player.Gold - before;
-            if (delta > 0)
-                RunTracker.CreditEffectFrame(frame, player.Creature, EffectOutcomeKeys.Gold, delta);
+            int delta = player.Gold - state.Before;
+            if (delta <= 0) return;
+            if (state.Frame != null)
+                RunTracker.CreditEffectFrame(state.Frame, player.Creature, EffectOutcomeKeys.Gold, delta);
+            else if (state.CardInstanceId != null)
+                RunTracker.CreditCardInstanceOutcome(state.CardInstanceId, EffectOutcomeKeys.Gold, delta);
         }
         catch (Exception e)
         {
             CoreMain.LogDebug($"EffectGainGoldPatch.ObserveAsync failed: {e.Message}");
+        }
+    }
+
+    internal readonly record struct GoldGainState(EffectFrame? Frame, string? CardInstanceId, int Before);
+}
+
+/// <summary>
+/// A card or framed owner auto-playing ANOTHER card (Havoc, Cascade, Mayhem,
+/// Hellraiser...). The prefix runs before the auto-played card's own play
+/// starts, so the resolving play is still the one that caused it.
+/// </summary>
+[HarmonyPatch(typeof(CardCmd), nameof(CardCmd.AutoPlay))]
+public static class EffectCardAutoPlayPatch
+{
+    [HarmonyPrefix]
+    public static void Prefix(CardModel card)
+    {
+        try
+        {
+            if (card == null) return;
+            RunTracker.RecordResolvingCardOutcome(EffectOutcomeKeys.CardsAutoPlayed, 1m, otherCard: card);
+        }
+        catch (Exception e)
+        {
+            CoreMain.LogDebug($"EffectCardAutoPlayPatch failed: {e.Message}");
+        }
+    }
+}
+
+/// <summary>Orbs evoked by the card being played (Dualcast, Multi-Cast...)
+/// or a framed owner. The orb's own output stays with its channeler.</summary>
+[HarmonyPatch]
+public static class EffectOrbEvokePatch
+{
+    private static IEnumerable<MethodBase> TargetMethods()
+    {
+        foreach (var name in new[] { nameof(OrbCmd.EvokeNext), nameof(OrbCmd.EvokeLast) })
+        {
+            var method = AccessTools.Method(typeof(OrbCmd), name);
+            if (method != null) yield return method;
+        }
+    }
+
+    [HarmonyPrefix]
+    public static void Prefix(Player player)
+    {
+        try
+        {
+            if (player?.PlayerCombatState?.OrbQueue?.Orbs?.Count is not > 0) return;
+            RunTracker.RecordResolvingCardOutcome(EffectOutcomeKeys.OrbsEvoked);
+        }
+        catch (Exception e)
+        {
+            CoreMain.LogDebug($"EffectOrbEvokePatch failed: {e.Message}");
+        }
+    }
+}
+
+/// <summary>Orb passives forced by the card being played (Tesla Coil,
+/// Darkness) or a framed owner, rather than by the turn's own trigger.</summary>
+[HarmonyPatch(typeof(OrbCmd), nameof(OrbCmd.Passive))]
+public static class EffectOrbPassivePatch
+{
+    [HarmonyPrefix]
+    public static void Prefix()
+    {
+        try
+        {
+            RunTracker.RecordResolvingCardOutcome(EffectOutcomeKeys.OrbPassivesTriggered);
+        }
+        catch (Exception e)
+        {
+            CoreMain.LogDebug($"EffectOrbPassivePatch failed: {e.Message}");
         }
     }
 }

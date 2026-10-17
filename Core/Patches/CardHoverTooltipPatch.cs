@@ -421,6 +421,8 @@ public static class CardHoverShowPatch
         AppendNormalityStats(sb, cardModel, agg);
         AppendReplayStats(sb, agg);
 
+        AppendCardEffectOutcomeRows(sb, cardModel, agg);
+
         bool hasDedicatedPoison = AppendDedicatedPoisonStats(sb, agg, compact: false);
         AppendAppliedEffects(sb, agg, compact: false, excludePoison: hasDedicatedPoison);
         AppendArtifactBlockedSummary(sb, agg, excludePoison: hasDedicatedPoison);
@@ -2243,6 +2245,40 @@ public static class CardHoverShowPatch
                 AppendAppliedEffectPayoffRows(sb, effect);
 
             shown++;
+        }
+    }
+
+    /// <summary>
+    /// Generic outcomes this card's own plays caused (EffectOutcomeKeys):
+    /// other cards discarded, created, transformed, retrieved, put on the draw
+    /// pile or auto-played, orbs evoked, healing and gold. A key a dedicated
+    /// row above already shows for this card is skipped.
+    /// </summary>
+    private static void AppendCardEffectOutcomeRows(
+        StringBuilder sb,
+        MegaCrit.Sts2.Core.Models.CardModel card,
+        CardAggregate agg)
+    {
+        if (!Effects.EffectOutcomeRows.HasVisibleOutcomes(agg.Outcomes)) return;
+
+        var outcomes = new Dictionary<string, decimal>(agg.Outcomes!, StringComparer.Ordinal);
+        if (card is MegaCrit.Sts2.Core.Models.Cards.Armaments)
+            outcomes.Remove(Effects.EffectOutcomeKeys.CardsUpgraded);
+        if (card is MegaCrit.Sts2.Core.Models.Cards.AllForOne)
+            outcomes.Remove(Effects.EffectOutcomeKeys.CardsRetrieved);
+        if (RandomCardGenerationRegistry.IsDirectGenerator(card)
+            || card is MegaCrit.Sts2.Core.Models.Cards.Discovery
+            || card is MegaCrit.Sts2.Core.Models.Cards.JackOfAllTrades
+            || card is MegaCrit.Sts2.Core.Models.Cards.Splash)
+            outcomes.Remove(Effects.EffectOutcomeKeys.CardsGenerated);
+
+        foreach (var row in Effects.EffectOutcomeRows.Build(
+                     outcomes,
+                     "this card's plays",
+                     includeTriggers: false,
+                     includeRates: false))
+        {
+            Row3(sb, row.Label, row.Value, "");
         }
     }
 

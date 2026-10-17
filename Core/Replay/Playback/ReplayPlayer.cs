@@ -441,10 +441,13 @@ public static class ReplayPlayer
         var net = new NetSingleplayerGameService();
         rm.InitializeShared(net, new PeerInputSynchronizer(net), shouldSave: false, dailyTime: null,
             save.StartTime, save.RunTime, save.WinTime, save.NumReloads);
-        rm.InitializeRunLobby(net, state, new[]
-        {
-            new RunLobbyPlayer { id = net.NetId, isModded = net.LocalVersion.IsModded() },
-        });
+        // The installed game's RunLobbyPlayer carries an isModded flag that the
+        // checked-in reference sts2.dll (what CI compiles against) predates,
+        // so set it reflectively. SpireLens is itself a mod, so the running
+        // game is always modded. The struct is boxed so SetValue sticks.
+        object lobbyPlayer = new RunLobbyPlayer { id = net.NetId };
+        typeof(RunLobbyPlayer).GetField("isModded")?.SetValue(lobbyPlayer, true);
+        rm.InitializeRunLobby(net, state, new[] { (RunLobbyPlayer)lobbyPlayer });
         rm.InitializeSavedRun(save);
         if (rm.ShouldSave) throw new InvalidOperationException("playback run would save; refusing");
     }

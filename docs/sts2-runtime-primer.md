@@ -271,6 +271,98 @@ The game-over screen then banks the run's score into `Progress.CurrentScore` and
 
 `RunManagerOnEndedDeathRestorePatch` is a prefix on `OnEnded`, so it runs ahead of all of it. `RoomResetter.CaptureDeathRestorePoint` keeps the run save (still the room's opening state), `Progress.ToSerializable()`, and the SpireLens run id whose room-entry snapshot matches, in `user://SpireLens/death-restore.json`. Undoing the death restores the progress object and rewrites `progress.save`, deletes `{StartTime}.run`, rewinds the ended SpireLens record with `RunTracker.RollBackEndedRunToRoomEntry` (which un-stamps `outcome=loss`), and then takes the ordinary Continue path, which writes the run save back. The metrics upload and any achievement are outside the machine and are not reversed. The kept point is discarded as stale once a run save exists again or a newer history entry appears, because restoring it then would roll progress back over later runs.
 
+### Run Recording Hooks Into The Same Save And Input Choke Points
+
+Run recording (`Core/Replay/`, format in [run-recording.md](run-recording.md)) relies on the following runtime facts.
+
+**The game already records combats.**
+
+- `RunManager` always constructs a `CombatReplayWriter`. It is disabled only in `TestMode`, so it runs in singleplayer too.
+- Its initial state is `RunManager.ToSave(null)`, taken on every map-node entry.
+- It writes `<profile>/replays/latest.mcr` at every combat end via `RunManager.WriteReplay(bool stopRecording)`, overwriting the file each time.
+- `RunManager.CleanUp` writes the file again if the writer is still recording. That covers Save and Quit, abandon, and a RoomResetter restart. Outside combat that write carries zero events.
+- `ReplayCombatReplayCopyPatch` reads the in-memory event count (`CombatReplayWriter._replay.events`) in a prefix, because a `stopRecording` write clears it. It copies only non-empty replays.
+
+**Every run-save write goes through one method.**
+
+- `RunSaveManager.SaveRun(SerializableRun save, bool isMultiplayer)` is that method.
+- The `SaveRun(AbstractRoom)` overload that `RunSaveSnapshotPatch` uses builds the `SerializableRun` and calls it, but it is not the only caller.
+- `SaveManager.IncrementNumReloads` calls the `SerializableRun` overload directly, on every `SetUpSavedSingleplayer` / `SetUpSavedMultiplayer`.
+- The method ends with `this.Saved?.Invoke()` after the file is written. `SaveManager.Saved` forwards that event.
+- Run recording subscribes to that event and reads back the file the game just wrote. It does **not** patch the method.
+- **A Harmony prefix on this method did not run after a hot reload.** It was added at Core hot reload in an already-running game. Harmony listed `RunSaveManager.SaveRun` as patched, but over about six floors of saves the prefix never ran.
+- The method's only callers are `SaveRun(AbstractRoom)` in the same class and `SaveManager.IncrementNumReloads`. Both are direct calls that were compiled before the detour existed, and they kept calling the original. This is the "Newly Added Harmony Targets Need One Full Restart" case above.
+- `RunSaveSnapshotPatch` on the `AbstractRoom` overload is unaffected, because it was patched before its callers compiled.
+- When a game method raises a public event at the point you need, subscribing to the event avoids the restart entirely.
+
+**Inputs reach public per-run events.**
+
+- `ActionQueueSet.ActionEnqueued` fires inside `EnqueueWithoutSynchronizing` for every `GameAction`. That covers player actions in and out of combat, map votes and moves, treasure relic picks, next-act votes, console commands and `GenericHookGameAction`s. `GameAction.Id` is already assigned when it fires.
+- The event fires *before* the queue decides to cancel the action, so a cancellation is only visible through `GameAction.BeforeCancelled`.
+- `PlayerChoiceSynchronizer.PlayerChoiceReceived` fires inside `SyncLocalChoice` for local choices in singleplayer. It does **not** fire for selections made through `CardSelectCmd.Selector` / `LocalSelector`; those are test and AutoSlay seams.
+- These objects are recreated by `RunManager.InitializeShared` for every run, before `Launch()` raises `RunStarted`. Subscriptions must therefore be redone per run, and on Core `Initialize` when a run is live.
+
+**Non-action decisions are single local methods.**
+
+- Event options, rest site options, reward take or skip, shop purchases and opening the treasure chest each go through one `*Synchronizer` (or `MerchantEntry`) method.
+- In multiplayer, that method broadcasts an index message, which is what makes it the local-decision choke point.
+- `MerchantEntry.OnTryPurchaseWrapper` is also called by game logic (Lord's Parasol), with `ignoreCost: true`.
+- `MerchantCardRemovalEntry` has its own three-parameter `OnTryPurchaseWrapper`. The UI calls that one. AutoSlay reaches removal through the base two-parameter method.
+
+**Resumes go through `SetUpSaved*`.**
+
+- Main-menu Continue, RoomResetter restart and death undo all call `RunManager.SetUpSavedSingleplayer(RunState state, SerializableRun save)`.
+- `ReplayLoadMarkerPatch` prefixes it, so the `load` marker precedes the `IncrementNumReloads` re-save.
+
+### Selection Screens Close Before Their Choice Syncs
+
+Per-decision training records need the options a selection screen offered.
+By the time `PlayerChoiceSynchronizer.SyncLocalChoice` runs, the screen is
+usually gone:
+
+- `NChooseACardSelectionScreen.CardsSelected` removes the screen from
+  `NOverlayStack` before returning.
+- `NDeckCardSelectScreen` removes itself as it completes.
+- `NPlayerHand.SelectCards` clears `_prefs` and the selection filter in
+  `AfterCardsSelected`, before `CardSelectCmd.FromHand` syncs the choice.
+
+So the options are snapshot when the screen opens.
+
+**`NOverlayStack.Changed`**
+
+- It is a plain C# event: the generated add/remove touch a backing delegate,
+  and the Godot signal raise invokes it.
+- `Push` emits it after the screen has been added. `Peek()` then returns the
+  new screen with its `_cards`, `_prefs`, `_options` and `_extraOptions`
+  already set by `ShowScreen` / `Create`.
+
+**`NPlayerHand.ModeChanged`**
+
+- It is the same kind of plain C# event, emitted from the `CurrentMode` setter.
+- `SelectCards` sets `CurrentMode` **before** it stores `_prefs` and
+  `_currentSelectionFilter`. The handler therefore reads them through a
+  deferred `Callable` call, by which point `SelectCards` has reached its
+  `await`.
+
+**Lifetime and hot reload**
+
+- Both objects are recreated per run (`NOverlayStack` lives under `NRun`) or
+  per combat (`NPlayerHand` lives under `NCombatRoom`). Subscriptions are
+  refreshed lazily from frequent recorder callbacks and removed at Core
+  shutdown.
+- No Harmony target is involved, so the restart caveat above does not apply.
+
+**Side effects of reading legal actions and intents**
+
+- Reading legal actions calls `CardModel.CanPlay` / `IsValidTarget` and
+  `PotionModel.IsValidTarget`. Reading intents calls
+  `AttackIntent.GetSingleDamage`, which runs `Hook.ModifyDamage` with no card
+  source.
+- The UI makes the same calls continuously. SpireLens's damage-modifier
+  patches (`PenNibModifyDamageMultiplicativePatch`,
+  `PaperPhrogVulnerableModifyDamagePatch`) only act on a real card play or an
+  active damage command frame, so a preview records nothing.
+
 ## RunStarted Is Not Deck-Ready
 
 Do not use `RunStarted` as the source of truth for starter deck population.

@@ -1,5 +1,6 @@
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Runs;
+using MegaCrit.Sts2.Core.Saves;
 
 namespace SpireLens.Core.Patches;
 
@@ -29,7 +30,7 @@ namespace SpireLens.Core.Patches;
 public static class RunHistoryUtilitiesCreateEntryPatch
 {
     [HarmonyPostfix]
-    public static void Postfix(bool victory, bool isAbandoned)
+    public static void Postfix(SerializableRun run, bool victory, bool isAbandoned)
     {
         // Guard the terminal run-end funnel: an unhandled throw here would
         // propagate into RunManager.OnEnded / NMainMenu.AbandonRun and could
@@ -44,6 +45,15 @@ public static class RunHistoryUtilitiesCreateEntryPatch
             else outcome = "loss";
 
             RunTracker.OnRunEnded(outcome);
+        });
+
+        // Run recording: separate guard so a recording failure can never
+        // cost the stats record its outcome (or the reverse).
+        PatchGuard.Run(nameof(RunHistoryUtilitiesCreateEntryPatch) + ".Recording", () =>
+        {
+            string outcome = isAbandoned ? "abandoned" : victory ? "win" : "loss";
+            if (run != null)
+                Replay.ReplayRecorder.OnRunEnded(run.StartTime, outcome, run.FloorReached);
         });
     }
 }

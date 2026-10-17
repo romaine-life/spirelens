@@ -72,6 +72,7 @@ func runServe(ctx context.Context, args []string) error {
 
 	srv := &runweb.Server{
 		DB:         db,
+		DBPath:     *dbPath,
 		ReplaysDir: *replays,
 		GameDir:    *gameDir,
 		Playlists:  runweb.PlaylistStore{Dir: *playlists},

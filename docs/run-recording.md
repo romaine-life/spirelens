@@ -41,9 +41,12 @@ every later change to this format.
   records"): state, legal options and the choice. Training data must never
   depend on re-simulating, because re-simulation breaks across game builds.
 - **Storage:** the recordings live on this laptop, and the raw recordings are
-  backed up to a Synology NAS. The NAS sync is outside SpireLens. Files are
-  append-only or closed-then-gzipped, so a file-level sync tool sees each
-  file change only while it is being written.
+  backed up to a Synology NAS (`\\NelsonNAS\files\Games\SpireLens\replays\`).
+  The copy is done out of process by `spirelens-db backup`, which also runs
+  after every ingest. It is incremental and never deletes anything on the
+  NAS ([run-database.md](run-database.md), "Backup to the NAS"). Files are
+  append-only or closed-then-gzipped, so the backup sees each file change
+  only while it is being written.
 - **Past runs:** the game's own `history/*.run` files are imported into the
   database as summaries ([run-database.md](run-database.md)). They are not
   replayable.

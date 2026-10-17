@@ -17,6 +17,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/romaine-life/spirelens/internal/rundb"
 )
 
 //go:embed assets
@@ -32,6 +34,7 @@ type IngestStatus struct {
 // Server serves the page and its JSON API.
 type Server struct {
 	DB         *sql.DB
+	DBPath     string // locates last-backup.json for the header's backup line
 	ReplaysDir string
 	GameDir    string
 	Playlists  PlaylistStore
@@ -130,10 +133,15 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	build, ingest := s.current()
+	var backup *rundb.BackupReport
+	if s.DBPath != "" {
+		backup = rundb.LoadBackupState(s.DBPath)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"meta":          meta,
 		"build":         build,
 		"ingest":        ingest,
+		"backup":        backup, // last-backup.json, or null when no backup has run
 		"playlists_dir": s.Playlists.Dir,
 	})
 }

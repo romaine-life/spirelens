@@ -34,8 +34,10 @@ Made by the user on 2026-10-14:
   still says `go 1.25`; newer ones would raise the module's Go version.
 - **Storage lives on this laptop.** The default database is
   `%APPDATA%\SlayTheSpire2\SpireLens\spirelens.db` (plus its `-wal`/`-shm`).
-  The raw recordings are backed up to the Synology NAS separately; the
-  database is not, because it can be rebuilt.
+  The raw recordings and stat records are backed up to the Synology NAS by
+  `spirelens-db backup`, which also runs after every ingest (see "Backup to
+  the NAS"). The database is rebuildable, so the NAS gets only a daily
+  convenience snapshot of it.
 - **Keep everything forever.** Abandoned branches are kept with
   `canonical = 0`. A source file that disappears keeps its rows.
 - **The game's own history files are imported as summaries.** They carry no
@@ -82,8 +84,11 @@ by itself.
   - SQLite's `busy_timeout` covers any other reader or writer.
   - Ingest is incremental, so a launch that finds nothing new takes well
     under a second.
+- **Backup:** after the import, still holding the lock, the same process
+  backs up to the NAS ("Backup to the NAS"). An unreachable NAS adds one
+  line to the log and nothing else.
 - **Seeing what happened:** `tools\last-ingest.log` holds the last
-  background run's summary and warnings.
+  background run's import summary, backup line and warnings.
 - **Turning it off:** set `SPIRELENS_DISABLE_AUTO_IMPORT=1`. It is read at
   each launch.
 
@@ -114,6 +119,9 @@ with `go run ./cmd/spirelens-db <command>`.
 ```
 spirelens-db ingest [--db path] [--replays dir] [--history dir]... [--no-history]
                     [--spirelens-runs dir] [--force] [--quiet] [--log file]
+                    [--no-backup] [--backup-to dir]
+spirelens-db backup [--db path] [--backup-to dir] [--replays dir]
+                    [--spirelens-runs dir] [--no-db-snapshot] [--quiet] [--log file]
 spirelens-db stats [--db path]
 spirelens-db export-decisions --out file.jsonl [--db path] [--drop-hidden]
                     [--include-abandoned] [--finished-only] [--kinds a,b]
@@ -194,6 +202,69 @@ from the `runs` table. `labels.win` is null while a run is in progress.
   A trainer of a fair player should use it.
 - `net_state` is not exported, and is not stored in the database. It is
   build-specific; read it from the recording if needed.
+
+## Backup to the NAS
+
+The user decided this on 2026-10-16. The raw files are the irreplaceable
+part, so they are copied to the Synology NAS. Nothing on the NAS is ever
+deleted.
+
+**Where it goes.** The default is `\\NelsonNAS\files\Games\SpireLens\`. It is
+the UNC path rather than the `S:` drive letter, so it works without the
+mapping. Precedence:
+
+1. `--backup-to <dir>` on the command line;
+2. `backup_to` in `spirelens-db.json` next to the database
+   (`%APPDATA%\SlayTheSpire2\SpireLens\spirelens-db.json`), for example
+   `{"backup_to": "\\\\NelsonNAS\\files\\Games\\SpireLens"}`;
+3. the default above.
+
+An empty string at either level disables backups.
+
+**What is copied:**
+
+| local | NAS |
+|---|---|
+| `SpireLens\replays\**` | `<dest>\replays\**` |
+| `SpireLens\runs\*.json` (stat records; `*.bak` repair copies are skipped) | `<dest>\runs\` |
+| `spirelens.db`, at most once per local day | `<dest>\db\spirelens-YYYY-MM-DD.db.gz` (the newest 5 are kept) |
+
+**Rules:**
+
+- **Incremental.** A file is copied when it is new, or when its size or
+  mtime changed. The copy gets the local mtime, so the next run skips it.
+  Snapshots, `.mcr` files and closed decision segments never change, so each
+  is copied once.
+- **Never deletes or truncates on the NAS** (keep everything). A file deleted
+  locally stays on the NAS.
+  - An append-only file (`events.jsonl`, a plain `.jsonl` segment) that is
+    *smaller* locally than on the NAS was damaged or replaced locally. The
+    NAS copy is kept, and the local one is saved beside it as
+    `<name>.local-<UTC time>`.
+  - A plain decision segment that was gzipped locally keeps its plain copy
+    on the NAS beside the `.gz`. Both hold the same records, and a reader
+    deduplicates by `dseq`.
+- **No torn copies.** Every file is copied to `<name>.partial-<pid>`, flushed,
+  stamped, then renamed. A partial copy never looks complete.
+  - Files of an in-progress run (`events.jsonl`, the open segment) are still
+    copied. At worst the copy ends in a torn last line, which every reader
+    already skips, and the next backup recopies the grown file.
+  - Local in-flight `*.tmp` files are skipped.
+- **Database snapshot.** `VACUUM INTO` a local temp file (a consistent copy
+  even while the game imports), gzipped to the NAS through a temp name.
+  Older dated snapshots beyond the newest 5 are removed. That is the only
+  thing backup ever deletes, and only files matching
+  `spirelens-YYYY-MM-DD.db.gz` in `<dest>\db\`.
+- **Unreachable NAS** (offline, VPN, asleep): the probe times out after 15
+  seconds, the run logs `backup skipped: NAS unreachable (...)` and exits
+  0. The next run catches up.
+- **Locking.** `backup` takes the same lock as `ingest`, so the two never
+  overlap. Every `ingest` (including the unattended one the game starts)
+  backs up after importing, under that lock. Use `--no-backup` to skip it.
+- **Status.** Each run writes `last-backup.json` next to the database
+  (status, files and bytes copied, duration, last success). The `serve` page
+  header shows `Last backup: <time> (<n> files)` or
+  `backup skipped: NAS unreachable`.
 
 ## Run browser and playlists (`serve`)
 

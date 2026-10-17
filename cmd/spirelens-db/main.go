@@ -7,6 +7,7 @@
 //	spirelens-db ingest [--db path] [--replays dir] [--history dir]... [--spirelens-runs dir] [--force]
 //	spirelens-db stats [--db path]
 //	spirelens-db export-decisions --out file.jsonl [--db path] [--drop-hidden] [--include-abandoned] [--finished-only] [--kinds a,b]
+//	spirelens-db backup [--db path] [--backup-to dir] [--no-db-snapshot] [--log file]
 //	spirelens-db serve [--addr 127.0.0.1:8737] [--db path] [--game-dir dir] [--no-ingest]
 package main
 
@@ -20,7 +21,6 @@ import (
 	"sort"
 	"strings"
 	"text/tabwriter"
-	"time"
 
 	"github.com/romaine-life/spirelens/internal/rundb"
 )
@@ -41,6 +41,8 @@ func main() {
 		err = runExport(ctx, os.Args[2:])
 	case "serve":
 		err = runServe(ctx, os.Args[2:])
+	case "backup":
+		err = runBackup(ctx, os.Args[2:])
 	case "-h", "--help", "help":
 		usage(os.Stdout)
 		return
@@ -63,6 +65,7 @@ commands:
   stats              print headline queries
   export-decisions   write canonical decision records as JSONL training data
   serve              local web page to filter runs and build replay playlists (localhost only)
+  backup             copy recordings, stat records and a daily database snapshot to the NAS
 
 defaults (from %%APPDATA%%):
   --db              %s
@@ -90,28 +93,17 @@ func runIngest(ctx context.Context, args []string) (retErr error) {
 	force := fs.Bool("force", false, "re-ingest every source even if unchanged")
 	quiet := fs.Bool("quiet", false, "do not print per-file warnings")
 	logPath := fs.String("log", "", "write all output to this file (overwritten) instead of the console; used by SpireLens's background import")
+	noBackup := fs.Bool("no-backup", false, "do not back up to the NAS after ingesting")
+	var backupTo optString
+	fs.Var(&backupTo, "backup-to", `backup destination (default: backup_to in spirelens-db.json, else `+rundb.DefaultBackupTo+`; "" disables)`)
 	fs.Parse(args)
 
 	if *logPath != "" {
-		if err := os.MkdirAll(filepath.Dir(*logPath), 0o755); err != nil {
-			return err
-		}
-		f, err := os.Create(*logPath)
+		finish, err := redirectToLog(*logPath, "ingest")
 		if err != nil {
 			return err
 		}
-		defer func() {
-			// main prints errors to stderr after this returns, when the file
-			// is closed: record the outcome here instead.
-			if retErr != nil {
-				fmt.Fprintln(f, "spirelens-db:", retErr)
-			} else {
-				fmt.Fprintln(f, "done")
-			}
-			f.Close()
-		}()
-		os.Stdout, os.Stderr = f, f
-		fmt.Printf("spirelens-db ingest started %s\n", time.Now().Format(time.RFC3339))
+		defer func() { finish(retErr) }()
 	}
 
 	historyDirs := []string(history)
@@ -186,7 +178,18 @@ func runIngest(ctx context.Context, args []string) (retErr error) {
 	for _, c := range counts {
 		fmt.Fprintf(tw, "  %s\t%s\t\n", c[0], c[1])
 	}
-	return tw.Flush()
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+
+	// Back up after every ingest, still under the ingest lock, so the
+	// unattended import the game starts at run end and Core load also keeps
+	// the NAS copy current. An unreachable NAS is one line, not a failure.
+	if *noBackup {
+		return nil
+	}
+	fmt.Println()
+	return backupWith(ctx, db, *dbPath, backupTo.ptr(), *replays, *spirelensRuns, true, *quiet)
 }
 
 func formatNotes(notes map[string]int) string {

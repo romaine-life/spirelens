@@ -210,6 +210,12 @@ function renderStatus(ingest) {
     else if (ingest.state === "failed") parts.push("import failed: " + ingest.message);
     else if (ingest.message) parts.push(ingest.message);
   }
+  const b = state.backup;
+  if (b) {
+    if (b.status === "unreachable") parts.push("backup skipped: NAS unreachable" + (b.last_success_utc ? ` (last good ${new Date(b.last_success_utc).toLocaleString()})` : ""));
+    else if (b.status === "disabled") parts.push("backup disabled");
+    else parts.push(`Last backup: ${new Date(b.finished_at_utc).toLocaleString()} (${b.files_copied} files${b.status === "partial" ? ", some failed" : ""})`);
+  }
   $("#status").textContent = parts.join(" · ");
 }
 
@@ -225,6 +231,7 @@ function renderBuild(build) {
 async function loadMeta() {
   const d = await api("GET", "/api/meta");
   state.meta = d.meta;
+  state.backup = d.backup;
   renderBuild(d.build);
   renderStatus(d.ingest);
   $("#pl-dir").textContent = "Saved in " + d.playlists_dir;

@@ -4408,8 +4408,10 @@ public static partial class RunTracker
                 if (!ShouldTrackCardStatsDuringCombatLocked()) return null;
 
                 var targetPlayer = combatState._player;
+                // An enrolled relic/power frame owns this gain: no card is
+                // credited, so the waste ledger gets an untagged chunk.
                 if (TryCreditEffectFrameLocked(targetPlayer?.Creature, EffectOutcomeKeys.Energy, amount))
-                    return;
+                    return null;
 
                 var causingPlay = FindCurrentlyResolvingCardPlay();
                 if (causingPlay?.Card == null) return null;

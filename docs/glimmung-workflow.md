@@ -97,8 +97,12 @@ unchanged).
 - `probe-mod-set` — fails closed on any mod outside `{BaseLib, SpireLens, SpireLensMcp}`.
 - `install-mcp-start-sts2` — syncs the laptop checkout to the run commit
   (`SyncCheckout`) and runs the host face `prepare-host --install-mcp --start-sts2`.
-- `probe-bridge-ready` — runs the host face `probe-bridge` (polls the bridge for
-  ≤90s) and aborts `bridge_not_ready` on miss.
+- `probe-bridge-ready` — runs the host face `probe-bridge` and aborts
+  `bridge_not_ready` on miss. It waits ≤90s on a directory change notification
+  for the bridge's `bridge-ready.json` (`%APPDATA%\SlayTheSpire2\SpireLensMcpBridge\`),
+  which SpireLensMcpBridge writes once `NGame.GameStartupComplete` finishes, then
+  confirms once over HTTP. Stopping STS2 waits on the process handles. Neither
+  polls.
 - `emit-env-outputs` — writes `ssh_endpoint`, `working_dir`.
 
 ### llm-work (two jobs)

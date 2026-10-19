@@ -170,6 +170,15 @@ async def materialize_install():
     write_json(existing)
 
 
+async def settle(predicate, timeout_seconds, since_version=-1):
+    """The first settled game state matching `predicate`, or — on timeout — the
+    latest state, which the post-load assertion then judges."""
+    try:
+        return await server._wait_for_state(predicate, timeout_seconds, since_version=since_version)
+    except TimeoutError:
+        return parse_tool_json(await server.get_game_state("json"), "get_game_state")
+
+
 async def validate_load():
     existing = read_json(output_path) if output_path.exists() else {"status": "pass"}
     setup = read_json(setup_path)
@@ -178,35 +187,22 @@ async def validate_load():
     # the in-game saved-run loader and validator see the same current_run.save.
     live_installed = parse_tool_json(await server.install_save_as_current(setup["scenario_name"], "scenario"), "install_save_as_current")
     validate = parse_tool_json(await server.validate_current_run_save(), "validate_current_run_save")
-    menu_state = None
-    stable_menu_polls = 0
-    for _ in range(30):
-        menu_state = parse_tool_json(await server.get_game_state("json"), "get_game_state")
-        if menu_state.get("state_type") == "menu":
-            stable_menu_polls += 1
-            if stable_menu_polls >= 3:
-                break
-        else:
-            stable_menu_polls = 0
-        await asyncio.sleep(1.0)
-    if stable_menu_polls < 3:
-        raise RuntimeError(f"Game did not reach a stable menu state before loading scenario save: {menu_state}")
-    # The MCP bridge comes up before STS2 has fully settled its startup/menu
-    # coroutines. Loading immediately can cancel LaunchMainMenu/logo startup and
-    # make STS2 show its generic startup-error popup even though combat loads.
-    await asyncio.sleep(3.0)
+    # Loading before STS2 finishes its startup (logo, LaunchMainMenu) cancels
+    # that startup and shows the generic startup-error popup even though combat
+    # loads. The bridge counts as settled only once NGame.GameStartupComplete
+    # has finished, so a settled menu state is safe to load from. Every wait
+    # below blocks in the bridge until the game state changes; nothing polls.
+    try:
+        menu_state = await server._wait_for_state(lambda s: s.get("state_type") == "menu", 30)
+    except TimeoutError as exc:
+        raise RuntimeError(f"Game did not reach a settled menu state before loading scenario save: {exc}") from exc
     loaded = parse_tool_json(await server.load_current_run_save(), "load_current_run_save")
-    state = None
-    for _ in range(40):
-        state = parse_tool_json(await server.get_game_state("json"), "get_game_state")
-        state_type = state.get("state_type")
-        if state_type not in (None, "menu", "unknown", "loading"):
-            if state_type != "monster":
-                break
-            battle = state.get("battle") or {}
-            if battle.get("enemies"):
-                break
-        await asyncio.sleep(0.5)
+    state = await settle(
+        lambda s: s.get("state_type") not in (None, "menu", "unknown", "loading")
+        and (s.get("state_type") != "monster" or bool((s.get("battle") or {}).get("enemies"))),
+        20,
+        since_version=int(loaded.get("state_version", -1)),
+    )
     # Deterministic room-type staging. A loaded save settles into whatever room
     # the run was on (often a map or a normal Monster combat). Room-type-gated
     # behavior — e.g. Booming Conch's "at the start of Elite combats" — can only
@@ -222,14 +218,10 @@ async def validate_load():
     if required_room_type:
         room_entry = parse_tool_json(await server.enter_debug_room(required_room_type), "enter_debug_room")
         want = required_room_type.lower()
-        state = None
-        for _ in range(40):
-            state = parse_tool_json(await server.get_game_state("json"), "get_game_state")
-            if state.get("state_type") == want:
-                battle = state.get("battle") or {}
-                if battle.get("enemies"):
-                    break
-            await asyncio.sleep(0.5)
+        state = await settle(
+            lambda s: s.get("state_type") == want and bool((s.get("battle") or {}).get("enemies")),
+            20,
+        )
     existing["required_room_type"] = required_room_type or None
     existing["required_room_entry"] = room_entry
     existing["live_installed"] = live_installed

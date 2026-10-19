@@ -76,6 +76,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/playlists/{slug}", s.handleUpdatePlaylist)
 	mux.HandleFunc("DELETE /api/playlists/{slug}", s.handleDeletePlaylist)
 	mux.HandleFunc("GET /api/play", s.handlePlayStatus)
+	mux.HandleFunc("GET /api/play/events", s.handlePlayEvents)
 	mux.HandleFunc("POST /api/play", s.handlePlay)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -346,6 +347,67 @@ func (s *Server) handlePlayStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"pending": req != nil, "request": req})
+}
+
+// handlePlayEvents streams the play-now request's state as server-sent events:
+// one event when the stream opens, then one each time the request appears,
+// changes or is consumed by the game. The playlists directory is watched, so
+// the page never asks again.
+func (s *Server) handlePlayEvents(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeErr(w, http.StatusInternalServerError, errors.New("streaming unsupported"))
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(http.StatusOK)
+
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	changes := make(chan struct{}, 1)
+	go func() {
+		err := watchDir(ctx, s.Playlists.Dir, func() {
+			select {
+			case changes <- struct{}{}:
+			default: // one queued re-read covers a burst
+			}
+		})
+		if err != nil && ctx.Err() == nil {
+			fmt.Fprintf(os.Stderr, "play-status stream: %v\n", err)
+		}
+	}()
+
+	last := ""
+	send := func() bool {
+		req, err := s.Playlists.PendingPlay()
+		payload := map[string]any{"pending": req != nil, "request": req}
+		if err != nil {
+			payload = map[string]any{"pending": true, "error": err.Error()}
+		}
+		b, _ := json.Marshal(payload)
+		if string(b) == last {
+			return true
+		}
+		last = string(b)
+		if _, err := fmt.Fprintf(w, "data: %s\n\n", b); err != nil {
+			return false
+		}
+		flusher.Flush()
+		return true
+	}
+	if !send() {
+		return
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-changes:
+			if !send() {
+				return
+			}
+		}
+	}
 }
 
 func nonNil(v []int64) []int64 {

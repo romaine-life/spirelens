@@ -117,16 +117,21 @@ The directory is `%APPDATA%\SlayTheSpire2\SpireLens\playlists\` (`user://SpireLe
 {"format_version": 1, "requested_at_utc": "...", "runs": [{"game_start_time": 1792120868, "label": "..."}]}
 ```
 
-The game polls for this file about once a second while SpireLens Core is loaded:
+While SpireLens Core is loaded, the game checks this file whenever it changes, whenever a main menu becomes ready, when
+a replay ends, and once when Core loads. Nothing polls:
 
 - **At the main menu with no replay playing**, it consumes the request by deleting the file and starts the list.
-- **A file that doesn't parse** is retried for 3 s, in case it was caught mid-write. After that it is deleted with a
-  toast.
+- **A file that doesn't parse** may have been caught mid-write. The writer's next write re-checks it; if it still
+  doesn't parse 3 s after it was written, it is deleted with a toast.
+- **A file still held open by its writer** is retried every 0.25 s, at most 20 times, since Windows signals no "file
+  closed" event.
 - **Otherwise** (mid-run, or a replay already playing), the file stays where it is. A toast says why, once per file
   version.
 
-The page treats a file still present after about 10 s as "not picked up". The poll is a stock Godot `Timer` node under
-the scene root (`ReplayPlayNowWatcher`), freed at Core shutdown. No game hook is involved.
+The page treats a file still present after about 10 s as "not picked up". `ReplayPlayNowWatcher` uses a
+`FileSystemWatcher` on the playlists directory and the scene tree's `node_added` signal (an `NMainMenu`'s `ready`).
+Watcher events arrive on thread-pool threads and are collapsed into one `CallDeferred` onto the main thread. Both are
+released at Core shutdown, and a generation counter drops callbacks queued by an earlier Core. No game hook is involved.
 
 ## How it works
 

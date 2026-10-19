@@ -360,6 +360,8 @@ public static class ReplayPlayer
         _queue = new List<QueuedRun>();
         _runIndex = -1;
         ReplayPlaybackGuard.SetPlayerActive(false);
+        // A play-now request that arrived during this replay can start now.
+        ReplayPlayNowWatcher.OnReplayEnded();
     }
 
     private static void ReleaseGameHooks()

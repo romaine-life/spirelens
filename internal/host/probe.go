@@ -3,13 +3,13 @@ package host
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // BaseLibMinVersion is the BaseLib version floor enforced during env prep.
@@ -73,20 +73,16 @@ func ProbeMods(out io.Writer) error {
 	return writeJSONTo(out, res)
 }
 
-// ProbeBridge polls the SpireLensMcp bridge until ready, mirroring
-// env-prep.sh's probe_bridge_ready (90s deadline). Prints {"ready":bool} to out
-// and returns the readiness; the caller exits non-zero on a miss so RunSelf
-// surfaces a host-layer error and the pod aborts bridge_not_ready.
+// ProbeBridge waits (90s deadline) for the SpireLensMcp bridge to report game
+// startup complete — see WaitSts2Ready; nothing polls. Prints {"ready":bool}
+// to out and returns the readiness; the caller exits non-zero on a miss so
+// RunSelf surfaces a host-layer error and the pod aborts bridge_not_ready.
 func ProbeBridge(ctx context.Context, out io.Writer) bool {
-	deadline := time.Now().Add(90 * time.Second)
-	ready := false
-	for time.Now().Before(deadline) {
-		if BridgePingOK(DefaultBridgeHost, DefaultBridgePort) {
-			ready = true
-			break
-		}
-		time.Sleep(3 * time.Second)
+	err := WaitSts2Ready(DefaultBridgeHost, DefaultBridgePort, 90)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
 	}
+	ready := err == nil
 	_ = writeJSONTo(out, map[string]any{"ready": ready})
 	return ready
 }

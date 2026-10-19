@@ -452,27 +452,33 @@ function selectedInTableOrder() {
 
 // ---------------- playing
 
-let pollTimer = null;
+let playStream = null, playWarnTimer = null;
 async function sendPlay(body, what) {
   try {
     const d = await api("POST", "/api/play", body);
     const dropped = d.dropped && d.dropped.length ? ` (${d.dropped.length} without a recording left out)` : "";
     banner(`Sent to the game: ${what}${dropped}. Waiting for the game to pick it up…`);
-    watchPlay(Date.now());
+    watchPlay();
   } catch (e) { banner("Could not send: " + e.message, "bad"); }
 }
 const playRuns = (ids, what) => sendPlay({ runs: ids }, what);
 
-function watchPlay(start) {
-  clearTimeout(pollTimer);
-  pollTimer = setTimeout(async () => {
+// The server pushes the request's state (GET /api/play/events) whenever the
+// playlists directory changes, so the page waits on events instead of asking.
+function watchPlay() {
+  stopWatchingPlay();
+  playWarnTimer = setTimeout(() => banner("The game hasn't picked it up (is it at the main menu?). The request stays in place until the game reads it.", "warn"), 10000);
+  playStream = new EventSource("/api/play/events");
+  playStream.onmessage = (ev) => {
     let s;
-    try { s = await api("GET", "/api/play"); } catch { s = { pending: true }; }
-    const age = Date.now() - start;
-    if (!s.pending) { banner("The game picked it up.", "ok"); return; }
-    if (age > 10000) banner("The game hasn't picked it up (is it at the main menu?). The request stays in place until the game reads it.", "warn");
-    if (age < 10 * 60 * 1000) watchPlay(start);
-  }, 1500);
+    try { s = JSON.parse(ev.data); } catch { return; }
+    if (!s.pending) { stopWatchingPlay(); banner("The game picked it up.", "ok"); }
+  };
+}
+
+function stopWatchingPlay() {
+  clearTimeout(playWarnTimer);
+  if (playStream) { playStream.close(); playStream = null; }
 }
 
 // ---------------- playlists

@@ -34,7 +34,7 @@ func RestartSts2(ctx context.Context, w io.Writer, mode RestartMode, startupTime
 	if err != nil {
 		return err
 	}
-	if err := StopSts2(ctx, w, DefaultBridgeHost, DefaultBridgePort, shutdownTimeoutSecs); err != nil {
+	if err := StopSts2(ctx, w, shutdownTimeoutSecs); err != nil {
 		return err
 	}
 	if mode == RestartModeStop {

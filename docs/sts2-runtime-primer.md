@@ -414,14 +414,15 @@ mouse motion passes, so hover still works.
 Core is built without the Godot source generators, so it cannot define nodes with overridden virtuals such as `_Input`.
 Everything input-related goes through that loader node, and UI is plain Godot controls.
 
-**Polling without a game hook**
+**Timers and events without a game hook**
 
 Core can't override `_Process`, but a stock Godot `Timer` works. Create it in Core, connect `Timeout` with a C# lambda
 (GodotSharp's generated event for built-in signals, so no source generator is needed), set `ProcessMode = Always`, add
 it under the scene root with `CallDeferred(AddChild)`, and `QueueFree` it at shutdown.
 
-`ReplayPlayNowWatcher` uses this to watch for `playlists/play-now.json`. Its `WaitTime` follows `Engine.TimeScale`, so
-the poll slows during a 0.5x replay.
+`RunTimeStatsTracker` uses this for its 1 s run-clock tick. Prefer an event source when one exists: a
+`FileSystemWatcher` (marshal to the main thread with `Callable.From(...).CallDeferred()`), the scene tree's `NodeAdded`
+signal, or a node's `Ready` signal. `ReplayPlayNowWatcher` combines those three and has no timer.
 
 **Leaving a run that is not the user's**
 

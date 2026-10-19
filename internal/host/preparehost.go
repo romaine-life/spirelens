@@ -75,7 +75,7 @@ func installMcp(ctx context.Context, w io.Writer, gameDir, modsDir string) error
 	}
 
 	// 3. Stop STS2 so the mods/ files are not locked.
-	if err := StopSts2(ctx, w, DefaultBridgeHost, DefaultBridgePort, DefaultShutdownTimeoutSecs); err != nil {
+	if err := StopSts2(ctx, w, DefaultShutdownTimeoutSecs); err != nil {
 		return err
 	}
 

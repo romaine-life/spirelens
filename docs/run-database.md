@@ -332,8 +332,11 @@ spirelens-db serve            # then open http://127.0.0.1:8737/
   - expand a playlist to reorder its runs (drag, or ↑/↓), remove runs, or
     **Add selected runs**;
   - each run shows whether it is playable on the current build.
-- **After Play now**, the page says the request was sent. It then watches
-  `play-now.json`: when the file disappears it says the game picked it up.
+- **After Play now**, the page says the request was sent. It then opens
+  `GET /api/play/events`, a server-sent event stream: `serve` watches the
+  playlists directory and pushes `{"pending": ...}` whenever `play-now.json`
+  appears, changes or disappears. When it disappears the page says the game
+  picked it up.
   After about 10 seconds it says "the game hasn't picked it up (is it at the
   main menu?)".
 

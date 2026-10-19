@@ -11,3 +11,12 @@ namespace SpireLens.Core.Tests;
 /// </summary>
 [CollectionDefinition("RunTrackerState", DisableParallelization = true)]
 public sealed class RunTrackerStateCollection { }
+
+/// <summary>
+/// Serializes tests that swap ReplayStorage.RootDirProvider. Save/restore is
+/// not enough here: one class restoring the Godot-backed default while
+/// another is mid-test sends the other into ProjectSettings, which has no
+/// engine under test and throws.
+/// </summary>
+[CollectionDefinition("ReplayStorageRoot", DisableParallelization = true)]
+public sealed class ReplayStorageRootCollection { }

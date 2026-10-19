@@ -14,6 +14,7 @@ namespace SpireLens.Core.Tests;
 /// across Continue / room restart / death undo, and session counter recovery
 /// after a hot reload.
 /// </summary>
+[Collection("ReplayStorageRoot")]
 public class RunRecordingFormatTests
 {
     private static ReplayLogEntry E(long seq, string type, string? key = null) => new(seq, type, key, null);

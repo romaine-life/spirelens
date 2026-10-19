@@ -15,6 +15,7 @@ namespace SpireLens.Core.Tests;
 /// matching, the events.jsonl &lt;-&gt; decisions join, the branch cut applied
 /// to records, and segment numbering / recovery.
 /// </summary>
+[Collection("ReplayStorageRoot")]
 public class DecisionRecordFormatTests
 {
     [Fact]

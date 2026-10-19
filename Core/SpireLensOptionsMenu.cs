@@ -67,6 +67,8 @@ public static class SpireLensOptionsMenu
     private static Button? _potionHistoryButton;
     private static Button? _buildTimeZoneButton;
     private static Button? _replayButton;
+    private static Label? _replayHeader;
+    private static int _replayIndex = -1;
     private static Label? _buildInfoLabel;
     private static bool _restartArmed;
     private static int _selectedIndex;
@@ -102,7 +104,7 @@ public static class SpireLensOptionsMenu
         RefreshBuildTimeZoneRow();
         RefreshBuildInfo();
         _layer!.Visible = true;
-        _selectedIndex = Math.Clamp(_selectedIndex, 0, SelectableButtons.Count - 1);
+        _selectedIndex = NearestSelectable(Math.Clamp(_selectedIndex, 0, SelectableButtons.Count - 1));
         _leftStickVerticalDirection = 0;
         _leftStickHorizontalDirection = 0;
         _leftTriggerPressed = false;
@@ -190,6 +192,8 @@ public static class SpireLensOptionsMenu
         _buildTimeZoneButton = null;
         _buildInfoLabel = null;
         _replayButton = null;
+        _replayHeader = null;
+        _replayIndex = -1;
         _restartArmed = false;
         _selectedIndex = 0;
         _leftStickVerticalDirection = 0;
@@ -310,7 +314,8 @@ public static class SpireLensOptionsMenu
         AddHeader(rows, "Run views");
         _potionHistoryButton = AddAction(rows, PotionHistoryText, OpenPotionHistory);
 
-        AddHeader(rows, "Replay");
+        _replayHeader = AddHeader(rows, "Replay");
+        _replayIndex = SelectableButtons.Count;
         _replayButton = AddAction(rows, "Replay a run…", OnReplayActivated);
 
         AddHeader(rows, "Practice");
@@ -348,11 +353,12 @@ public static class SpireLensOptionsMenu
         return label;
     }
 
-    private static void AddHeader(VBoxContainer parent, string text)
+    private static Label AddHeader(VBoxContainer parent, string text)
     {
         var header = NewLabel(text, 20);
         header.Modulate = HeaderColor;
         parent.AddChild(header);
+        return header;
     }
 
     private static void AddToggle(
@@ -593,18 +599,43 @@ public static class SpireLensOptionsMenu
         ToggleOption(index, source);
     }
 
+    /// <summary>
+    /// Hidden rows (the replay row during a run) are skipped by keyboard and
+    /// controller navigation.
+    /// </summary>
+    private static bool IsSelectable(int index) =>
+        index >= 0 && index < SelectableRows.Count
+        && GodotObject.IsInstanceValid(SelectableRows[index])
+        && SelectableRows[index].Visible;
+
+    private static int StepSelectable(int from, int delta)
+    {
+        var count = SelectableButtons.Count;
+        var index = from;
+        for (var i = 0; i < count; i++)
+        {
+            index = (index + delta + count) % count;
+            if (IsSelectable(index)) return index;
+        }
+        return from;
+    }
+
+    private static int NearestSelectable(int index) =>
+        IsSelectable(index) ? index : StepSelectable(index, 1);
+
     private static void MoveFocus(int delta)
     {
         if (SelectableButtons.Count == 0) return;
-        SetSelectedIndex(
-            (_selectedIndex + delta + SelectableButtons.Count) % SelectableButtons.Count,
-            scrollIntoView: true);
+        SetSelectedIndex(StepSelectable(_selectedIndex, delta), scrollIntoView: true);
     }
 
     private static void JumpToEdge(bool first)
     {
         if (SelectableButtons.Count == 0) return;
-        SetSelectedIndex(first ? 0 : SelectableButtons.Count - 1, scrollIntoView: true);
+        var edge = first ? 0 : SelectableButtons.Count - 1;
+        SetSelectedIndex(
+            IsSelectable(edge) ? edge : StepSelectable(edge, first ? 1 : -1),
+            scrollIntoView: true);
     }
 
     /// <summary>
@@ -880,8 +911,8 @@ public static class SpireLensOptionsMenu
     }
 
     /// <summary>
-    /// Opens the recording list, or stops the replay that is playing. The list
-    /// itself explains when a replay can't start (for example mid-run).
+    /// Opens the recording list, or stops the replay that is playing. The row
+    /// is hidden during a normal run, where a replay can't start anyway.
     /// </summary>
     private static void OnReplayActivated()
     {
@@ -898,6 +929,14 @@ public static class SpireLensOptionsMenu
     private static void RefreshReplayRow()
     {
         if (_replayButton == null || !GodotObject.IsInstanceValid(_replayButton)) return;
+        // Starting a replay needs the main menu, so a run has no use for the
+        // row. It stays while a replay plays so it can be stopped from here.
+        bool visible = Replay.Playback.ReplayPlayer.IsActive
+            || RunManager.Instance?.IsInProgress != true;
+        if (_replayHeader != null && GodotObject.IsInstanceValid(_replayHeader))
+            _replayHeader.Visible = visible;
+        if (IsSelectableRowIndex(_replayIndex))
+            SelectableRows[_replayIndex].Visible = visible;
         if (Replay.Playback.ReplayPlayer.IsActive)
         {
             _replayButton.Text = "Stop replay  —  back to the main menu, your data restored";
@@ -908,6 +947,9 @@ public static class SpireLensOptionsMenu
         _replayButton.Text = blocked == null ? "Replay a run…" : $"Replay a run…  —  {blocked}";
         _replayButton.Modulate = new Color(1f, 1f, 1f);
     }
+
+    private static bool IsSelectableRowIndex(int index) =>
+        index >= 0 && index < SelectableRows.Count && GodotObject.IsInstanceValid(SelectableRows[index]);
 
     private static IEnumerable<T> FindNodesOfType<T>(Node? node) where T : Node
     {

@@ -391,7 +391,7 @@ public static class ReplayPlayer
     // that tolerates that writer; File.ReadLines refuses it.
     private static IEnumerable<string> ReadEventLines(string path)
     {
-        using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using var file = new FileStream(path, FileMode.Open, System.IO.FileAccess.Read, FileShare.ReadWrite);
         using var reader = new StreamReader(file);
         while (reader.ReadLine() is { } line) yield return line;
     }

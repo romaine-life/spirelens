@@ -280,7 +280,7 @@ public static class ReplayPlayer
             SerializableRun genesis;
             try
             {
-                plan = ReplayPlaybackPlan.Build(File.ReadLines(Path.Combine(run.Listing.Directory, "events.jsonl")));
+                plan = ReplayPlaybackPlan.Build(ReadEventLines(Path.Combine(run.Listing.Directory, "events.jsonl")));
                 int start = plan.StartKeyframeIndex;
                 if (start < 0) throw new InvalidOperationException("recording has no save point to start from");
                 genesis = ReadSnapshot(run.Listing.Directory, plan.Steps[start].Snapshot)
@@ -385,6 +385,16 @@ public static class ReplayPlayer
     }
 
     // -------- Loading a snapshot --------
+
+    // The recorder keeps the run's events.jsonl open for append until the next
+    // run starts, so the run that just ended must be read with a share mode
+    // that tolerates that writer; File.ReadLines refuses it.
+    private static IEnumerable<string> ReadEventLines(string path)
+    {
+        using var file = new FileStream(path, FileMode.Open, System.IO.FileAccess.Read, FileShare.ReadWrite);
+        using var reader = new StreamReader(file);
+        while (reader.ReadLine() is { } line) yield return line;
+    }
 
     private static SerializableRun? ReadSnapshot(string dir, string? relative)
     {

@@ -3,7 +3,7 @@
   "name": "SpireLens",
   "author": "Nelson",
   "description": "Per-card attribution stats — tracks effective damage, overkill, blocked damage, block usage, and utility closure on every card you play.",
-  "version": "v0.5.1",
+  "version": "v0.5.2",
   "min_game_version": "v0.106.1",
   "has_pck": false,
   "has_dll": true,

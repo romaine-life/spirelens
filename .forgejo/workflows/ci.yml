@@ -53,15 +53,21 @@ jobs:
           PFX_PASSWORD: ${{ secrets.AT_TERMINAL_PFX_PASSWORD }}
         run: |
           if (-not $env:PFX) { throw 'AT_TERMINAL_PFX is missing' }
-          $signtool = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe' | Sort-Object FullName -Descending | Select-Object -First 1
-          $pfxPath = Join-Path $env:RUNNER_TEMP "spirelens-$env:GITHUB_RUN_ID.pfx"
+          $bytes = [Convert]::FromBase64String($env:PFX)
+          $certificate = [Security.Cryptography.X509Certificates.X509Certificate2]::new(
+            $bytes, $env:PFX_PASSWORD,
+            [Security.Cryptography.X509Certificates.X509KeyStorageFlags]::UserKeySet)
           try {
-            [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:PFX))
             foreach ($dll in @('.godot/mono/temp/bin/Release/SpireLens.dll', 'Core/bin/Release/net9.0/SpireLens.Core.dll')) {
-              & $signtool.FullName sign /fd SHA256 /f $pfxPath /p $env:PFX_PASSWORD $dll
-              if ($LASTEXITCODE) { exit $LASTEXITCODE }
+              $signature = Set-AuthenticodeSignature -LiteralPath $dll -Certificate $certificate -HashAlgorithm SHA256
+              if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Thumbprint -ne $certificate.Thumbprint) {
+                throw "Signature verification failed for ${dll}: $($signature.Status)"
+              }
             }
-          } finally { Remove-Item -LiteralPath $pfxPath -Force -ErrorAction SilentlyContinue }
+          } finally {
+            $certificate.Dispose()
+            [Array]::Clear($bytes, 0, $bytes.Length)
+          }
       - name: Package mod
         id: version
         run: |
@@ -126,7 +132,7 @@ jobs:
         if: steps.version.outputs.publish == 'true'
         env:
           FORGEJO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: ./scripts/build-release-notes.ps1 -Repository $env:GITHUB_REPOSITORY -CurrentTag $env:VERSION -OutputPath release-notes.md
+        run: ./scripts/build-release-notes.ps1 -Repository $env:GITHUB_REPOSITORY -CurrentTag $env:VERSION -OutputPath release-notes.md -WorkshopOutputPath workshop-notes.md
       - name: Validate tagged package
         if: steps.version.outputs.publish == 'true'
         shell: pwsh
@@ -227,10 +233,10 @@ jobs:
 
           Write-Output "::add-mask::$env:STEAM_USERNAME"
           $contentRoot = (Resolve-Path (Join-Path $PWD "workshop_content")).Path
-          $escapedContentRoot = $contentRoot.Replace("\", "\\")
-          $releaseNotesPath = Join-Path $PWD "release-notes.md"
+          $escapedContentRoot = $contentRoot.Replace("\", "/")
+          $releaseNotesPath = Join-Path $PWD "workshop-notes.md"
           if (-not (Test-Path -LiteralPath $releaseNotesPath)) {
-            throw "The shared release notes artifact is missing."
+            throw "The Workshop notes file is missing."
           }
 
           $changeNote = (Get-Content -Raw -LiteralPath $releaseNotesPath).Trim()
@@ -238,9 +244,15 @@ jobs:
             throw "The shared release notes artifact is empty."
           }
 
-          $escapedChangeNote = $changeNote.Replace("\", "\\")
-          $escapedChangeNote = $escapedChangeNote.Replace('"', '\"')
-          $escapedChangeNote = $escapedChangeNote.Replace("`r", "")
+          # SteamCMD's KeyValues parser has escape processing disabled: \"
+          # terminates a token. Preserve words and real line feeds; omit PR
+          # citation suffixes and use apostrophes for quotes in Workshop text.
+          # Forgejo receives the complete, unchanged Markdown changelog.
+          $escapedChangeNote = [regex]::Replace($changeNote, '(?m) \(#\d+\)(?=\r?$)', '')
+          $escapedChangeNote = $escapedChangeNote.Replace('"', "'").Replace("`r", "")
+          if ([Text.Encoding]::UTF8.GetByteCount($escapedChangeNote) -gt 4000) {
+            throw 'Workshop notes exceed the KeyValues token budget; shorten player-facing PR bullets before publishing.'
+          }
           # Keep real line-feed characters inside the quoted KeyValues value.
           # Steam renders those as line breaks in the public changelog. A
           # literal "\n" is displayed verbatim and collapses the entry into

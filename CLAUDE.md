@@ -10,6 +10,18 @@ The `.codex/` path is historical: **that workflow applies to Claude sessions
 too.** Branch/commit/push cadence, the deploy-and-reload loop, and the log checks
 in it are all expected here.
 
+## Forgejo workflow
+
+The repository home is `https://forgejo.romaine.life/romaine-life/spirelens`.
+Use `pr-create romaine-life/spirelens --head <branch> --title <title> --body-file <file>`,
+`pr-ready <Forgejo-PR-URL> --local <checkout> --no-auto-merge`, then
+`pr-merge <Forgejo-PR-URL>` after the checks pass. These commands supersede the
+GitHub PR commands in the historical dev-work document. GitHub is a push mirror.
+CI lives in `.forgejo/workflows/ci.yml`: Go and mod checks gate PRs; the main
+release job publishes the signed package and Workshop update. Keep the primary
+`D:\repos\spirelens` checkout clean on `main`; branch work belongs in a fresh
+clone or worktree under `D:\workspace\spirelens\<branch>`.
+
 ## Non-negotiables that are easy to get backwards
 
 - **Build, deploy, and hot-reload are yours to run, not the user's.** After a

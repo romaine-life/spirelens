@@ -11,7 +11,9 @@ param(
 
     [string] $ForgejoToken = $env:FORGEJO_TOKEN,
 
-    [string] $ForgejoApiUrl = "https://forgejo.romaine.life/api/v1"
+    [string] $ForgejoApiUrl = "https://forgejo.romaine.life/api/v1",
+
+    [string] $WorkshopOutputPath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -49,10 +51,13 @@ function Invoke-ForgejoGet {
         "User-Agent" = "SpireLens-release-notes"
     }
 
-    return Invoke-RestMethod `
+    $response = Invoke-RestMethod `
         -Method Get `
         -Uri "$($ForgejoApiUrl.TrimEnd('/'))/$($Path.TrimStart('/'))" `
         -Headers $headers
+    # Invoke-RestMethod writes JSON arrays as one pipeline object. Enumerate
+    # explicitly so paging and per-release/PR lookups see individual records.
+    foreach ($item in $response) { $item }
 }
 
 function Get-WorkshopSection {
@@ -118,16 +123,50 @@ function ConvertTo-ReleaseNoteLines {
     return $notes.ToArray()
 }
 
-$previousTagOutput = @(
-    Invoke-Git `
-        -Arguments @("describe", "--tags", "--abbrev=0", "$CurrentTag^") `
-        -AllowFailure
-)
-$previousTag = if ($previousTagOutput.Count -gt 0) {
-    $previousTagOutput[0].Trim()
+function Test-DocsOnlyCommit {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $CommitSha
+    )
+
+    # Only a known, single-parent commit with a nonempty Markdown-only diff
+    # is safe to omit from Workshop. Merge/root/unknown commits stay included.
+    try {
+        $commit = @(Invoke-Git -Arguments @("rev-list", "--parents", "-n", "1", $CommitSha) -AllowFailure)
+        if ($LASTEXITCODE -ne 0 -or $commit.Count -ne 1 -or
+            @($commit[0] -split '\s+').Count -ne 2) {
+            return $false
+        }
+        $paths = @(
+            Invoke-Git -Arguments @("diff-tree", "--no-commit-id", "--name-only", "--no-renames", "-r", $CommitSha) -AllowFailure
+        )
+        if ($LASTEXITCODE -ne 0 -or $paths.Count -eq 0) {
+            return $false
+        }
+    }
+    catch {
+        return $false
+    }
+    return @($paths | Where-Object { $_ -notmatch '\.md$' }).Count -eq 0
 }
-else {
-    $null
+
+# A failed publication may reserve a tag without releasing it. Such a tag
+# must not hide changes from the next successful release's changelog.
+$publishedTags = [System.Collections.Generic.HashSet[string]]::new(
+    [System.StringComparer]::Ordinal)
+for ($page = 1; ; $page++) {
+    $releases = @(Invoke-ForgejoGet -Path "repos/$Repository/releases?limit=50&page=$page")
+    foreach ($release in $releases) {
+        if (-not $release.draft) { [void]$publishedTags.Add([string]$release.tag_name) }
+    }
+    if ($releases.Count -lt 50) { break }
+}
+$previousTag = $null
+foreach ($candidate in @(Invoke-Git -Arguments @("tag", "--merged", "$CurrentTag^", "--sort=-version:refname"))) {
+    if ($candidate -ne $CurrentTag -and $publishedTags.Contains($candidate)) {
+        $previousTag = $candidate
+        break
+    }
 }
 
 $revisionRange = if ([string]::IsNullOrWhiteSpace($previousTag)) {
@@ -152,6 +191,7 @@ if ($commitShas.Count -eq 0) {
 
 $pullRequestsByNumber = @{}
 $directCommitSubjects = [System.Collections.Generic.List[string]]::new()
+$workshopDirectCommitSubjects = [System.Collections.Generic.List[string]]::new()
 
 # Fetch merged PRs once rather than making a request for every historical commit.
 $pullRequestsByCommit = @{}
@@ -181,6 +221,10 @@ foreach ($commitSha in $commitShas) {
         )[0].Trim()
         if (-not [string]::IsNullOrWhiteSpace($subject)) {
             $directCommitSubjects.Add($subject)
+            if (-not [string]::IsNullOrWhiteSpace($WorkshopOutputPath) -and
+                -not (Test-DocsOnlyCommit -CommitSha $commitSha)) {
+                $workshopDirectCommitSubjects.Add($subject)
+            }
         }
         continue
     }
@@ -192,6 +236,9 @@ foreach ($commitSha in $commitShas) {
 
 $releaseNoteLines = [System.Collections.Generic.List[string]]::new()
 $seenReleaseNoteLines = [System.Collections.Generic.HashSet[string]]::new(
+    [System.StringComparer]::OrdinalIgnoreCase)
+$workshopNoteLines = [System.Collections.Generic.List[string]]::new()
+$seenWorkshopNoteLines = [System.Collections.Generic.HashSet[string]]::new(
     [System.StringComparer]::OrdinalIgnoreCase)
 
 $orderedPullRequests = @(
@@ -215,9 +262,15 @@ foreach ($pullRequest in $orderedPullRequests) {
         @(ConvertTo-ReleaseNoteLines -Content $workshopSection)
     }
 
+    $includeInWorkshop = -not [string]::IsNullOrWhiteSpace($WorkshopOutputPath) -and
+        -not (Test-DocsOnlyCommit -CommitSha $pullRequest.merge_commit_sha)
+
     foreach ($candidateLine in $candidateLines) {
         if ($seenReleaseNoteLines.Add($candidateLine)) {
             $releaseNoteLines.Add($candidateLine)
+        }
+        if ($includeInWorkshop -and $seenWorkshopNoteLines.Add($candidateLine)) {
+            $workshopNoteLines.Add($candidateLine)
         }
     }
 }
@@ -226,6 +279,13 @@ foreach ($directCommitSubject in $directCommitSubjects) {
     $candidateLine = "- $directCommitSubject"
     if ($seenReleaseNoteLines.Add($candidateLine)) {
         $releaseNoteLines.Add($candidateLine)
+    }
+}
+
+foreach ($directCommitSubject in $workshopDirectCommitSubjects) {
+    $candidateLine = "- $directCommitSubject"
+    if ($seenWorkshopNoteLines.Add($candidateLine)) {
+        $workshopNoteLines.Add($candidateLine)
     }
 }
 
@@ -248,3 +308,25 @@ $releaseNoteText = ($releaseNoteLines -join "`n") + "`n"
 
 Write-Host "Release notes written for '$revisionRange':"
 Write-Host $releaseNoteText
+
+if (-not [string]::IsNullOrWhiteSpace($WorkshopOutputPath)) {
+    $resolvedWorkshopPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath(
+        $WorkshopOutputPath)
+    if ($resolvedWorkshopPath -eq $resolvedOutputPath) {
+        throw "WorkshopOutputPath must differ from OutputPath to preserve the full release notes."
+    }
+    $workshopDirectory = Split-Path -Parent $resolvedWorkshopPath
+    if (-not [string]::IsNullOrWhiteSpace($workshopDirectory)) {
+        New-Item -ItemType Directory -Path $workshopDirectory -Force | Out-Null
+    }
+    if ($workshopNoteLines.Count -eq 0) {
+        $workshopNoteLines.Add("- No player-facing changes.")
+    }
+    $workshopNoteText = ($workshopNoteLines -join "`n") + "`n"
+    [IO.File]::WriteAllText(
+        $resolvedWorkshopPath,
+        $workshopNoteText,
+        [Text.UTF8Encoding]::new($false))
+    Write-Host "Workshop notes written for '$revisionRange' (Markdown-only maintenance omitted):"
+    Write-Host $workshopNoteText
+}

@@ -48,11 +48,14 @@ To retry a failed publication, dispatch `.forgejo/workflows/ci.yml` on the same
 2. Download the released Forgejo package into the workspace:
 
    ```powershell
-   $release = Invoke-RestMethod 'https://forgejo.romaine.life/api/v1/repos/romaine-life/spirelens/releases/latest'
+   $credential = "protocol=https`nhost=forgejo.romaine.life`n`n" | git credential fill
+   $headers = @{Authorization = 'token ' + ($credential | Where-Object { $_ -like 'password=*' }).Substring(9)}
+   $release = Invoke-RestMethod 'https://forgejo.romaine.life/api/v1/repos/romaine-life/spirelens/releases/latest' -Headers $headers
    $archive = Join-Path $env:TEMP 'SpireLens.zip'
-   Invoke-WebRequest -Uri ($release.assets | Where-Object name -eq 'SpireLens.zip').browser_download_url -OutFile $archive
+   Invoke-WebRequest -Uri ($release.assets | Where-Object name -eq 'SpireLens.zip').browser_download_url -Headers $headers -OutFile $archive
    Expand-Archive -LiteralPath $archive -DestinationPath 'D:\repos\spirelens-workshop\content' -Force
    Remove-Item -LiteralPath $archive
+   Remove-Variable credential, headers
    ```
 
    (The signed package built by
@@ -77,8 +80,8 @@ publishes the manifest's version when it has not been released yet. The publicat
 1. requires the tag to exactly match `SpireLens.json`'s version;
 2. validates the package allowlist;
 3. restores an isolated SteamCMD login from the Forgejo repository's Actions secret;
-4. builds one set of player-facing notes and uses it for both the Forgejo
-   release and Workshop change note;
+4. builds the full Forgejo changelog and a Workshop version that excludes only
+   verified Markdown-only documentation changes;
 5. uploads only content and a change note, leaving page-managed metadata alone;
 6. serializes uploads so two tags cannot update the item concurrently.
 
@@ -90,8 +93,13 @@ putting exactly `No player-facing changes.` in that section. Direct commits that
 were not associated with a pull request fall back to their commit subject.
 
 The Steam VDF keeps the notes' real line-feed characters inside the quoted
-`changenote` value. Do not replace them with a literal `\n`: Steam displays
-those two characters verbatim instead of creating a line break.
+`changenote` value. Workshop text omits Markdown-only maintenance changes and PR
+citation suffixes, and substitutes apostrophes for double quotes because
+SteamCMD parses KeyValues without escape processing. All runtime-change notes
+remain intact. The full Markdown changelog remains on the Forgejo release. Notes
+over 4,000 UTF-8 bytes fail before upload so oversized text is never truncated.
+Do not replace line feeds with a literal `\n`: Steam displays those two
+characters verbatim instead of creating a line break.
 
 The publication job runs only on `main` after both the Go and mod checks pass.
 

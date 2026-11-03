@@ -3,7 +3,6 @@ package pod
 import (
 	"strconv"
 
-	"github.com/romaine-life/glimmung/harness/runcallbacks"
 	"github.com/romaine-life/glimmung/harness/step"
 )
 
@@ -32,14 +31,9 @@ func buildAndDeploy(c *step.Context) (step.Result, error) {
 	if lerr := stageHostBinary(ctx, conn, c); lerr != nil {
 		return step.Result{}, lerr
 	}
-	token, lerr := runcallbacks.FromContext(c).MintGitHubToken(ctx)
-	if lerr != nil {
-		return step.Result{}, lerr
-	}
 	if lerr := conn.RunSelf(ctx, "build-deploy",
 		"--branch", branch,
 		"--repo-root", hostCheckoutPath,
-		"--github-token-b64", base64Token(token),
 	); lerr != nil {
 		return step.Result{}, lerr
 	}

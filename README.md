@@ -1,5 +1,7 @@
 # SpireLens
 
+Source, pull requests, CI, and releases: https://forgejo.romaine.life/romaine-life/spirelens. GitHub is a push mirror. See [publishing](docs/steam-workshop-publishing.md) for the Forgejo release and Workshop flow.
+
 Per-card attribution stats mod for [Slay the Spire 2](https://store.steampowered.com/app/2868840/Slay_the_Spire_2/). For every card you play, it tracks what actually happened: effective damage vs. overkill, block that absorbed vs. wasted, drawn cards played vs. idle, energy generated vs. unused, and effect-oriented outcomes like poison damage.
 
 **Status:** Dev build - core per-instance card stats are live in-game, including damage/block attribution, observed draw and energy generation, card-caused current/max-HP loss, Regent star-resource spend/gain tracking, forge granted from cards, Alchemize potion outcomes by rarity, Jack of All Trades generated-card totals with rarity/type/cost breakdowns, Discovery picked-card rarity/type/discount outcomes, Consuming Shadow's Power-owned orb evocations, Juggling power-owned Attack-copy totals with rarity and active turn/combat averages, Unrelenting's shared Free Attack charge utilization and energy savings, Prismatic Gem and Dingy Rug's final visible card offers split across the Ironclad, Silent, Regent, Necrobinder, Defect, and Colorless pools, blocked-draw attribution, recurring summon-to-hand tracking, applied-effect summaries, Artifact-blocked debuffs, removed-card viewing, pooled combat-generated card summaries, and dedicated poison application/damage rows. Not yet published to Nexus (M6).
@@ -19,7 +21,7 @@ Existing stats mods answer "how often did I *pick* this card" ([SlayTheStats](ht
 - `overkill` - damage past enemy HP (wasted)
 - `effective_damage` - what actually counted
 
-**Block cards** - how much of the generated block actually absorbed incoming damage vs. expired unused. Per-card block attribution uses a heuristic (see [issue #1](https://github.com/romaine-life/spirelens/issues/1)).
+**Block cards** - how much of the generated block actually absorbed incoming damage vs. expired unused. Per-card block attribution uses a heuristic (see [issue #1](https://forgejo.romaine.life/romaine-life/spirelens/issues/1)).
 
 **Utility cards** - closure tracking:
 
@@ -202,19 +204,19 @@ Both choices persist through the mod configuration.
 
 A separate, default-off **"Show monster stats"** setting controls combat monster hover popups when general stats are enabled. Keeping it off bypasses enemy aggregate lookup and tooltip construction on creature focus while leaving card and relic stats enabled.
 
-The deck viewer's menu shortcut is injected only into the in-run deck viewer for now (not Compendium - lifetime aggregation is deferred, see [issue #2](https://github.com/romaine-life/spirelens/issues/2)); the Left Shift / R3 hotkeys reach the same menu everywhere.
+The deck viewer's menu shortcut is injected only into the in-run deck viewer for now (not Compendium - lifetime aggregation is deferred, see [issue #2](https://forgejo.romaine.life/romaine-life/spirelens/issues/2)); the Left Shift / R3 hotkeys reach the same menu everywhere.
 
 ## Roadmap
 
 | Milestone | Scope | Status |
 |---|---|---|
-| **M1** | Attack damage attribution - the 4 numbers above | OK [#5](https://github.com/romaine-life/spirelens/issues/5) |
+| **M1** | Attack damage attribution - the 4 numbers above | OK [#5](https://forgejo.romaine.life/romaine-life/spirelens/issues/5) |
 | **M2a** | Intended block (how much this card contributed) | OK |
-| **M2b** | Block absorption (effective vs wasted) - needs heuristic | [#14](https://github.com/romaine-life/spirelens/issues/14) |
-| **M3** | Utility card closure (energy spent, draw count) | OK [#7](https://github.com/romaine-life/spirelens/issues/7) |
-| **M4** | In-game UI: SpireLens stats controls on deck view | OK [#8](https://github.com/romaine-life/spirelens/issues/8) |
+| **M2b** | Block absorption (effective vs wasted) - needs heuristic | [#14](https://forgejo.romaine.life/romaine-life/spirelens/issues/14) |
+| **M3** | Utility card closure (energy spent, draw count) | OK [#7](https://forgejo.romaine.life/romaine-life/spirelens/issues/7) |
+| **M4** | In-game UI: SpireLens stats controls on deck view | OK [#8](https://forgejo.romaine.life/romaine-life/spirelens/issues/8) |
 | **M5a** | Removed-card viewing in deck view | OK |
-| **M5b** | Run History integration - browse past-run stats | [#9](https://github.com/romaine-life/spirelens/issues/9) |
+| **M5b** | Run History integration - browse past-run stats | [#9](https://forgejo.romaine.life/romaine-life/spirelens/issues/9) |
 | **M6** | Publish v0.1 to Nexus | - |
 
 Additional shipped: discard count, pile-top placements (from hand / from discard), exhaust-others attribution, self-exhaust count, current/max-HP lost from card costs, cards-drawn attribution, Death March's live non-opening-hand draw count for the current turn, blocked-draw attempt/reason tracking, Regent star-resource tracking, forge granted tracking, observed card-sourced orb creation and exact passive/evoke/fizzle lifecycles with separate Frost block and Lightning damage, observed Alchemize potion gains/failures with rarity splits, observed Jack of All Trades colorless-card additions with rarity/type and average-cost splits, observed Discovery selections with rarity/type and average-energy-discount splits, All for One's successful zero-cost discard-to-hand returns and per-play/combat averages, Debt and Seal of Gold triggers with attempted, actual, and blocked gold loss, Seal of Gold's generated-energy total and per-combat average, Art of War's observed energy total, held-turn/combat averages, and live turn/combat energy, Cracked Core's and Infused Core's exact starting-Lightning passive, evoke, and fizzle lifecycles plus observed damage outcomes, Reptile Trinket's activation rates and exact-two/over-two per-turn distribution, Pendulum's observed draws and held-combat average, Mummified Hand trigger/discount efficiency with discounted-card type and rarity tracking, Ruined Helmet's observed bonus Strength total with per-activation and held-combat averages, Daughter of the Wind's and Ripple Basin's observed block totals with held-turn/combat averages, observed max-HP pickup tracking for Strawberry, Pear, Mango, and Nutritious Oyster, Gnarled Hammer's observed Sharp-enchanted card list, Stone Humidifier's observed max-HP gains with per-activation before/after snapshots, Sturdy Clamp's retained/capped block averages per turn and combat, Pael's Claw's Goopy play rates and earned enhancements per Goopy card, Pael's Eye's observed exhaust totals, per-combat rate, and activation timing, recurring summon-to-hand tracking, effect application summaries, Artifact-blocked debuff tracking, downstream poison damage attribution including stacked Noxious Fumes contributor preservation, Dowsing Rod's live `?`-room countdown, Fishing Rod's ordered list of cards actually upgraded, and Molten/Toxic/Frozen Egg counts for matching upgraded cards offered across rewards and shops.
@@ -276,7 +278,7 @@ Book of Five Rings records permanent-deck additions, cards added per held
 floor, five-card healing triggers and observed healing outcomes, and skipped
 card rewards.
 
-Run outcome detection (win/loss/abandoned) is implemented ([#10](https://github.com/romaine-life/spirelens/issues/10), closed) via the run-history entry hook.
+Run outcome detection (win/loss/abandoned) is implemented ([#10](https://forgejo.romaine.life/romaine-life/spirelens/issues/10), closed) via the run-history entry hook.
 
 ## Storage
 

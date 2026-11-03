@@ -98,6 +98,7 @@
             <SpireLensGitCommitHash>@(_SpireLensGitCommitOutput)</SpireLensGitCommitHash>
             <SpireLensGitCommitHash Condition="'$(SpireLensGitCommitHash)' == ''">unknown</SpireLensGitCommitHash>
             <SpireLensBuildSource Condition="'$(GITHUB_ACTIONS)' == 'true'">GitHub</SpireLensBuildSource>
+            <SpireLensBuildSource Condition="'$(GITHUB_SERVER_URL)' == 'https://forgejo.romaine.life'">Forgejo</SpireLensBuildSource>
             <SpireLensBuildVersion>$(SpireLensGitCommitHash)</SpireLensBuildVersion>
             <SpireLensBuildVersion Condition="'$(GITHUB_ACTIONS)' == 'true' and '$(GITHUB_REF_NAME)' != ''">$(GITHUB_REF_NAME)</SpireLensBuildVersion>
         </PropertyGroup>

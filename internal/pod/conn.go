@@ -1,7 +1,7 @@
 // Package pod is the orchestrator-pod face of the glimmung-spirelens binary: one
 // step.Handler per workflow step slug. Handlers reach the warm gaming laptop
 // through the SDK's harness/remotehost venue (MintAndConnect / RunSelf / ScpPush
-// / ScpPullTree / SyncCheckout) and invoke the binary's own host face over ssh,
+// / ScpPullTree / RunCommand) and invoke the binary's own host face over ssh,
 // replacing the retired pwsh-over-ssh here-docs in scripts/glimmung-native/*.sh.
 //
 // The host face is the SAME binary cross-compiled for Windows and staged onto

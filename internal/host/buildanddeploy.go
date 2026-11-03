@@ -11,9 +11,8 @@ import (
 
 // BuildDeployParams are the build-deploy host subcommand inputs.
 type BuildDeployParams struct {
-	Branch      string
-	RepoRoot    string
-	GitHubToken string
+	Branch   string
+	RepoRoot string
 }
 
 // BuildDeploy checks out the implementation branch into the laptop checkout and
@@ -30,10 +29,9 @@ func BuildDeploy(ctx context.Context, w io.Writer, p BuildDeployParams) *step.La
 		return step.HostError("sts2_dir_unresolved", err.Error(), nil)
 	}
 	repoRoot := nonEmpty(p.RepoRoot, `D:\repos\SpireLens`)
-	header := withGitHubExtraHeader(p.GitHubToken)
-
 	steps := [][]string{
-		{"git", "-c", header, "fetch", "origin", p.Branch},
+		{"git", "remote", "set-url", "origin", "https://forgejo.romaine.life/romaine-life/spirelens.git"},
+		{"git", "fetch", "origin", p.Branch},
 		{"git", "checkout", "--force", "FETCH_HEAD"},
 		{"dotnet", "build", "SpireLens.csproj", "-c", "Debug", "-p:Sts2Path=" + gameDir, "-p:SkipModsDeploy=true"},
 		{"dotnet", "build", `Core\SpireLens.Core.csproj`, "-c", "Debug", "-p:Sts2Path=" + gameDir},

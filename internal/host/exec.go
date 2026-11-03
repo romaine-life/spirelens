@@ -51,13 +51,6 @@ func asExit(err error, target **exec.ExitError) bool {
 	return false
 }
 
-// withGitHubExtraHeader returns the http.extraheader git arg authenticating with
-// an x-access-token GitHub token, never written to the remote git config — the
-// same per-invocation auth lib.sh/verify.sh used.
-func withGitHubExtraHeader(token string) string {
-	return "http.https://github.com/.extraheader=AUTHORIZATION: basic " + basicAuth("x-access-token", token)
-}
-
 func env(extra ...string) []string {
 	return append(os.Environ(), extra...)
 }

@@ -61,7 +61,7 @@ run's `git_ref` checkout. It has two faces:
   and calls `step.Main`, which reads `GLIMMUNG_STEP_SLUG`, dispatches, and exits
   with the honest code. Cross-compiles for Linux (the k8s job pods). Pod
   handlers reach the laptop through the SDK's `harness/remotehost` venue
-  (`MintAndConnect` / `RunSelf` / `ScpPull` / `ScpPushTree` / `SyncCheckout`).
+  (`MintAndConnect` / `RunSelf` / `RunCommand` / `ScpPull` / `ScpPushTree`).
 - **host face** (`glimmung-spirelens <subcmd>`) — the gaming-laptop side,
   cross-compiled for Windows and run over ssh by the pod via `RunSelf` (the
   typed replacement for the retired pwsh-over-ssh here-docs). Subcommands:
@@ -73,6 +73,23 @@ host `.exe` from its own checkout and scps it onto the laptop per run (replacing
 the retired `native_stage_harness` scp of `.github/scripts/*.ps1`). The
 `.mcp.json` MCP-client template is embedded in the binary, so it too is
 `git_ref`-controlled with no separate staging.
+
+Source writes belong to Forgejo. Checkout synchronization, implementation pushes,
+branch verification, and the verification build's fetch all execute on the
+home-side host against `https://forgejo.romaine.life/romaine-life/spirelens.git`.
+They use that host account's Git credential helper; no Forgejo credential is
+minted in or forwarded to a cloud pod. The host account therefore needs a valid
+Forgejo credential before a run is dispatched. The MCP bridge is cloned from
+Forgejo too. GitHub remains a push mirror and supplies the existing Go module
+paths and read-only issue context (`gh issue view`).
+
+The Glimmung platform's registered `pr_touchpoint` and `pr_merge` primitives
+still create and merge GitHub PRs outside this repository. At the Forgejo move,
+there were no deployed Glimmung/tank-operator pods, deployments, or jobs in
+`infra-aks`, and `glimmung.romaine.life` did not resolve. Before reactivating that
+platform for this project, migrate those callbacks to a home-reachable Forgejo
+write path; a GitHub PR merge would write to the push mirror. This repository's
+host-side writer change does not migrate the dormant platform callbacks.
 
 The grader honesty contract (the four failure modes the SDK kills) is enforced
 in Go: a `throw` cannot become a bare `exit 1` (typed `LayeredError` with a
@@ -96,7 +113,8 @@ unchanged).
 - `probe-ssh` — 30-second SSH reachability deadline.
 - `probe-mod-set` — fails closed on any mod outside `{BaseLib, SpireLens, SpireLensMcp}`.
 - `install-mcp-start-sts2` — syncs the laptop checkout to the run commit
-  (`SyncCheckout`) and runs the host face `prepare-host --install-mcp --start-sts2`.
+  using host-side Forgejo Git commands and runs the host face
+  `prepare-host --install-mcp --start-sts2`.
 - `probe-bridge-ready` — runs the host face `probe-bridge` and aborts
   `bridge_not_ready` on miss. It waits ≤90s on a directory change notification
   for the bridge's `bridge-ready.json` (`%APPDATA%\SlayTheSpire2\SpireLensMcpBridge\`),
@@ -109,7 +127,9 @@ unchanged).
 **test-plan**: `run-test-plan`, `collect-test-plan`.
 **implement**: `run-implementation`, `push-branch`, `collect-implementation`.
 `push-branch` commits the laptop checkout after the implementation LLM exits and
-pushes the run-scoped `glimmung/<run_id>` branch with the per-run GitHub token.
+pushes the run-scoped `glimmung/<run_id>` branch to Forgejo using the host's Git
+credential helper. A divergent destination rejects the ordinary push; it is
+never force-pushed. The branch is verified from that host with `git ls-remote`.
 
 ### llm-verify
 - `build-and-deploy` — runs the host face `build-deploy --branch <branch>`,
@@ -192,10 +212,12 @@ mapping per slug:
 | `run-verification` | `run-phase --phase verification [--test-plan-b64 ...] [--implementation-b64 ...]` |
 | `collect-evidence` | `pack-evidence --working-dir <hostwd> --out <hostwd>/evidence.zip` |
 
-`run-phase`/`build-deploy` also take `--issue-number`, `--repo-slug`,
+`run-phase` also takes `--issue-number`, `--repo-slug`,
 `--repo-root D:/repos/SpireLens`, `--working-dir`, `--run-id`,
 `--attempt-index`, and `--github-token-b64` (the GitHub token minted per attempt
-on the pod from `GLIMMUNG_GITHUB_TOKEN_URL`). Verify-only runs (llm-work
+on the pod from `GLIMMUNG_GITHUB_TOKEN_URL`, for read-only issue context).
+`build-deploy` takes only `--branch` and `--repo-root`; its Forgejo fetch uses
+the host's credential helper. Verify-only runs (llm-work
 skipped) hydrate `test-plan.json` / `implementation.json` onto the laptop via
 the `--*-b64` flags from the declared `test_plan` / `implementation` inputs.
 

@@ -2,7 +2,6 @@ package host
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,10 +12,6 @@ import (
 	"path/filepath"
 	"time"
 )
-
-func basicAuth(user, token string) string {
-	return base64.StdEncoding.EncodeToString([]byte(user + ":" + token))
-}
 
 // bridgeHTTPGet is overridable in tests.
 var bridgeHTTPGet = func(url string) (int, []byte, error) {

@@ -9,16 +9,16 @@ param(
     [Parameter(Mandatory = $true)]
     [string] $OutputPath,
 
-    [string] $GitHubToken = $env:GITHUB_TOKEN,
+    [string] $ForgejoToken = $env:FORGEJO_TOKEN,
 
-    [string] $GitHubApiUrl = "https://api.github.com"
+    [string] $ForgejoApiUrl = "https://forgejo.romaine.life/api/v1"
 )
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-if ([string]::IsNullOrWhiteSpace($GitHubToken)) {
-    throw "A GitHub token is required to resolve pull requests for release notes."
+if ([string]::IsNullOrWhiteSpace($ForgejoToken)) {
+    throw "A Forgejo token is required to resolve pull requests for release notes."
 }
 
 function Invoke-Git {
@@ -37,22 +37,21 @@ function Invoke-Git {
     return $output
 }
 
-function Invoke-GitHubGet {
+function Invoke-ForgejoGet {
     param(
         [Parameter(Mandatory = $true)]
         [string] $Path
     )
 
     $headers = @{
-        Accept = "application/vnd.github+json"
-        Authorization = "Bearer $GitHubToken"
-        "X-GitHub-Api-Version" = "2022-11-28"
+        Accept = "application/json"
+        Authorization = "token $ForgejoToken"
         "User-Agent" = "SpireLens-release-notes"
     }
 
     return Invoke-RestMethod `
         -Method Get `
-        -Uri "$($GitHubApiUrl.TrimEnd('/'))/$($Path.TrimStart('/'))" `
+        -Uri "$($ForgejoApiUrl.TrimEnd('/'))/$($Path.TrimStart('/'))" `
         -Headers $headers
 }
 
@@ -138,10 +137,10 @@ else {
     "$previousTag..$CurrentTag"
 }
 
-$repositoryDetails = Invoke-GitHubGet -Path "repos/$Repository"
+$repositoryDetails = Invoke-ForgejoGet -Path "repos/$Repository"
 $defaultBranch = [string] $repositoryDetails.default_branch
 if ([string]::IsNullOrWhiteSpace($defaultBranch)) {
-    throw "GitHub did not report a default branch for '$Repository'."
+    throw "Forgejo did not report a default branch for '$Repository'."
 }
 
 $commitShas = @(
@@ -154,10 +153,20 @@ if ($commitShas.Count -eq 0) {
 $pullRequestsByNumber = @{}
 $directCommitSubjects = [System.Collections.Generic.List[string]]::new()
 
+# Fetch merged PRs once rather than making a request for every historical commit.
+$pullRequestsByCommit = @{}
+for ($page = 1; ; $page++) {
+    $batch = @(Invoke-ForgejoGet -Path "repos/$Repository/pulls?state=closed&limit=50&page=$page")
+    foreach ($pullRequest in $batch) {
+        if ($pullRequest.merged -and $pullRequest.merge_commit_sha) {
+            $pullRequestsByCommit[[string]$pullRequest.merge_commit_sha] = $pullRequest
+        }
+    }
+    if ($batch.Count -lt 50) { break }
+}
+
 foreach ($commitSha in $commitShas) {
-    $associatedPullRequests = @(
-        Invoke-GitHubGet -Path "repos/$Repository/commits/$commitSha/pulls"
-    )
+    $associatedPullRequests = @($pullRequestsByCommit[[string]$commitSha] | Where-Object { $null -ne $_ })
     $mergedPullRequests = @(
         $associatedPullRequests |
             Where-Object {

@@ -11,7 +11,7 @@ import (
 // Host-local locations ported from prepare-host.ps1.
 const (
 	mcpRepoRoot = `D:\repos\spire-lens-mcp`
-	mcpRepoURL  = "https://github.com/romaine-life/spire-lens-mcp.git"
+	mcpRepoURL  = "https://forgejo.romaine.life/romaine-life/spire-lens-mcp.git"
 )
 
 // PrepareHostParams are the prepare-host host subcommand inputs.

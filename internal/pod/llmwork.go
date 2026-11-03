@@ -99,38 +99,24 @@ func collectJSONOutput(c *step.Context, artifactName, outputKey string) (step.Re
 	return step.Result{}, nil
 }
 
-// pushBranch commits + force-pushes the laptop checkout to glimmung/<run_id> and
-// verifies the branch exists, the Go port of implement.sh's push_branch.
+// pushBranch commits and pushes the laptop checkout to glimmung/<run_id> on
+// Forgejo, then verifies the branch from the same home-side host.
 func pushBranch(c *step.Context) (step.Result, error) {
 	ctx := c.RunContext()
 	conn, lerr := connect(ctx, c)
 	if lerr != nil {
 		return abortOrFail(c, lerr)
 	}
-	token, lerr := runcallbacks.FromContext(c).MintGitHubToken(ctx)
-	if lerr != nil {
-		return step.Result{}, lerr
-	}
 	repo := c.IssueRepo()
 	branch := "glimmung/" + c.RunID()
-	remote := fmt.Sprintf("https://x-access-token:%s@github.com/%s.git", token, repo)
+	remote := issueRepoURL(c)
 	commitMsg := fmt.Sprintf("glimmung: implement %s#%d (%s)", repo, c.IssueNumber(), c.RunID())
 
-	gitSteps := [][]string{
-		{"git", "-C", hostCheckoutPath, "config", "user.email", "glimmung-native@romaine.life"},
-		{"git", "-C", hostCheckoutPath, "config", "user.name", "Glimmung Native Runner"},
-		{"git", "-C", hostCheckoutPath, "checkout", "-B", branch},
-		{"git", "-C", hostCheckoutPath, "add", "-A"},
-		{"git", "-C", hostCheckoutPath, "commit", "--allow-empty", "-m", commitMsg},
-		{"git", "-C", hostCheckoutPath, "push", "--force", remote, "HEAD:refs/heads/" + branch},
-	}
-	for _, s := range gitSteps {
-		if err := conn.RunCommand(ctx, s...); err != nil {
-			return step.Result{}, step.HostError("push_branch", "remote git "+s[3], err)
-		}
+	if err := pushHostBranch(ctx, conn, hostCheckoutPath, remote, branch, commitMsg); err != nil {
+		return step.Result{}, step.HostError("push_branch", "push implementation to Forgejo", err)
 	}
 
-	if !branchExists(ctx, repo, branch, token) {
+	if !hostBranchExists(ctx, conn, hostCheckoutPath, remote, branch) {
 		return step.Result{}, c.Abort("implementation_branch_missing:" + branch)
 	}
 	if err := c.EmitOutput("branch_name", branch); err != nil {
@@ -139,16 +125,29 @@ func pushBranch(c *step.Context) (step.Result, error) {
 	return step.Result{}, nil
 }
 
-func branchExists(ctx context.Context, repo, branch, token string) bool {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/branches/%s", repo, branch)
-	req, err := httpNewRequest(ctx, url, token)
-	if err != nil {
-		return false
+type hostCommander interface {
+	RunCommand(context.Context, ...string) error
+}
+
+// pushHostBranch relies on the host's credential helper. Ordinary push rejects
+// a divergent destination instead of overwriting another implementation.
+func pushHostBranch(ctx context.Context, conn hostCommander, repoRoot, remote, branch, commitMsg string) error {
+	gitSteps := [][]string{
+		{"git", "-C", repoRoot, "config", "user.email", "glimmung-native@romaine.life"},
+		{"git", "-C", repoRoot, "config", "user.name", "Glimmung Native Runner"},
+		{"git", "-C", repoRoot, "checkout", "-B", branch},
+		{"git", "-C", repoRoot, "add", "-A"},
+		{"git", "-C", repoRoot, "commit", "--allow-empty", "-m", commitMsg},
+		{"git", "-C", repoRoot, "push", remote, "HEAD:refs/heads/" + branch},
 	}
-	resp, err := httpDo(req)
-	if err != nil {
-		return false
+	for _, command := range gitSteps {
+		if err := conn.RunCommand(ctx, command...); err != nil {
+			return fmt.Errorf("remote git %s: %w", command[3], err)
+		}
 	}
-	defer resp.Body.Close()
-	return resp.StatusCode >= 200 && resp.StatusCode < 300
+	return nil
+}
+
+func hostBranchExists(ctx context.Context, conn hostCommander, repoRoot, remote, branch string) bool {
+	return conn.RunCommand(ctx, "git", "-C", repoRoot, "ls-remote", "--exit-code", "--heads", remote, "refs/heads/"+branch) == nil
 }

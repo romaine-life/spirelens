@@ -35,26 +35,28 @@ The normal release trigger is a merged version bump, not a manually pushed tag:
 
 1. Put the player-facing bullets in each feature pull request's `## Workshop notes` section.
 2. Open and merge a release pull request that bumps `SpireLens.json` to the next version.
-3. After the merged `main` build succeeds, the release workflow creates the matching tag and
-   dispatches the tagged publication automatically.
-4. The tagged run creates the GitHub release and uploads the same package and changelog to Steam.
+3. After the merged `main` checks succeed on Forgejo, the release job creates the matching tag.
+4. That job uploads the same package and changelog to Steam, then publishes the Forgejo release.
 
-Manually pushing a matching `v*` tag remains a recovery path, but it is not part of the normal
-release process.
+To retry a failed publication, dispatch `.forgejo/workflows/ci.yml` on the same
+`main` commit. Completed versions are left intact.
 
 ## Manual workspace publishing
 
 1. Bump `"version"` in [SpireLens.json](../SpireLens.json) (repo root, source of truth). SemVer-ish:
    minor for features, patch for fixes. The string is shown to subscribers in-game.
-2. Build/deploy as usual, then refresh the workspace copy:
+2. Download the released Forgejo package into the workspace:
 
    ```powershell
-   Copy-Item "D:\SteamLibrary\steamapps\common\Slay the Spire 2\mods\SpireLens\*" `
-             "D:\repos\spirelens-workshop\content\SpireLens\" -Force
+   $release = Invoke-RestMethod 'https://forgejo.romaine.life/api/v1/repos/romaine-life/spirelens/releases/latest'
+   $archive = Join-Path $env:TEMP 'SpireLens.zip'
+   Invoke-WebRequest -Uri ($release.assets | Where-Object name -eq 'SpireLens.zip').browser_download_url -OutFile $archive
+   Expand-Archive -LiteralPath $archive -DestinationPath 'D:\repos\spirelens-workshop\content' -Force
+   Remove-Item -LiteralPath $archive
    ```
 
-   (Same file set the GitHub release packaging in
-   [.github/workflows/release.yml](../.github/workflows/release.yml) stages.)
+   (The signed package built by
+   [.forgejo/workflows/ci.yml](../.forgejo/workflows/ci.yml).)
 3. Set `changeNote` in `workshop.json`.
 4. Steam client running and logged in, then:
 
@@ -68,16 +70,14 @@ line is the SDK's idle state, not an error.
 
 ## Automated releases
 
-[The release workflow](../.github/workflows/release.yml) publishes the exact
-packaged mod to Workshop item `3774710835`. A successful merged `main` build creates and dispatches
-the manifest's tag when that version has not been released yet; an explicit `v*` tag still works as
-a recovery trigger. The tagged publication job:
+[The Forgejo workflow](../.forgejo/workflows/ci.yml) publishes the exact
+packaged mod to Workshop item `3774710835`. A successful merged `main` build
+publishes the manifest's version when it has not been released yet. The publication job:
 
 1. requires the tag to exactly match `SpireLens.json`'s version;
 2. validates the package allowlist;
-3. restores an isolated SteamCMD login from the protected `steam-workshop`
-   GitHub environment;
-4. builds one set of player-facing notes and uses it for both the GitHub
+3. restores an isolated SteamCMD login from the Forgejo repository's Actions secret;
+4. builds one set of player-facing notes and uses it for both the Forgejo
    release and Workshop change note;
 5. uploads only content and a change note, leaving page-managed metadata alone;
 6. serializes uploads so two tags cannot update the item concurrently.
@@ -93,24 +93,24 @@ The Steam VDF keeps the notes' real line-feed characters inside the quoted
 `changenote` value. Do not replace them with a literal `\n`: Steam displays
 those two characters verbatim instead of creating a line break.
 
-The environment itself accepts deployments only from tags matching `v*`.
+The publication job runs only on `main` after both the Go and mod checks pass.
 
-Bootstrap or refresh that environment credential from a trusted Windows machine:
+Bootstrap or refresh that Forgejo credential from a trusted Windows machine:
 
 ```powershell
 .\scripts\bootstrap-steam-workshop-secret.ps1 -SteamUsername <steam-login-name>
 ```
 
 The script opens SteamCMD for one interactive password/Steam Guard login. It
-stores the resulting isolated `config.vdf` as the environment secret
+stores the resulting isolated `config.vdf` as the Forgejo Actions secret
 `STEAM_CONFIG_VDF_B64` and the non-secret login name as `STEAM_USERNAME`.
 It does **not** upload the Steam password or Steam Guard code. Do not substitute
 the desktop Steam client's broad `config.vdf`; use the isolated credential made
 by this script.
 
-The Workshop upload itself runs only in the tagged publication job. Pull requests cannot access the
-protected publishing secret, and ordinary `main` pushes only queue that tagged job when the manifest
-contains a version that has not been released yet.
+The Workshop upload itself runs only in the main-branch publication job. Pull
+request jobs never restore the publishing credential. The isolated credential is
+removed from the runner after publication, including failed attempts.
 
 ## workshop.json clobbers page edits
 

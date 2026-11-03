@@ -116,14 +116,11 @@ func prepareHostCmd(ctx context.Context, args []string) int {
 func buildDeployCmd(ctx context.Context, args []string) int {
 	fs := flag.NewFlagSet("build-deploy", flag.ContinueOnError)
 	var p BuildDeployParams
-	var tokenB64 string
 	fs.StringVar(&p.Branch, "branch", "", "implementation branch to build")
 	fs.StringVar(&p.RepoRoot, "repo-root", `D:\repos\SpireLens`, "code-under-test checkout root")
-	fs.StringVar(&tokenB64, "github-token-b64", "", "base64 GitHub token")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	p.GitHubToken = decodeB64(tokenB64)
 	if lerr := BuildDeploy(ctx, os.Stdout, p); lerr != nil {
 		fmt.Fprintln(os.Stderr, lerr.Error())
 		return 1

@@ -47,7 +47,7 @@ replay stays on the final screen until you exit.
 | Previous / next act | Page Up / Page Down | D-pad ↓ / ↑ |
 | Previous / next run (playlists) | B / N | LT / RT |
 | Restart the current run | Home | X |
-| Hide / show the controls | H | L3 |
+| Hide / show the replay bar | H | L3 |
 | Exit (back to the main menu; ends the whole playlist) | Esc | SpireLens menu → Stop replay |
 | SpireLens menu | Left Shift | R3 (Steam Input off only) |
 
@@ -58,7 +58,8 @@ SpireLens menu only with Steam Input off.
 The status bar sits bottom-left. It shows playing or paused, the speed, the floor (`floor N/total`), the input index
 (`input i/n`) and the resync count, plus a short note when something happens. While a playlist plays, it adds a line
 with the playlist name and `run i/N — <label>`. Under it, a table lists the controls in Keyboard and Controller
-columns; H / L3 hides the table down to a one-line hint (kept for the game session, not saved).
+columns. H / L3 hides the whole bar (status line, notes, controls, the map's act buttons) down to a one-line hint for
+showing it again; kept for the game session, not saved.
 
 **Pause** stops feeding at the next input boundary. Animations still finish.
 

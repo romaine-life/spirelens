@@ -9,8 +9,8 @@ namespace SpireLens.Core.Replay.Playback;
 /// note, and a controls table with labeled Keyboard and Controller columns;
 /// while the floor picker has the map open, the table lists the picker's
 /// controls instead, with Previous / Next act buttons for the mouse (the
-/// only part of the bar that takes clicks). H / L3 hides the table down to a
-/// one-line hint.
+/// only part of the bar that takes clicks). H / L3 hides all of it down to a
+/// one-line hint for showing it again.
 /// Plain Godot controls on a CanvasLayer under the scene root, like the
 /// options menu; freed on playback end and at Core shutdown.
 /// </summary>
@@ -32,7 +32,7 @@ internal static class ReplayPlaybackBar
         ("Previous / next act", "PgUp / PgDn", "D-pad ↓ / ↑"),
         ("Previous / next run", "B / N", "LT / RT"),
         ("Restart run", "Home", "X"),
-        ("Hide controls", "H", "L3"),
+        ("Hide replay bar", "H", "L3"),
         ("SpireLens menu", "Left Shift", "R3"),
         ("Exit replay", "Esc", "Menu → Stop replay"),
     };
@@ -43,7 +43,7 @@ internal static class ReplayPlaybackBar
         ("Move between rooms", "↑ / ↓", "D-pad ↑ / ↓"),
         ("Previous / next act", "PgUp / PgDn, or the buttons", "LB / RB"),
         ("Close the map", "Map icon, M or Esc", "B"),
-        ("Hide controls", "H", "L3"),
+        ("Hide replay bar", "H", "L3"),
     };
 
     private static CanvasLayer? _layer;
@@ -63,8 +63,8 @@ internal static class ReplayPlaybackBar
     private static (bool Controls, bool Picking, bool Note)? _shown;
 
     /// <summary>
-    /// Whether the controls table shows. Kept for the game session (across
-    /// replays and playlists), not saved.
+    /// Whether the bar shows (false: only the hint to show it again). Kept for
+    /// the game session (across replays and playlists), not saved.
     /// </summary>
     public static bool ControlsVisible { get; set; } = true;
 
@@ -127,7 +127,7 @@ internal static class ReplayPlaybackBar
         _pickerTable = NewTable(PickerControls);
         rows.AddChild(_pickerTable);
         _hiddenHint = NewLabel(TextSize, new Color(0.6f, 0.6f, 0.62f));
-        _hiddenHint.Text = "H / L3  show controls";
+        _hiddenHint.Text = "H / L3  show replay controls";
         rows.AddChild(_hiddenHint);
 
         _picking = false;
@@ -201,7 +201,7 @@ internal static class ReplayPlaybackBar
         if (_status.Text != status) _status.Text = status;
         if (_note != null && GodotObject.IsInstanceValid(_note))
         {
-            _note.Visible = note != null;
+            _note.Visible = note != null && ControlsVisible;
             if (note != null && _note.Text != note) _note.Text = note;
         }
         _picking = acts != null;
@@ -226,9 +226,12 @@ internal static class ReplayPlaybackBar
         var shown = (ControlsVisible, _picking, _note?.Visible == true);
         if (_shown == shown) return;
         _shown = shown;
+        // Hidden means everything but the hint to bring it back: status line,
+        // notes, the controls tables and the map's act buttons.
+        if (_status != null) _status.Visible = ControlsVisible;
         _playbackTable.Visible = ControlsVisible && !_picking;
-        if (_pickerTitle != null) _pickerTitle.Visible = _picking;
-        if (_actRow != null) _actRow.Visible = _picking;
+        if (_pickerTitle != null) _pickerTitle.Visible = ControlsVisible && _picking;
+        if (_actRow != null) _actRow.Visible = ControlsVisible && _picking;
         if (_pickerTable != null) _pickerTable.Visible = ControlsVisible && _picking;
         if (_hiddenHint != null) _hiddenHint.Visible = !ControlsVisible;
         if (_panel != null && GodotObject.IsInstanceValid(_panel)) _panel.CallDeferred(Control.MethodName.ResetSize);

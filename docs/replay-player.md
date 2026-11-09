@@ -70,7 +70,8 @@ columns; H / L3 hides the table down to a one-line hint (kept for the game sessi
 
 Floors are picked on the game's own map. The top bar's map icon (or **M / A**) opens the current act's map; playback holds while it is open. The
 rooms the recorded run entered in that act are the only ones you can choose, including rooms later in the act the
-replay has not reached yet (shown as travelable). The bar's table switches to the map's controls:
+replay has not reached yet. The whole recorded path is drawn as already traveled, as a look back over the run; the
+map's marker shows the room the replay is in. The bar's table switches to the map's controls:
 
 | | Keyboard | Controller |
 |---|---|---|
@@ -88,9 +89,10 @@ map reopens on the new act. The map only ever shows the act the replay is in, wh
 reached by changing act first.
 
 How it works: while picking, the game's debug travel switch makes every room clickable, the rooms the recording never
-entered are disabled again, and pad focus is rewired between the recorded rooms; a prefix on
+entered are disabled again, the recorded rooms and the path dots between them take the traveled look, and pad focus is
+rewired between the recorded rooms; a prefix on
 `NMapScreen.OnMapPointSelectedLocally` turns the choice into a jump instead of travel. Closing the map has the game
-recompute every room's state from the run and restores the focus wiring.
+recompute every room's state from the run and restores the path dots and the focus wiring.
 
 While a replay plays, **every other click, key and controller button is swallowed**, so you cannot act on the replayed
 run. Mouse movement still passes, so hover tooltips work. Left Shift / R3 (the SpireLens menu) and F5 (Core hot reload)

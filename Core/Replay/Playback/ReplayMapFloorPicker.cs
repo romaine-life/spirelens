@@ -18,12 +18,13 @@ namespace SpireLens.Core.Replay.Playback;
 ///
 /// The game's map normally lets you pick only the next row's rooms. While
 /// picking, the game's debug travel switch makes every room clickable, the
-/// rooms the recording never entered are disabled again, the recorded rooms
-/// the replay has not reached yet are shown as travelable, and pad focus is
-/// rewired so up/down steps from one recorded room to the next regardless of
-/// the map's paths. Closing the picker puts every one of those back: the
-/// game recomputes the rooms' states from the run, and the saved focus
-/// neighbors are restored.
+/// rooms the recording never entered are disabled again, and the whole
+/// recorded path is drawn as already traveled, rooms and the path dots
+/// between them, as a look back over the run; the game's marker still shows
+/// the current room. Pad focus is rewired so up/down steps from one recorded
+/// room to the next regardless of the map's paths. Closing the picker puts
+/// every one of those back: the game recomputes the rooms' states from the
+/// run, and the saved path dots and focus neighbors are restored.
 ///
 /// The selection itself is intercepted in <see cref="SelectionPatch"/>, a
 /// prefix on <c>NMapScreen.OnMapPointSelectedLocally</c> (the method a room
@@ -40,6 +41,7 @@ internal static class ReplayMapFloorPicker
     private static readonly Dictionary<MapCoord, RecordedRoom> Selectable = new();
     private static readonly Dictionary<NMapPoint, SavedFocus> SavedNeighbors = new();
     private static readonly List<(NMapPoint Point, Callable Callback)> FocusHooks = new();
+    private static readonly Dictionary<TextureRect, (Color Modulate, Vector2 Scale)> SavedTicks = new();
 
     public static bool IsOpen => _screen != null;
 
@@ -77,17 +79,16 @@ internal static class ReplayMapFloorPicker
         // Debug travel makes every room's IsTravelable true; disable the
         // unrecorded ones again after the refresh that applies it.
         screen.SetDebugTravelEnabled(true);
-        var visited = new HashSet<MapCoord>(state.VisitedMapCoords);
         foreach (var (coord, point) in points)
         {
-            if (!Selectable.ContainsKey(coord))
+            if (Selectable.ContainsKey(coord))
+            {
+                point.State = MapPointState.Traveled;
+            }
+            else
             {
                 point.State = MapPointState.Untravelable;
                 point.Disable();
-            }
-            else if (!visited.Contains(coord))
-            {
-                point.State = MapPointState.Travelable;
             }
         }
 
@@ -96,6 +97,7 @@ internal static class ReplayMapFloorPicker
             .Where(points.ContainsKey)
             .Select(c => points[c])
             .ToList();
+        PaintPath(screen, ordered, state.Act.MapTraveledColor);
         WireFocus(ordered);
 
         var focus = ordered.FirstOrDefault(p => Selectable[p.Point.coord].KeyframeIndex == currentKeyframe)
@@ -123,6 +125,7 @@ internal static class ReplayMapFloorPicker
             {
                 screen.Closed -= OnScreenClosed;
                 UnwireFocus();
+                RestoreTicks();
                 screen.RecalculateTravelability();
                 screen.SetDebugTravelEnabled(false);
                 if (_openedMap) screen.Close();
@@ -136,6 +139,7 @@ internal static class ReplayMapFloorPicker
         {
             SavedNeighbors.Clear();
             FocusHooks.Clear();
+            SavedTicks.Clear();
             Selectable.Clear();
             ReplayPlayer.OnFloorPickerClosed();
         }
@@ -158,6 +162,37 @@ internal static class ReplayMapFloorPicker
             all[point.Point.coord] = point;
         }
         return all;
+    }
+
+    /// <summary>
+    /// Color the path dots between consecutive recorded rooms as the game
+    /// colors a traveled path (its act's traveled color, the traveled dot
+    /// size). Rooms reached without a path between them (Winged Boots) have
+    /// no dots to color.
+    /// </summary>
+    private static void PaintPath(NMapScreen screen, List<NMapPoint> ordered, Color traveled)
+    {
+        for (int i = 0; i + 1 < ordered.Count; i++)
+        {
+            if (!screen._paths.TryGetValue((ordered[i].Point.coord, ordered[i + 1].Point.coord), out var ticks)) continue;
+            foreach (var tick in ticks)
+            {
+                if (!GodotObject.IsInstanceValid(tick)) continue;
+                SavedTicks.TryAdd(tick, (tick.Modulate, tick.Scale));
+                tick.Modulate = traveled;
+                tick.Scale = NMapScreen._tickTraveledScale;
+            }
+        }
+    }
+
+    private static void RestoreTicks()
+    {
+        foreach (var (tick, saved) in SavedTicks)
+        {
+            if (!GodotObject.IsInstanceValid(tick)) continue;
+            tick.Modulate = saved.Modulate;
+            tick.Scale = saved.Scale;
+        }
     }
 
     /// <summary>Up / down step through the recorded rooms in play order; left / right stay put.</summary>

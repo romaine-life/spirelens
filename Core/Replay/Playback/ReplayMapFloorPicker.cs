@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Godot;
-using HarmonyLib;
 using MegaCrit.Sts2.Core.Map;
 using MegaCrit.Sts2.Core.Nodes.CommonUi;
 using MegaCrit.Sts2.Core.Nodes.Screens.Map;
@@ -16,20 +15,21 @@ namespace SpireLens.Core.Replay.Playback;
 /// with only the rooms the recording entered selectable; choosing one asks
 /// <see cref="ReplayPlayer"/> to jump to that floor's start.
 ///
-/// The game's map normally lets you pick only the next row's rooms. While
-/// picking, the game's debug travel switch makes every room clickable, the
-/// rooms the recording never entered are disabled again, and the whole
-/// recorded path is drawn as already traveled, rooms and the path dots
-/// between them, as a look back over the run; the game's marker still shows
-/// the current room. Pad focus is rewired so up/down steps from one recorded
-/// room to the next regardless of the map's paths. Closing the picker puts
+/// The map keeps the game's own look and behavior: every room stays a plain,
+/// non-clickable map room (the game pulses the rooms it lets you click), and
+/// the game's travel is switched off while picking, so no click can move
+/// the replayed run. The whole recorded path is drawn as already traveled,
+/// rooms and the path dots between them, as a look back over the run; the
+/// game's marker shows the current room. The choice is read by
+/// <see cref="ReplayPlayer"/>'s input handling instead: a left click on a
+/// recorded room (<see cref="TryChooseUnderMouse"/>), or A / Enter on the
+/// focused one (<see cref="TryChooseFocused"/>). Rooms are focusable while not
+/// clickable (the game allows it), and pad focus is rewired so up/down steps
+/// from one recorded room to the next regardless of the map's paths, with the
+/// game's selection reticle on the focused room. Closing the picker puts
 /// every one of those back: the game recomputes the rooms' states from the
-/// run, and the saved path dots and focus neighbors are restored.
-///
-/// The selection itself is intercepted in <see cref="SelectionPatch"/>, a
-/// prefix on <c>NMapScreen.OnMapPointSelectedLocally</c> (the method a room
-/// click and the replay's own map-vote feeding both call); only while
-/// picking does it act, so feeding is untouched.
+/// run, travel returns to what it was, and the saved path dots and focus
+/// neighbors are restored.
 /// </summary>
 internal static class ReplayMapFloorPicker
 {
@@ -37,10 +37,11 @@ internal static class ReplayMapFloorPicker
 
     private static NMapScreen? _screen;
     private static bool _openedMap;
+    private static bool _travelWasEnabled;
     private static int _act;
     private static readonly Dictionary<MapCoord, RecordedRoom> Selectable = new();
     private static readonly Dictionary<NMapPoint, SavedFocus> SavedNeighbors = new();
-    private static readonly List<(NMapPoint Point, Callable Callback)> FocusHooks = new();
+    private static readonly List<(NMapPoint Point, StringName Signal, Callable Callback)> FocusHooks = new();
     private static readonly Dictionary<TextureRect, (Color Modulate, Vector2 Scale)> SavedTicks = new();
 
     public static bool IsOpen => _screen != null;
@@ -76,21 +77,13 @@ internal static class ReplayMapFloorPicker
         if (_openedMap) screen.Open(isOpenedFromTopBar: true);
         screen.Closed += OnScreenClosed;
 
-        // Debug travel makes every room's IsTravelable true; disable the
-        // unrecorded ones again after the refresh that applies it.
-        screen.SetDebugTravelEnabled(true);
+        // With travel off, every room refreshes as not clickable (no pulse,
+        // no travel); then the recorded path takes the traveled look and the
+        // rest the untravelable one.
+        _travelWasEnabled = screen.IsTravelEnabled;
+        screen.SetTravelEnabled(false);
         foreach (var (coord, point) in points)
-        {
-            if (Selectable.ContainsKey(coord))
-            {
-                point.State = MapPointState.Traveled;
-            }
-            else
-            {
-                point.State = MapPointState.Untravelable;
-                point.Disable();
-            }
-        }
+            point.State = Selectable.ContainsKey(coord) ? MapPointState.Traveled : MapPointState.Untravelable;
 
         var ordered = rooms
             .Select(r => new MapCoord { col = r.Coord.Col, row = r.Coord.Row })
@@ -127,7 +120,7 @@ internal static class ReplayMapFloorPicker
                 UnwireFocus();
                 RestoreTicks();
                 screen.RecalculateTravelability();
-                screen.SetDebugTravelEnabled(false);
+                screen.SetTravelEnabled(_travelWasEnabled);
                 if (_openedMap) screen.Close();
             }
         }
@@ -210,9 +203,12 @@ internal static class ReplayMapFloorPicker
             point.FocusNeighborRight = self;
 
             var target = point;
-            var callback = Callable.From(() => OnRoomFocused(target));
-            point.Connect(Control.SignalName.FocusEntered, callback);
-            FocusHooks.Add((point, callback));
+            var entered = Callable.From(() => OnRoomFocused(target));
+            var exited = Callable.From(() => OnRoomUnfocused(target));
+            point.Connect(Control.SignalName.FocusEntered, entered);
+            point.Connect(Control.SignalName.FocusExited, exited);
+            FocusHooks.Add((point, Control.SignalName.FocusEntered, entered));
+            FocusHooks.Add((point, Control.SignalName.FocusExited, exited));
         }
     }
 
@@ -226,22 +222,29 @@ internal static class ReplayMapFloorPicker
             point.FocusNeighborLeft = saved.Left;
             point.FocusNeighborRight = saved.Right;
         }
-        foreach (var (point, callback) in FocusHooks)
+        foreach (var (point, signal, callback) in FocusHooks)
         {
-            if (GodotObject.IsInstanceValid(point) && point.IsConnected(Control.SignalName.FocusEntered, callback))
-                point.Disconnect(Control.SignalName.FocusEntered, callback);
+            if (!GodotObject.IsInstanceValid(point)) continue;
+            if (point.IsConnected(signal, callback)) point.Disconnect(signal, callback);
+            point._controllerSelectionReticle?.OnDeselect();
         }
     }
 
     /// <summary>
-    /// Pad focus moving to a room far up or down the map: scroll it into
-    /// view, as the game does for the current room. The game only accepts a
-    /// pad selection of a room that is on screen.
+    /// Pad focus on a room: show the game's selection reticle on it (the game
+    /// shows it only on rooms it lets you click) and scroll it into view, as
+    /// the game does for the current room.
     /// </summary>
     private static void OnRoomFocused(NMapPoint point)
     {
         if (!IsOpen || NControllerManager.Instance?.IsUsingDirectionalNavigation != true) return;
+        point._controllerSelectionReticle?.OnSelect();
         ScrollTo(point);
+    }
+
+    private static void OnRoomUnfocused(NMapPoint point)
+    {
+        if (GodotObject.IsInstanceValid(point)) point._controllerSelectionReticle?.OnDeselect();
     }
 
     private static void ScrollTo(NMapPoint point)
@@ -251,30 +254,30 @@ internal static class ReplayMapFloorPicker
         screen._targetDragPos = new Vector2(0f, -600f + point.Point.coord.row * screen._distY);
     }
 
-    /// <summary>A recorded room was chosen: close the map and ask the player to jump there.</summary>
-    private static void Choose(NMapPoint point)
+    /// <summary>A left click: true (and the jump is requested) when it is on a recorded room.</summary>
+    public static bool TryChooseUnderMouse()
     {
-        if (!Selectable.TryGetValue(point.Point.coord, out var room)) return;
-        Close();
-        ReplayPlayer.RequestJumpToRoom(room);
+        var screen = _screen;
+        if (screen == null || !GodotObject.IsInstanceValid(screen)) return false;
+        Node? node = screen.GetViewport()?.GuiGetHoveredControl();
+        while (node != null && node is not NMapPoint) node = node.GetParent();
+        return node is NMapPoint point && Choose(point);
     }
 
-    [HarmonyPatch(typeof(NMapScreen), nameof(NMapScreen.OnMapPointSelectedLocally))]
-    internal static class SelectionPatch
+    /// <summary>A / Enter: true (and the jump is requested) when a recorded room has focus.</summary>
+    public static bool TryChooseFocused()
     {
-        [HarmonyPrefix]
-        private static bool Prefix(NMapPoint point)
-        {
-            if (!IsOpen) return true;
-            try
-            {
-                if (point?.Point != null) Choose(point);
-            }
-            catch (Exception e)
-            {
-                CoreMain.Logger.Warn($"Replay: floor picker selection failed: {e.Message}");
-            }
-            return false;
-        }
+        var screen = _screen;
+        if (screen == null || !GodotObject.IsInstanceValid(screen)) return false;
+        return screen.GetViewport()?.GuiGetFocusOwner() is NMapPoint point && Choose(point);
+    }
+
+    /// <summary>A recorded room was chosen: close the map and ask the player to jump there.</summary>
+    private static bool Choose(NMapPoint point)
+    {
+        if (point.Point == null || !Selectable.TryGetValue(point.Point.coord, out var room)) return false;
+        Close();
+        ReplayPlayer.RequestJumpToRoom(room);
+        return true;
     }
 }

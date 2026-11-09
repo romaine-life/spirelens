@@ -89,11 +89,13 @@ from there. A recording that began mid-run offers only the rooms it entered.
 map reopens on the new act. The map only ever shows the act the replay is in, which is why another act's floor is
 reached by changing act first.
 
-How it works: while picking, the game's debug travel switch makes every room clickable, the rooms the recording never
-entered are disabled again, the recorded rooms and the path dots between them take the traveled look, and pad focus is
-rewired between the recorded rooms; a prefix on
-`NMapScreen.OnMapPointSelectedLocally` turns the choice into a jump instead of travel. Closing the map has the game
-recompute every room's state from the run and restores the path dots and the focus wiring.
+How it works: the map keeps the game's own look and behavior. While picking, the game's travel is switched off, so
+every room is a plain, non-clickable map room (the game pulses only rooms you can click) and no click can move the
+replayed run. The recorded rooms and the path dots between them take the traveled look, and pad focus is rewired
+between the recorded rooms, with the game's selection reticle on the focused one. The replay's input handling reads
+the choice itself: a left click on a recorded room, or A / Enter on the focused one. No game method is patched.
+Closing the map has the game recompute every room's state from the run, puts travel back as it was, and restores the
+path dots and the focus wiring.
 
 While a replay plays, **every other click, key and controller button is swallowed**, so you cannot act on the replayed
 run. Mouse movement still passes, so hover tooltips work. Left Shift / R3 (the SpireLens menu) and F5 (Core hot reload)

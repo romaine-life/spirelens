@@ -44,8 +44,7 @@ namespace SpireLens.Core.Replay.Playback;
 /// <c>ChecksumTracker.ChecksumGenerated</c> event, selections through the
 /// game's <c>CardSelectCmd</c> local-selector seam, input through the existing
 /// <c>StatsVisibilityHotkeyPatch</c> input postfix. Floor jumps go through the
-/// game's map (<see cref="ReplayMapFloorPicker"/>, whose one patch acts only
-/// while it is open).
+/// game's map (<see cref="ReplayMapFloorPicker"/>), with no patch of its own.
 /// </summary>
 public static class ReplayPlayer
 {
@@ -1175,15 +1174,14 @@ public static class ReplayPlayer
     };
 
     // While the floor picker is open these pass to the game so its map can
-    // move focus and choose a room: the pad's d-pad, left stick and A, and
-    // the menu actions the game makes from them.
+    // move focus between rooms: the pad's d-pad and left stick, and the menu
+    // actions the game makes from them. Choosing (A / Enter / a click) is
+    // read by the picker itself.
     private static readonly StringName[] PickerPassActions =
     {
         Controller.dPadUp, Controller.dPadDown, Controller.dPadLeft, Controller.dPadRight,
         Controller.lStickUp, Controller.lStickDown, Controller.lStickLeft, Controller.lStickRight,
-        Controller.faceButtonSouth,
-        MegaInput.up, MegaInput.down, MegaInput.left, MegaInput.right, MegaInput.select,
-        "ui_accept",
+        MegaInput.up, MegaInput.down, MegaInput.left, MegaInput.right,
     };
 
     /// <summary>
@@ -1329,13 +1327,19 @@ public static class ReplayPlayer
                     ReplayMapFloorPicker.Close();
                     return true;
                 }
+                if (mouse.Pressed && ReplayMapFloorPicker.TryChooseUnderMouse()) return true;
                 return mouse.Pressed && !IsOverMap() && !ReplayPlaybackBar.IsUnderMouse();
 
             case InputEventKey key:
             {
                 if (key.Keycode is Key.Shift or Key.F5 || key.PhysicalKeycode is Key.Shift or Key.F5) return false;
                 var k = key.Keycode != Key.None ? key.Keycode : key.PhysicalKeycode;
-                if (k is Key.Up or Key.Down or Key.Left or Key.Right or Key.Enter or Key.KpEnter) return false;
+                if (k is Key.Enter or Key.KpEnter)
+                {
+                    if (key.Pressed && !key.Echo) ReplayMapFloorPicker.TryChooseFocused();
+                    return true;
+                }
+                if (k is Key.Up or Key.Down or Key.Left or Key.Right) return false;
                 if (!key.Pressed || key.Echo) return true;
                 switch (k)
                 {
@@ -1359,12 +1363,14 @@ public static class ReplayPlayer
             if (!evt.IsPressed() && PadHeld.Remove(a.ToString())) return true;
 
             bool pickerControl = a == Controller.faceButtonEast || a == Controller.rightBumper
-                                 || a == Controller.leftBumper || a == Controller.lStickPress;
+                                 || a == Controller.leftBumper || a == Controller.lStickPress
+                                 || a == Controller.faceButtonSouth;
             if (pickerControl)
             {
                 if (PadPress(evt, a))
                 {
                     if (a == Controller.faceButtonEast) ReplayMapFloorPicker.Close();
+                    else if (a == Controller.faceButtonSouth) ReplayMapFloorPicker.TryChooseFocused();
                     else if (a == Controller.rightBumper) RequestAct(+1);
                     else if (a == Controller.leftBumper) RequestAct(-1);
                     else ToggleControls();

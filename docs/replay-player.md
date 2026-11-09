@@ -304,13 +304,23 @@ ShouldSave-gated run save) and prefs (FTUE flags). So:
 - **Crash or game closed mid-replay:** the marker survives. At the next Core load, `ReplayPlayer.OnCoreInitialize`
   restores before any tracker attaches. If the game has not loaded progress yet at that point, the file restore is
   what it then loads.
-- **Core hot reload mid-replay:** the old Core releases everything the game holds back to it:
-  - its selector from the game's selector stack;
-  - its checksum subscription;
-  - the status bar;
-  - `Engine.TimeScale`.
+- **Core hot reload mid-replay:** the replay carries on from the same step; the watcher sees only the status bar
+  being redrawn. A reload never unloads the old Core (the Loader's load context is non-collectible), so the old Core
+  hands its playback state to the new one (`ReplayHandoff`) through the process's AppDomain data, as plain values both
+  Cores can read:
+  - the queue, run, position in the recording, speed, pause, note, a pending request (jump, act change) and whether
+    the map was open for picking a floor;
+  - save points the game reported that playback had not consumed yet;
+  - a card selection the game is waiting on: its options and its completion, which are the game's and the runtime's
+    own objects. The new Core's selector adopts it and answers it; nothing is released with an empty pick.
 
-  The new Core sees the marker and the replay's live run. It returns to the main menu and restores.
+  The old Core takes its selector off the game's stack and drops its checksum subscription, but leaves
+  `Engine.TimeScale` and the data backup alone. The new Core rebuilds the plan from the recording, reinstalls its
+  hooks and continues. If the reload lands while a snapshot is loading, the old Core's load finishes on its own, the
+  new Core waits for it (a completion in the shared state) and continues at the loaded floor's start.
+
+  When the state can't be taken over (no backup marker, no live playback run, the recording gone or unreadable), or
+  the replay was already stopping, the new Core returns to the main menu and restores, as after a crash.
 
 **SpireLens's own suppression:** `ReplayPlaybackGuard.SuppressTracking` is true while a replay plays and while a marker
 is pending.

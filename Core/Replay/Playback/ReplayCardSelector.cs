@@ -25,7 +25,7 @@ internal sealed class ReplayCardSelector : ICardSelector
         public IReadOnlyList<CardModel> Options = new List<CardModel>();
         public int MinSelect;
         public int MaxSelect;
-        public readonly TaskCompletionSource<IEnumerable<CardModel>> Completion =
+        public TaskCompletionSource<IEnumerable<CardModel>> Completion =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
@@ -48,6 +48,27 @@ internal sealed class ReplayCardSelector : ICardSelector
         var request = Pending;
         Pending = null;
         request?.Completion.TrySetResult(picked.ToList());
+    }
+
+    /// <summary>
+    /// The request the game is waiting on, as the game's and the runtime's own
+    /// objects (options, min, max, completion), for a Core reload handover:
+    /// the next Core's selector adopts it and completes it. Null when none.
+    /// </summary>
+    public object[]? ExportPending()
+    {
+        var request = Pending;
+        Pending = null;
+        return request == null ? null : new object[] { request.Options, request.MinSelect, request.MaxSelect, request.Completion };
+    }
+
+    /// <summary>Adopt a request a previous Core's selector exported (see <see cref="ExportPending"/>).</summary>
+    public bool AdoptPending(object[] exported)
+    {
+        if (exported is not [IReadOnlyList<CardModel> options, int min, int max, TaskCompletionSource<IEnumerable<CardModel>> completion])
+            return false;
+        Pending = new Request { Options = options, MinSelect = min, MaxSelect = max, Completion = completion };
+        return true;
     }
 
     /// <summary>

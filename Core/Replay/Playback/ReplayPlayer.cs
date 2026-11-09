@@ -11,6 +11,7 @@ using MegaCrit.Sts2.Core.Commands;
 using MegaCrit.Sts2.Core.ControllerInput;
 using MegaCrit.Sts2.Core.Entities.Multiplayer;
 using MegaCrit.Sts2.Core.Helpers;
+using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Multiplayer;
 using MegaCrit.Sts2.Core.Multiplayer.Game;
 using MegaCrit.Sts2.Core.Multiplayer.Game.PeerInput;
@@ -96,6 +97,11 @@ public static class ReplayPlayer
     private static readonly Queue<(uint Value, string Context)> LiveChecksums = new();
     private static int _checksumMismatches;
 
+    // Core hot reload handover (ReplayHandoff).
+    private static bool _loadInFlight;
+    private static int _loadTargetPos;
+    private static Dictionary<string, object?>? _handedOff;
+
     public static bool IsActive => _active;
 
     // -------- Lifecycle --------
@@ -110,6 +116,8 @@ public static class ReplayPlayer
     {
         try
         {
+            var handedOff = ReplayHandoff.Take();
+            if (handedOff != null && TryContinueAfterReload(handedOff)) return;
             if (!ReplayDataGuard.MarkerExists) return;
             ReplayPlaybackGuard.SetMarkerPresent(true);
             var rm = RunManager.Instance;
@@ -143,22 +151,181 @@ public static class ReplayPlayer
     }
 
     /// <summary>
-    /// CoreMain.Shutdown: stop feeding and release everything the game holds
-    /// back to this assembly (the selector on the game's stack, event
-    /// subscriptions, UI, time scale). The data backup stays: the reloaded
-    /// Core's <see cref="OnCoreInitialize"/> leaves the replay and restores.
+    /// CoreMain.Shutdown. A replay that is playing is handed to the reloaded
+    /// Core (<see cref="ReplayHandoff"/>): this Core stops feeding and takes
+    /// its selector and checksum subscription off the game without
+    /// releasing anything the game is waiting on, and the next Core carries
+    /// on from the same step. A replay that is stopping, or has no run
+    /// loaded, is released as before; the reloaded Core's
+    /// <see cref="OnCoreInitialize"/> then exits it and restores data.
     /// </summary>
     public static void ShutdownForReload()
     {
         if (!_active) return;
         _generation++;
         _active = false;
+        bool pickerOpen = ReplayMapFloorPicker.IsOpen;
         ReplayMapFloorPicker.Close();
-        ReleaseGameHooks();
+        if (!_stopping && _plan != null && _runIndex >= 0 && _runIndex < _queue.Count)
+        {
+            HandOff(pickerOpen);
+        }
+        else
+        {
+            ReleaseGameHooks();
+            CoreMain.Logger.Warn("Replay: Core shutting down mid-replay; the reloaded Core will exit it and restore data");
+        }
         ReplayPlaybackBar.Destroy();
         ReplayPlaybackGuard.SetPlayerActive(false);
         ReplayPlaybackGuard.SetMarkerPresent(ReplayDataGuard.MarkerExists);
-        CoreMain.Logger.Warn("Replay: Core shutting down mid-replay; the reloaded Core will exit it and restore data");
+    }
+
+    private static void HandOff(bool pickerOpen)
+    {
+        var state = new ReplayHandoff(
+            _playlistName,
+            _queue.Select(q => q.Ref).ToList(),
+            _runIndex,
+            _loadInFlight ? _loadTargetPos : _pos,
+            _finished,
+            _lastResyncKeyframe,
+            _resyncRepeats,
+            _divergences,
+            _speedIndex,
+            _paused,
+            _stepOnce,
+            _advanceAt,
+            _note,
+            _noteUntil,
+            ObservedSaves.ToList(),
+            pickerOpen || (_loadInFlight && _reopenPickerAfterLoad),
+            _request.ToString(),
+            _jumpTarget?.KeyframeIndex ?? -1,
+            _reopenPickerAfterLoad && !_loadInFlight);
+        var live = state.ToDictionary();
+        // A load in flight already released any waiting selection; the old
+        // load finishes on its own and completes this when the game is ready.
+        if (_loadInFlight) live[ReplayHandoff.LoadDoneKey] = new TaskCompletionSource();
+        else live[ReplayHandoff.PendingSelectionKey] = _selector?.ExportPending();
+
+        try { _selectorScope?.Dispose(); } catch { }
+        _selectorScope = null;
+        _selector = null;
+        try { if (_checksumSource != null) _checksumSource.ChecksumGenerated -= OnChecksum; } catch { }
+        _checksumSource = null;
+
+        _handedOff = live;
+        ReplayHandoff.Publish(live);
+        CoreMain.Logger.Info(
+            $"Replay: Core reloading mid-replay; handing playback to the reloaded Core at step {state.Position}"
+            + (_loadInFlight ? " (a load is in flight)" : ""));
+    }
+
+    /// <summary>
+    /// The reloaded Core's side of the handover: take over the replay the
+    /// previous Core was playing, from the same step. False (and the caller
+    /// falls back to exiting the replay) when the state is unreadable or the
+    /// replay's run is no longer what the game is playing.
+    /// </summary>
+    private static bool TryContinueAfterReload(Dictionary<string, object?> live)
+    {
+        var state = ReplayHandoff.FromDictionary(live);
+        var rm = RunManager.Instance;
+        string? why =
+            state == null ? "handover state unreadable"
+            : !ReplayDataGuard.MarkerExists ? "no data backup marker"
+            : rm == null || !rm.IsInProgress ? "no run is live"
+            : rm.ShouldSave ? "the live run is not a playback run"
+            : null;
+
+        List<QueuedRun> queue = new();
+        ReplayPlaybackPlan? plan = null;
+        if (why == null)
+        {
+            queue = ReplayPlaylistLibrary.Resolve(state!.Runs).Select(r => new QueuedRun(r.Ref, r.Listing)).ToList();
+            var listing = state.RunIndex >= 0 && state.RunIndex < queue.Count ? queue[state.RunIndex].Listing : null;
+            if (listing == null) why = "the run's recording is gone";
+            else
+            {
+                try { plan = ReplayPlaybackPlan.Build(ReadEventLines(Path.Combine(listing.Directory, "events.jsonl"))); }
+                catch (Exception e) { why = $"the recording could not be read: {e.Message}"; }
+            }
+        }
+        if (why != null || plan == null || state == null)
+        {
+            CoreMain.Logger.Warn($"Replay: not continuing the replay across the Core reload ({why}); exiting it");
+            // Nothing will answer a selection the game is waiting on; release it.
+            if (live.GetValueOrDefault(ReplayHandoff.PendingSelectionKey) is object[] { Length: 4 } p
+                && p[3] is TaskCompletionSource<IEnumerable<CardModel>> waiting)
+                waiting.TrySetResult(new List<CardModel>());
+            return false;
+        }
+
+        _active = true;
+        _stopping = false;
+        _generation++;
+        _queue = queue;
+        _playlistName = state.PlaylistName;
+        _runIndex = state.RunIndex;
+        _plan = plan;
+        _dir = queue[state.RunIndex].Listing!.Directory;
+        _pos = Math.Clamp(state.Position, 0, plan.Steps.Count);
+        _finished = state.Finished;
+        _advanceAt = state.AdvanceAt;
+        _lastResyncKeyframe = state.LastResyncKeyframe;
+        _resyncRepeats = state.ResyncRepeats;
+        _divergences = state.Divergences;
+        _speedIndex = Math.Clamp(state.SpeedIndex, 0, Speeds.Length - 1);
+        _paused = state.Paused;
+        _stepOnce = state.StepOnce;
+        _note = state.Note;
+        _noteUntil = state.NoteUntil;
+        _request = Enum.TryParse<Request>(state.Request, out var request) ? request : Request.None;
+        _jumpTarget = plan.Rooms.FirstOrDefault(r => r.KeyframeIndex == state.JumpKeyframe);
+        if (_request == Request.JumpToRoom && _jumpTarget == null) _request = Request.None;
+        _reopenPickerAfterLoad = state.ReopenPickerAfterLoad;
+        ObservedSaves.Clear();
+        foreach (var key in state.ObservedSaves) ObservedSaves.Enqueue(key);
+        ResetChecksums();
+        ReplayPlaybackGuard.SetPlayerActive(true);
+        ReplayPlaybackGuard.SetMarkerPresent(true);
+
+        var tree = Engine.GetMainLoop() as SceneTree;
+        if (tree != null) ReplayPlaybackBar.Build(tree);
+        TaskHelper.RunSafely(ContinueAfterReloadAsync(_generation, tree, live, state.PickerOpen));
+        return true;
+    }
+
+    private static async Task ContinueAfterReloadAsync(
+        int generation, SceneTree? tree, Dictionary<string, object?> live, bool pickerOpen)
+    {
+        try
+        {
+            if (live.GetValueOrDefault(ReplayHandoff.LoadDoneKey) is TaskCompletionSource loadDone)
+            {
+                await loadDone.Task;
+                // Continue on a frame of our own, not inside the old Core's continuation.
+                if (tree != null) await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+                if (generation != _generation) return;
+                ObservedSaves.Clear();
+                ResetChecksums();
+            }
+
+            InstallGameHooks();
+            if (live.GetValueOrDefault(ReplayHandoff.PendingSelectionKey) is object[] pending
+                && !_selector!.AdoptPending(pending))
+                CoreMain.Logger.Warn("Replay: the selection the game is waiting on could not be taken over");
+            ApplySpeed();
+            CoreMain.Logger.Info(
+                $"Replay: continued across a Core reload: run {_runIndex + 1}/{_queue.Count}, step {_pos}/{_plan!.Steps.Count}");
+            if (pickerOpen) OpenFloorPicker();
+            await RunLoopAsync(generation, tree);
+        }
+        catch (Exception e)
+        {
+            CoreMain.Logger.Error($"Replay: continuing after a Core reload failed: {e}");
+            if (generation == _generation) await StopAsync("playback error");
+        }
     }
 
     /// <summary>Why a replay can't start right now, or null.</summary>
@@ -315,7 +482,7 @@ public static class ReplayPlayer
             if (run.Listing.StartedMidRun)
                 ShowNote($"Recording began mid-run: starting at floor {plan.Steps[startIndex].RoomFloor}");
 
-            await LoadIntoGameAsync(genesis);
+            await LoadIntoGameAsync(genesis, startIndex + 1);
             _pos = startIndex + 1;
             return true;
         }
@@ -420,7 +587,12 @@ public static class ReplayPlayer
     /// (as RoomResetter uses it), except the run is set up for playback —
     /// <see cref="SetUpForPlayback"/> instead of SetUpSavedSingleplayer.
     /// </summary>
-    private static async Task LoadIntoGameAsync(SerializableRun save)
+    /// <summary>
+    /// <paramref name="targetPos"/> is where playback continues once loaded;
+    /// a Core reload during the load hands that position on, and this load
+    /// then finishes for the reloaded Core without hooking itself back in.
+    /// </summary>
+    private static async Task LoadIntoGameAsync(SerializableRun save, int targetPos)
     {
         var game = NGame.Instance ?? throw new InvalidOperationException("NGame not ready");
         ReplayMapFloorPicker.Close();
@@ -429,20 +601,34 @@ public static class ReplayPlayer
         _selector?.Abandon();
         try { _selectorScope?.Dispose(); } catch { }
         _selectorScope = null;
-        NAudioManager.Instance?.StopMusic();
-        await game.Transition.FadeOut(0.15f);
+        _loadInFlight = true;
+        _loadTargetPos = targetPos;
+        try
+        {
+            NAudioManager.Instance?.StopMusic();
+            await game.Transition.FadeOut(0.15f);
 
-        var runState = RunState.FromSerializable(save);
-        if (RunManager.Instance.IsInProgress) RunManager.Instance.CleanUp();
-        SetUpForPlayback(runState, save);
-        game.ReactionContainer.InitializeNetworking(new NetSingleplayerGameService());
-        await game.LoadRun(runState, save.PreFinishedRoom);
+            var runState = RunState.FromSerializable(save);
+            if (RunManager.Instance.IsInProgress) RunManager.Instance.CleanUp();
+            SetUpForPlayback(runState, save);
+            game.ReactionContainer.InitializeNetworking(new NetSingleplayerGameService());
+            await game.LoadRun(runState, save.PreFinishedRoom);
 
-        // CleanUp resets CardSelectCmd's selector stacks; (re)install ours.
-        InstallGameHooks();
-        ObservedSaves.Clear();
-        ResetChecksums();
-        await game.Transition.FadeIn(0.2f);
+            // CleanUp resets CardSelectCmd's selector stacks; (re)install ours,
+            // unless a Core reload handed playback on meanwhile.
+            if (_handedOff == null)
+            {
+                InstallGameHooks();
+                ObservedSaves.Clear();
+                ResetChecksums();
+            }
+            await game.Transition.FadeIn(0.2f);
+        }
+        finally
+        {
+            _loadInFlight = false;
+            if (_handedOff?.GetValueOrDefault(ReplayHandoff.LoadDoneKey) is TaskCompletionSource done) done.TrySetResult();
+        }
     }
 
     /// <summary>
@@ -492,7 +678,7 @@ public static class ReplayPlayer
         CoreMain.Logger.Info($"Replay: loading keyframe seq {step.Seq} (floor {step.RoomFloor}, {step.Snapshot}): {why}");
         _finished = false;
         _advanceAt = null;
-        await LoadIntoGameAsync(save);
+        await LoadIntoGameAsync(save, index + 1);
         _pos = index + 1;
     }
 
@@ -746,18 +932,21 @@ public static class ReplayPlayer
             case Request.PreviousAct:
             {
                 bool reopen = _reopenPickerAfterLoad;
-                _reopenPickerAfterLoad = false;
                 if (plan == null) return true;
                 int direction = request == Request.NextAct ? +1 : -1;
                 int? act = plan.AdjacentAct(CurrentAct(), direction);
                 if (act is not { } target)
                 {
+                    _reopenPickerAfterLoad = false;
                     ShowNote(direction > 0 ? "No later act in this recording" : "No earlier act in this recording");
                     if (reopen) OpenFloorPicker();
                     return true;
                 }
                 var first = plan.RoomsInAct(target)[0];
+                // Kept set through the load, so a Core reload during it hands
+                // "reopen the map" on with the load.
                 await LoadKeyframeAsync(first.KeyframeIndex, $"jump to act {target + 1}");
+                _reopenPickerAfterLoad = false;
                 ShowNote($"Act {target + 1}, floor {first.RoomFloor}");
                 if (reopen) OpenFloorPicker();
                 return true;
@@ -896,7 +1085,9 @@ public static class ReplayPlayer
     private static void OpenFloorPicker()
     {
         var plan = _plan;
-        if (plan == null) return;
+        // _active: an old Core finishing a load after handing playback on
+        // must not open the map; the new Core does.
+        if (plan == null || !_active) return;
         string? why = ReplayMapFloorPicker.Open(plan, plan.CurrentRoomStartIndex(_pos));
         if (why != null) ShowNote($"Can't open the map: {why}");
         UpdateBar();

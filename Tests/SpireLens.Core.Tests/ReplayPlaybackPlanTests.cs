@@ -11,7 +11,8 @@ namespace SpireLens.Core.Tests;
 /// Pins the replay player's pure sequencing (docs/replay-player.md): which
 /// recorded events become fed inputs, keyframes, checksum expectations and
 /// the run end; how a rewind's abandoned branch is skipped; the floor index
-/// used by restart / jump; and the build gate.
+/// used by restart; the recorded rooms and acts the map floor picker offers;
+/// and the build gate.
 /// </summary>
 public class ReplayPlaybackPlanTests
 {
@@ -19,6 +20,16 @@ public class ReplayPlaybackPlanTests
 
     private static string Line(string type, object? data) =>
         ReplayFormat.FormatLine(++_seq, DateTime.UtcNow, type, null, data);
+
+    private static string LineAt(string type, int act, string coord, object? data) =>
+        ReplayFormat.FormatLine(++_seq, DateTime.UtcNow, type,
+            new Dictionary<string, object?> { ["act"] = act, ["coord"] = coord }, data);
+
+    private static Dictionary<string, object?> SaveIn(int act, string key, int floor, string? pre = null) => new()
+    {
+        ["key"] = key, ["snapshot"] = $"snapshots/{key}.json.gz", ["floor"] = floor, ["act"] = act,
+        ["pre_finished_room"] = pre, ["reused"] = false,
+    };
 
     private static Dictionary<string, object?> Save(string key, string snapshot, int floor, string? pre = null, bool reused = false) => new()
     {
@@ -98,9 +109,50 @@ public class ReplayPlaybackPlanTests
         Assert.Equal(1, afterNeow.RoomFloor);
 
         Assert.Equal(2, plan.MaxRoomFloor);
-        Assert.Equal(4, plan.RoomStartKeyframeIndex(2));
-        Assert.Equal(-1, plan.RoomStartKeyframeIndex(3));
+        // These saves carry no map position, so there is no room to pick on the map.
+        Assert.Empty(plan.Rooms);
     }
+
+    [Fact]
+    public void Rooms_AreTheRecordedRoomStartsByActAndMapPosition()
+    {
+        _seq = 0;
+        var plan = ReplayPlaybackPlan.Build(new List<string>
+        {
+            LineAt(ReplayFormat.EvSavePoint, 0, "3,0", SaveIn(0, "A0", 0)),          // 1 act 1 start room (floor 1)
+            LineAt(ReplayFormat.EvSavePoint, 0, "3,0", SaveIn(0, "A0e", 1, "Event")), // 2 finished, not a room start
+            LineAt(ReplayFormat.EvSavePoint, 0, "2,1", SaveIn(0, "A1", 1)),          // 3 floor 2
+            LineAt(ReplayFormat.EvSavePoint, 0, "2,1", SaveIn(0, "A1b", 1)),         // 4 same room again: first one wins
+            LineAt(ReplayFormat.EvSavePoint, 1, "4,0", SaveIn(1, "B0", 2)),          // 5 act 2 start room (floor 3)
+            LineAt(ReplayFormat.EvSavePoint, 1, "5,1", SaveIn(1, "B1", 3)),          // 6 floor 4
+            Line(ReplayFormat.EvSavePoint, SaveIn(1, "B2", 4)),                       // 7 no map position: not offered
+        });
+
+        Assert.Equal(
+            new[] { (0, 0, 3, 0, 1), (2, 0, 2, 1, 2), (4, 1, 4, 0, 3), (5, 1, 5, 1, 4) },
+            plan.Rooms.Select(r => (r.KeyframeIndex, r.Act, r.Coord.Col, r.Coord.Row, r.RoomFloor)));
+        Assert.Equal(new[] { 0, 1 }, plan.Acts);
+        Assert.Equal(new[] { 4, 5 }, plan.RoomsInAct(1).Select(r => r.KeyframeIndex));
+        Assert.Empty(plan.RoomsInAct(2));
+
+        Assert.Equal(1, plan.AdjacentAct(0, +1));
+        Assert.Null(plan.AdjacentAct(1, +1));
+        Assert.Equal(0, plan.AdjacentAct(1, -1));
+        Assert.Null(plan.AdjacentAct(0, -1));
+    }
+
+    [Theory]
+    [InlineData("3,1", 3, 1)]
+    [InlineData("0,15", 0, 15)]
+    public void MapPosition_ParsesTheRecordedCoord(string text, int col, int row) =>
+        Assert.Equal(new MapPosition(col, row), MapPosition.Parse(text));
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("3")]
+    [InlineData("a,b")]
+    public void MapPosition_RejectsAnythingElse(string? text) => Assert.Null(MapPosition.Parse(text));
 
     [Fact]
     public void FloorNavigation_FindsTheRoomStartAndNextKeyframe()

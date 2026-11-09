@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Godot;
 using MegaCrit.Sts2.Core.Commands;
+using MegaCrit.Sts2.Core.ControllerInput;
 using MegaCrit.Sts2.Core.Entities.Multiplayer;
 using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Multiplayer;
@@ -37,15 +38,17 @@ namespace SpireLens.Core.Replay.Playback;
 /// <see cref="ReplayPlaybackGuard"/> keeps SpireLens's own tracking,
 /// recording and import away from the replayed runs.
 ///
-/// No new Harmony target: save points arrive through the existing
-/// <c>RunSaveSnapshotPatch</c> prefix, checksums through the public
+/// Save points arrive through the existing <c>RunSaveSnapshotPatch</c>
+/// prefix, checksums through the public
 /// <c>ChecksumTracker.ChecksumGenerated</c> event, selections through the
 /// game's <c>CardSelectCmd</c> local-selector seam, input through the existing
-/// <c>StatsVisibilityHotkeyPatch</c> input postfix.
+/// <c>StatsVisibilityHotkeyPatch</c> input postfix. Floor jumps go through the
+/// game's map (<see cref="ReplayMapFloorPicker"/>, whose one patch acts only
+/// while it is open).
 /// </summary>
 public static class ReplayPlayer
 {
-    private enum Request { None, RestartFloor, NextFloor, PreviousFloor, NextRun, PreviousRun, RestartRun, Stop }
+    private enum Request { None, RestartFloor, JumpToRoom, NextAct, PreviousAct, NextRun, PreviousRun, RestartRun, Stop }
 
     internal static readonly double[] Speeds = { 0.5, 1, 2, 4, double.PositiveInfinity };
     private const int DefaultSpeedIndex = 1;
@@ -80,10 +83,10 @@ public static class ReplayPlayer
     private static bool _paused;
     private static bool _stepOnce;
     private static Request _request;
+    private static RecordedRoom? _jumpTarget;
+    private static bool _reopenPickerAfterLoad;
     private static string? _note;
     private static DateTime _noteUntil;
-    private static bool _leftTriggerDown;
-    private static bool _rightTriggerDown;
 
     private static ReplayCardSelector? _selector;
     private static IDisposable? _selectorScope;
@@ -150,6 +153,7 @@ public static class ReplayPlayer
         if (!_active) return;
         _generation++;
         _active = false;
+        ReplayMapFloorPicker.Close();
         ReleaseGameHooks();
         ReplayPlaybackBar.Destroy();
         ReplayPlaybackGuard.SetPlayerActive(false);
@@ -229,6 +233,8 @@ public static class ReplayPlayer
         _paused = false;
         _stepOnce = false;
         _request = Request.None;
+        _jumpTarget = null;
+        _reopenPickerAfterLoad = false;
         ReplayPlaybackGuard.SetPlayerActive(true);
         ReplayPlaybackGuard.SetMarkerPresent(true);
         RunTracker.SuspendForPlayback();
@@ -337,6 +343,7 @@ public static class ReplayPlayer
         _generation++;
         CoreMain.Logger.Info($"Replay: stopping ({reason})");
 
+        ReplayMapFloorPicker.Close();
         ReleaseGameHooks();
         ReplayPlaybackBar.Destroy();
 
@@ -416,6 +423,7 @@ public static class ReplayPlayer
     private static async Task LoadIntoGameAsync(SerializableRun save)
     {
         var game = NGame.Instance ?? throw new InvalidOperationException("NGame not ready");
+        ReplayMapFloorPicker.Close();
         // Release a waiting selection and take our selector off the game's
         // stack before CleanUp resets that stack; it is reinstalled after load.
         _selector?.Abandon();
@@ -506,6 +514,10 @@ public static class ReplayPlayer
                 if (await HandleRequestAsync()) { wait.Reset(); continue; }
                 if (generation != _generation) return;
                 UpdateBar();
+
+                // The map is open for picking a floor: nothing is fed and no
+                // wait runs down until it closes.
+                if (ReplayMapFloorPicker.IsOpen) { wait.Reset(); continue; }
 
                 var plan = _plan;
                 if (plan == null) continue;
@@ -720,16 +732,34 @@ public static class ReplayPlayer
                 return true;
             }
 
-            case Request.NextFloor:
-            case Request.PreviousFloor:
+            case Request.JumpToRoom:
             {
+                var room = _jumpTarget;
+                _jumpTarget = null;
+                if (plan == null || room == null) return true;
+                await LoadKeyframeAsync(room.KeyframeIndex, $"jump to floor {room.RoomFloor}");
+                ShowNote($"Jumped to floor {room.RoomFloor}");
+                return true;
+            }
+
+            case Request.NextAct:
+            case Request.PreviousAct:
+            {
+                bool reopen = _reopenPickerAfterLoad;
+                _reopenPickerAfterLoad = false;
                 if (plan == null) return true;
-                int current = Math.Max(1, CurrentFloor());
-                int target = request == Request.NextFloor ? current + 1 : current - 1;
-                int idx = target >= 1 ? plan.RoomStartKeyframeIndex(target) : -1;
-                if (idx < 0) { ShowNote($"No recorded start for floor {target}"); return true; }
-                await LoadKeyframeAsync(idx, $"jump to floor {target}");
-                ShowNote($"Jumped to floor {target}");
+                int direction = request == Request.NextAct ? +1 : -1;
+                int? act = plan.AdjacentAct(CurrentAct(), direction);
+                if (act is not { } target)
+                {
+                    ShowNote(direction > 0 ? "No later act in this recording" : "No earlier act in this recording");
+                    if (reopen) OpenFloorPicker();
+                    return true;
+                }
+                var first = plan.RoomsInAct(target)[0];
+                await LoadKeyframeAsync(first.KeyframeIndex, $"jump to act {target + 1}");
+                ShowNote($"Act {target + 1}, floor {first.RoomFloor}");
+                if (reopen) OpenFloorPicker();
                 return true;
             }
         }
@@ -739,6 +769,12 @@ public static class ReplayPlayer
     private static int CurrentFloor()
     {
         try { return RunManager.Instance.State?.TotalFloor ?? 0; }
+        catch { return 0; }
+    }
+
+    private static int CurrentAct()
+    {
+        try { return RunManager.Instance.State?.CurrentActIndex ?? 0; }
         catch { return 0; }
     }
 
@@ -832,8 +868,48 @@ public static class ReplayPlayer
     }
 
     public static void RequestRestartFloor() => _request = Request.RestartFloor;
-    public static void RequestNextFloor() => _request = Request.NextFloor;
-    public static void RequestPreviousFloor() => _request = Request.PreviousFloor;
+
+    /// <summary>From the floor picker: jump to the start of that recorded room.</summary>
+    internal static void RequestJumpToRoom(RecordedRoom room)
+    {
+        _jumpTarget = room;
+        _request = Request.JumpToRoom;
+    }
+
+    /// <summary>
+    /// Step one act (+1 / -1). From the floor picker, the picker closes for
+    /// the load and reopens on the new act's map.
+    /// </summary>
+    private static void RequestAct(int direction)
+    {
+        _reopenPickerAfterLoad = ReplayMapFloorPicker.IsOpen;
+        if (_reopenPickerAfterLoad) ReplayMapFloorPicker.Close();
+        _request = direction > 0 ? Request.NextAct : Request.PreviousAct;
+    }
+
+    private static void ToggleFloorPicker()
+    {
+        if (ReplayMapFloorPicker.IsOpen) ReplayMapFloorPicker.Close();
+        else OpenFloorPicker();
+    }
+
+    private static void OpenFloorPicker()
+    {
+        var plan = _plan;
+        if (plan == null) return;
+        string? why = ReplayMapFloorPicker.Open(plan, plan.CurrentRoomStartIndex(_pos));
+        if (why != null) ShowNote($"Can't open the map: {why}");
+        UpdateBar();
+    }
+
+    /// <summary>The picker closed (a choice, M / Esc / B, or the map's own back button).</summary>
+    internal static void OnFloorPickerClosed() => UpdateBar();
+
+    private static void ToggleControls()
+    {
+        ReplayPlaybackBar.ControlsVisible = !ReplayPlaybackBar.ControlsVisible;
+        UpdateBar();
+    }
     public static void RequestNextRun() => _request = Request.NextRun;
     public static void RequestPreviousRun() => _request = Request.PreviousRun;
     public static void RequestRestartRun() => _request = Request.RestartRun;
@@ -880,20 +956,78 @@ public static class ReplayPlayer
             line = $"{title}run {_runIndex + 1}/{_queue.Count} — {_queue[_runIndex].Label}\n{line}";
         }
         string? note = _note != null && DateTime.UtcNow < _noteUntil ? _note : null;
-        ReplayPlaybackBar.Update(line, note);
+        ReplayPlaybackBar.Update(line, note, ReplayMapFloorPicker.IsOpen);
     }
 
     // -------- Input (from StatsVisibilityHotkeyPatch's existing _Input postfix) --------
+
+    // Pad buttons are matched by the game's controller actions, not raw
+    // JoyButton values. Under Steam Input (the game's preferred path) a pad
+    // press reaches Godot only as an InputEventAction the game parses
+    // (SteamControllerInputStrategy), never as InputEventJoypadButton; with
+    // Steam Input off, Godot's joypad events match the same actions through
+    // the InputMap. Steam Input's action set has no right-stick click, so R3
+    // (the SpireLens menu) is matched raw and only exists with Steam Input off.
+    private static readonly StringName[] PadActions =
+    {
+        Controller.selectButton, Controller.dPadUp, Controller.dPadDown, Controller.dPadRight,
+        Controller.leftBumper, Controller.rightBumper, Controller.leftTrigger, Controller.rightTrigger,
+        Controller.faceButtonNorth, Controller.faceButtonSouth, Controller.faceButtonEast, Controller.faceButtonWest,
+        Controller.lStickPress,
+    };
+
+    // While the floor picker is open these pass to the game so its map can
+    // move focus and choose a room: the pad's d-pad, left stick and A, and
+    // the menu actions the game makes from them.
+    private static readonly StringName[] PickerPassActions =
+    {
+        Controller.dPadUp, Controller.dPadDown, Controller.dPadLeft, Controller.dPadRight,
+        Controller.lStickUp, Controller.lStickDown, Controller.lStickLeft, Controller.lStickRight,
+        Controller.faceButtonSouth,
+        MegaInput.up, MegaInput.down, MegaInput.left, MegaInput.right, MegaInput.select,
+        "ui_accept",
+    };
+
+    /// <summary>
+    /// Pad actions whose press a replay control consumed and whose release has
+    /// not come yet. A press acts once (triggers are axes that repeat), and its
+    /// release is consumed too: the A that opens the map must not release onto
+    /// it as a click.
+    /// </summary>
+    private static readonly HashSet<string> PadHeld = new();
+
+    private static StringName? PadAction(InputEvent evt, StringName[] actions)
+    {
+        if (evt is not (InputEventAction or InputEventJoypadButton or InputEventJoypadMotion)) return null;
+        foreach (var action in actions)
+        {
+            // IsAction on an InputMap action that doesn't exist logs an error
+            // for every event; a parsed InputEventAction just compares names.
+            if (evt is not InputEventAction && !InputMap.HasAction(action)) continue;
+            if (evt.IsAction(action)) return action;
+        }
+        return null;
+    }
+
+    /// <summary>True on the press edge of a pad control; tracks its release.</summary>
+    private static bool PadPress(InputEvent evt, StringName action)
+    {
+        if (evt.IsPressed()) return PadHeld.Add(action.ToString());
+        PadHeld.Remove(action.ToString());
+        return false;
+    }
 
     /// <summary>
     /// Playback hotkeys, and blocking of every other input that could act on
     /// the replayed run. Returns true when the event is consumed. Left Shift /
     /// R3 (SpireLens menu), F5 (hot reload) and mouse motion (hover) pass.
+    /// While the floor picker is open, see <see cref="HandlePickerInput"/>.
     /// </summary>
     public static bool HandleInput(InputEvent evt)
     {
         if (!_active) return false;
         if (SpireLensOptionsMenu.IsOpen || ReplayPickerMenu.IsOpen) return false;
+        if (ReplayMapFloorPicker.IsOpen) return HandlePickerInput(evt);
 
         switch (evt)
         {
@@ -918,55 +1052,117 @@ public static class ReplayPlayer
                     case Key.KpSubtract:
                     case Key.Bracketleft: ChangeSpeed(-1); break;
                     case Key.R: RequestRestartFloor(); break;
-                    case Key.Pagedown: RequestNextFloor(); break;
-                    case Key.Pageup: RequestPreviousFloor(); break;
+                    case Key.M: ToggleFloorPicker(); break;
+                    case Key.Pagedown: RequestAct(+1); break;
+                    case Key.Pageup: RequestAct(-1); break;
                     case Key.N: RequestNextRun(); break;
                     case Key.B: RequestPreviousRun(); break;
                     case Key.Home: RequestRestartRun(); break;
+                    case Key.H: ToggleControls(); break;
                     case Key.Escape: RequestStop(); break;
                 }
                 return true;
             }
 
-            case InputEventJoypadButton button:
+            case InputEventJoypadButton { ButtonIndex: JoyButton.RightStick }:
+                return false;
+        }
+
+        if (PadAction(evt, PadActions) is { } a && PadPress(evt, a))
+        {
+            if (a == Controller.selectButton) TogglePause();
+            else if (a == Controller.dPadRight) StepOnce();
+            else if (a == Controller.rightBumper) ChangeSpeed(+1);
+            else if (a == Controller.leftBumper) ChangeSpeed(-1);
+            else if (a == Controller.faceButtonNorth) RequestRestartFloor();
+            else if (a == Controller.faceButtonWest) RequestRestartRun();
+            else if (a == Controller.faceButtonSouth) ToggleFloorPicker();
+            else if (a == Controller.dPadUp) RequestAct(+1);
+            else if (a == Controller.dPadDown) RequestAct(-1);
+            else if (a == Controller.rightTrigger) RequestNextRun();
+            else if (a == Controller.leftTrigger) RequestPreviousRun();
+            else if (a == Controller.lStickPress) ToggleControls();
+        }
+        // Everything else (mouse buttons, other pad input, the game's own
+        // actions) is consumed so the watcher cannot act on the replayed run.
+        return true;
+    }
+
+    /// <summary>
+    /// Input while the floor picker has the map open. The map gets what it
+    /// needs to move between rooms and choose one: arrow keys and Enter, the
+    /// pad's d-pad / left stick / A, the mouse wheel, and left clicks on the
+    /// map itself (not the top bar over it, where potions are). M or Esc / B
+    /// close the map, Page Up / Page Down / LB / RB change act, H / L3 toggle
+    /// the controls. Everything else stays blocked.
+    /// </summary>
+    private static bool HandlePickerInput(InputEvent evt)
+    {
+        switch (evt)
+        {
+            case InputEventMouseMotion:
+                return false;
+
+            case InputEventMouseButton mouse:
+                if (mouse.ButtonIndex is MouseButton.WheelUp or MouseButton.WheelDown) return false;
+                return mouse.ButtonIndex != MouseButton.Left || (mouse.Pressed && !IsOverMap());
+
+            case InputEventKey key:
             {
-                if (button.ButtonIndex == JoyButton.RightStick) return false;
-                if (!button.Pressed) return true;
-                switch (button.ButtonIndex)
+                if (key.Keycode is Key.Shift or Key.F5 || key.PhysicalKeycode is Key.Shift or Key.F5) return false;
+                var k = key.Keycode != Key.None ? key.Keycode : key.PhysicalKeycode;
+                if (k is Key.Up or Key.Down or Key.Left or Key.Right or Key.Enter or Key.KpEnter) return false;
+                if (!key.Pressed || key.Echo) return true;
+                switch (k)
                 {
-                    case JoyButton.Back: TogglePause(); break;
-                    case JoyButton.DpadRight: StepOnce(); break;
-                    case JoyButton.RightShoulder: ChangeSpeed(+1); break;
-                    case JoyButton.LeftShoulder: ChangeSpeed(-1); break;
-                    case JoyButton.Y: RequestRestartFloor(); break;
-                    case JoyButton.X: RequestRestartRun(); break;
-                    case JoyButton.DpadUp: RequestNextFloor(); break;
-                    case JoyButton.DpadDown: RequestPreviousFloor(); break;
+                    case Key.M:
+                    case Key.Escape: ReplayMapFloorPicker.Close(); break;
+                    case Key.Pagedown: RequestAct(+1); break;
+                    case Key.Pageup: RequestAct(-1); break;
+                    case Key.H: ToggleControls(); break;
                 }
                 return true;
             }
 
-            case InputEventJoypadMotion motion:
+            case InputEventJoypadButton { ButtonIndex: JoyButton.RightStick }:
+                return false;
+        }
+
+        if (PadAction(evt, PadActions) is { } a)
+        {
+            // The release of a press a control consumed (the A that opened
+            // the map included) is consumed with it.
+            if (!evt.IsPressed() && PadHeld.Remove(a.ToString())) return true;
+
+            bool pickerControl = a == Controller.faceButtonEast || a == Controller.rightBumper
+                                 || a == Controller.leftBumper || a == Controller.lStickPress;
+            if (pickerControl)
             {
-                // Triggers are axes: act on the press edge. RT next run, LT previous run.
-                bool down = motion.AxisValue > 0.55f;
-                if (motion.Axis == JoyAxis.TriggerRight)
+                if (PadPress(evt, a))
                 {
-                    if (down && !_rightTriggerDown) RequestNextRun();
-                    _rightTriggerDown = down;
-                }
-                else if (motion.Axis == JoyAxis.TriggerLeft)
-                {
-                    if (down && !_leftTriggerDown) RequestPreviousRun();
-                    _leftTriggerDown = down;
+                    if (a == Controller.faceButtonEast) ReplayMapFloorPicker.Close();
+                    else if (a == Controller.rightBumper) RequestAct(+1);
+                    else if (a == Controller.leftBumper) RequestAct(-1);
+                    else ToggleControls();
                 }
                 return true;
             }
+        }
 
-            default:
-                // Mouse buttons, touch, actions: consumed so the watcher
-                // cannot act on the replayed run.
-                return true;
+        return PadAction(evt, PickerPassActions) == null;
+    }
+
+    private static bool IsOverMap()
+    {
+        try
+        {
+            var screen = MegaCrit.Sts2.Core.Nodes.Screens.Map.NMapScreen.Instance;
+            var hovered = screen?.GetViewport()?.GuiGetHoveredControl();
+            return screen != null && hovered != null && (hovered == screen || screen.IsAncestorOf(hovered));
+        }
+        catch
+        {
+            return false;
         }
     }
 }

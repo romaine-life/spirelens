@@ -39,30 +39,63 @@ replay stays on the final screen until you exit.
 
 | | Keyboard | Controller |
 |---|---|---|
-| Pause / resume | Space | Select (Back) |
+| Pause / resume | Space | Select (View) |
 | Step one input (while paused) | `.` or → | D-pad → |
 | Slower / faster (0.5x, 1x, 2x, 4x, max) | `-` / `=` (also `[` / `]`, keypad −/+) | LB / RB |
 | Restart the current floor | R | Y |
-| Previous / next floor | Page Up / Page Down | D-pad ↓ / ↑ |
+| Pick a floor on the map | M | A |
+| Previous / next act | Page Up / Page Down | D-pad ↓ / ↑ |
 | Previous / next run (playlists) | B / N | LT / RT |
 | Restart the current run | Home | X |
-| Exit (back to the main menu; ends the whole playlist) | Esc | SpireLens menu (R3) → Stop replay |
-| SpireLens menu | Left Shift | R3 |
+| Hide / show the controls | H | L3 |
+| Exit (back to the main menu; ends the whole playlist) | Esc | SpireLens menu → Stop replay |
+| SpireLens menu | Left Shift | R3 (Steam Input off only) |
+
+Controller buttons are read through the game's own controller actions, so they work with Steam Input on (the game then
+sees a pad only through those actions) and off. Steam Input gives the game no right-stick click, so R3 opens the
+SpireLens menu only with Steam Input off.
 
 The status bar sits bottom-left. It shows playing or paused, the speed, the floor (`floor N/total`), the input index
 (`input i/n`) and the resync count, plus a short note when something happens. While a playlist plays, it adds a line
-with the playlist name and `run i/N — <label>`.
+with the playlist name and `run i/N — <label>`. Under it, a table lists the controls in Keyboard and Controller
+columns; H / L3 hides the table down to a one-line hint (kept for the game session, not saved).
 
 **Pause** stops feeding at the next input boundary. Animations still finish.
 
 **Speed** sets `Engine.TimeScale` (0.5–4) and the delay between inputs. **Max** uses 4x time and no delay.
 
 **Restart floor** reloads the recording's snapshot from the start of the current floor and replays that floor's inputs.
-**Previous/next floor** loads that floor's start snapshot and continues from there.
+
+### Jumping to a floor
+
+Floors are picked on the game's own map. **M / A** opens the current act's map; playback holds while it is open. The
+rooms the recorded run entered in that act are the only ones you can choose, including rooms later in the act the
+replay has not reached yet (shown as travelable). The bar's table switches to the map's controls:
+
+| | Keyboard | Controller |
+|---|---|---|
+| Choose a room | Click, or Enter | A |
+| Move between rooms | ↑ / ↓ | D-pad ↑ / ↓ (or left stick) |
+| Previous / next act | Page Up / Page Down | LB / RB |
+| Close the map | M or Esc | B |
+
+On a controller, up and down step from one recorded room to the next in the order they were played, whatever the
+map's paths, and the map scrolls to follow. Choosing a room loads that floor's start snapshot and playback continues
+from there. A recording that began mid-run offers only the rooms it entered.
+
+**Previous / next act** loads the first recorded room of the act before or after the current one; from the map, the
+map reopens on the new act. The map only ever shows the act the replay is in, which is why another act's floor is
+reached by changing act first.
+
+How it works: while picking, the game's debug travel switch makes every room clickable, the rooms the recording never
+entered are disabled again, and pad focus is rewired between the recorded rooms; a prefix on
+`NMapScreen.OnMapPointSelectedLocally` turns the choice into a jump instead of travel. Closing the map has the game
+recompute every room's state from the run and restores the focus wiring.
 
 While a replay plays, **every other click, key and controller button is swallowed**, so you cannot act on the replayed
 run. Mouse movement still passes, so hover tooltips work. Left Shift / R3 (the SpireLens menu) and F5 (Core hot reload)
-also pass.
+also pass. With the map open for picking a floor, the map also gets arrow keys, Enter, the mouse wheel, left clicks on
+the map itself (not the top bar over it), and the controller's d-pad, left stick and A.
 
 ## Playlists
 

@@ -35,7 +35,8 @@ public sealed record PlaybackStep(
     string? Snapshot = null,
     int Floor = 0,
     int Act = 0,
-    string? PreFinishedRoom = null)
+    string? PreFinishedRoom = null,
+    MapPosition? Coord = null)
 {
     /// <summary>
     /// For a keyframe: the floor of the room the save belongs to. A room-entry
@@ -48,6 +49,22 @@ public sealed record PlaybackStep(
     /// <summary>A keyframe written as a room is entered (the start of a floor).</summary>
     public bool IsRoomStart => Kind == PlaybackStepKind.Keyframe && PreFinishedRoom == null;
 }
+
+/// <summary>A room's place on its act's map: the game's <c>MapCoord</c> as recorded ("col,row").</summary>
+public readonly record struct MapPosition(int Col, int Row)
+{
+    public static MapPosition? Parse(string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return null;
+        var parts = text.Split(',');
+        return parts.Length == 2 && int.TryParse(parts[0], out int col) && int.TryParse(parts[1], out int row)
+            ? new MapPosition(col, row)
+            : null;
+    }
+}
+
+/// <summary>A room the recording entered: its room-start keyframe, act, map position and floor.</summary>
+public sealed record RecordedRoom(int KeyframeIndex, int Act, MapPosition Coord, int RoomFloor);
 
 /// <summary>
 /// The playable form of a recording: the canonical timeline
@@ -101,6 +118,16 @@ public sealed class ReplayPlaybackPlan
         Branches = branches;
         SkippedConsoleCommands = skippedConsole;
         UnparsableLines = unparsable;
+
+        var rooms = new List<RecordedRoom>();
+        var seen = new HashSet<(int, MapPosition)>();
+        for (int i = 0; i < steps.Count; i++)
+        {
+            var step = steps[i];
+            if (!step.IsRoomStart || step.Coord is not { } coord) continue;
+            if (seen.Add((step.Act, coord))) rooms.Add(new RecordedRoom(i, step.Act, coord, step.RoomFloor));
+        }
+        Rooms = rooms;
     }
 
     public int InputCount => Steps.Count(s => s.Kind == PlaybackStepKind.Input);
@@ -111,9 +138,29 @@ public sealed class ReplayPlaybackPlan
     /// <summary>Highest room floor any keyframe reaches.</summary>
     public int MaxRoomFloor => Steps.Where(s => s.IsRoomStart).Select(s => s.RoomFloor).DefaultIfEmpty(0).Max();
 
-    /// <summary>The room-start keyframe of floor <paramref name="roomFloor"/> (its first canonical one), or -1.</summary>
-    public int RoomStartKeyframeIndex(int roomFloor) =>
-        IndexOfFirst(s => s.IsRoomStart && s.RoomFloor == roomFloor);
+    /// <summary>
+    /// Every room the recording entered, in play order: the first room-start
+    /// keyframe of each (act, map position) that has one. These are the rooms
+    /// the map floor picker offers; a room the recording only reached
+    /// mid-way (it began mid-run) has no start to jump to and is not listed.
+    /// </summary>
+    public IReadOnlyList<RecordedRoom> Rooms { get; }
+
+    /// <summary>The acts the recording has rooms in, ascending.</summary>
+    public IReadOnlyList<int> Acts => Rooms.Select(r => r.Act).Distinct().OrderBy(a => a).ToList();
+
+    /// <summary>The rooms of <paramref name="act"/>, in play order.</summary>
+    public IReadOnlyList<RecordedRoom> RoomsInAct(int act) => Rooms.Where(r => r.Act == act).ToList();
+
+    /// <summary>
+    /// The act <paramref name="direction"/> steps (+1 / -1) from
+    /// <paramref name="currentAct"/> that the recording has rooms in, or null
+    /// at either end.
+    /// </summary>
+    public int? AdjacentAct(int currentAct, int direction) =>
+        direction > 0
+            ? Acts.Where(a => a > currentAct).Select(a => (int?)a).FirstOrDefault()
+            : Acts.Where(a => a < currentAct).Select(a => (int?)a).LastOrDefault();
 
     /// <summary>
     /// The room-start keyframe the step at <paramref name="position"/> belongs
@@ -198,7 +245,8 @@ public sealed class ReplayPlaybackPlan
                         Snapshot: GetString(data, "snapshot"),
                         Floor: GetInt(data, "floor"),
                         Act: GetInt(data, "act"),
-                        PreFinishedRoom: GetString(data, "pre_finished_room")));
+                        PreFinishedRoom: GetString(data, "pre_finished_room"),
+                        Coord: MapPosition.Parse(GetString(root, "coord"))));
                     break;
 
                 case ReplayFormat.EvAction:

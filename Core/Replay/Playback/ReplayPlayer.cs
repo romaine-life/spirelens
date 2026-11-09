@@ -880,7 +880,7 @@ public static class ReplayPlayer
     /// Step one act (+1 / -1). From the floor picker, the picker closes for
     /// the load and reopens on the new act's map.
     /// </summary>
-    private static void RequestAct(int direction)
+    internal static void RequestAct(int direction)
     {
         _reopenPickerAfterLoad = ReplayMapFloorPicker.IsOpen;
         if (_reopenPickerAfterLoad) ReplayMapFloorPicker.Close();
@@ -902,7 +902,14 @@ public static class ReplayPlayer
         UpdateBar();
     }
 
-    /// <summary>The picker closed (a choice, M / Esc / B, or the map's own back button).</summary>
+    /// <summary>The act the map shows and the recorded acts either side, for the bar's act buttons.</summary>
+    private static ReplayPlaybackBar.ActNav PickerActs(ReplayPlaybackPlan plan)
+    {
+        int act = CurrentAct();
+        return new ReplayPlaybackBar.ActNav(act, plan.AdjacentAct(act, -1), plan.AdjacentAct(act, +1));
+    }
+
+    /// <summary>The picker closed (a choice, M / Esc / B, the map icon, or the map's own back button).</summary>
     internal static void OnFloorPickerClosed() => UpdateBar();
 
     private static void ToggleControls()
@@ -956,7 +963,7 @@ public static class ReplayPlayer
             line = $"{title}run {_runIndex + 1}/{_queue.Count} — {_queue[_runIndex].Label}\n{line}";
         }
         string? note = _note != null && DateTime.UtcNow < _noteUntil ? _note : null;
-        ReplayPlaybackBar.Update(line, note, ReplayMapFloorPicker.IsOpen);
+        ReplayPlaybackBar.Update(line, note, ReplayMapFloorPicker.IsOpen ? PickerActs(plan) : null);
     }
 
     // -------- Input (from StatsVisibilityHotkeyPatch's existing _Input postfix) --------
@@ -996,6 +1003,9 @@ public static class ReplayPlayer
     /// </summary>
     private static readonly HashSet<string> PadHeld = new();
 
+    /// <summary>A left press on the top bar's map icon was consumed; its release is consumed too.</summary>
+    private static bool _iconReleasePending;
+
     private static StringName? PadAction(InputEvent evt, StringName[] actions)
     {
         if (evt is not (InputEventAction or InputEventJoypadButton or InputEventJoypadMotion)) return null;
@@ -1033,6 +1043,15 @@ public static class ReplayPlayer
         {
             case InputEventMouseMotion:
                 return false;
+
+            case InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: true } when IsOverMapIcon():
+                _iconReleasePending = true;
+                OpenFloorPicker();
+                return true;
+
+            case InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: false }:
+                _iconReleasePending = false;
+                return true;
 
             case InputEventKey key:
             {
@@ -1105,7 +1124,21 @@ public static class ReplayPlayer
 
             case InputEventMouseButton mouse:
                 if (mouse.ButtonIndex is MouseButton.WheelUp or MouseButton.WheelDown) return false;
-                return mouse.ButtonIndex != MouseButton.Left || (mouse.Pressed && !IsOverMap());
+                if (mouse.ButtonIndex != MouseButton.Left) return true;
+                // The release of the click that opened the picker must not
+                // reach the icon, which would open or close the plain map.
+                if (!mouse.Pressed && _iconReleasePending)
+                {
+                    _iconReleasePending = false;
+                    return true;
+                }
+                if (mouse.Pressed && IsOverMapIcon())
+                {
+                    _iconReleasePending = true;
+                    ReplayMapFloorPicker.Close();
+                    return true;
+                }
+                return mouse.Pressed && !IsOverMap() && !ReplayPlaybackBar.IsUnderMouse();
 
             case InputEventKey key:
             {
@@ -1150,6 +1183,25 @@ public static class ReplayPlayer
         }
 
         return PadAction(evt, PickerPassActions) == null;
+    }
+
+    /// <summary>
+    /// The top bar's map icon is under the mouse. During a replay it opens
+    /// and closes the floor picker instead of the plain map.
+    /// </summary>
+    private static bool IsOverMapIcon()
+    {
+        try
+        {
+            var icon = MegaCrit.Sts2.Core.Nodes.NRun.Instance?.GlobalUi?.TopBar?.Map;
+            if (icon == null || !GodotObject.IsInstanceValid(icon)) return false;
+            var hovered = icon.GetViewport()?.GuiGetHoveredControl();
+            return hovered != null && (hovered == icon || icon.IsAncestorOf(hovered));
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static bool IsOverMap()

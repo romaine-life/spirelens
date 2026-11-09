@@ -43,7 +43,7 @@ replay stays on the final screen until you exit.
 | Step one input (while paused) | `.` or → | D-pad → |
 | Slower / faster (0.5x, 1x, 2x, 4x, max) | `-` / `=` (also `[` / `]`, keypad −/+) | LB / RB |
 | Restart the current floor | R | Y |
-| Pick a floor on the map | M | A |
+| Pick a floor on the map | the top bar's map icon, or M | A |
 | Previous / next act | Page Up / Page Down | D-pad ↓ / ↑ |
 | Previous / next run (playlists) | B / N | LT / RT |
 | Restart the current run | Home | X |
@@ -68,7 +68,7 @@ columns; H / L3 hides the table down to a one-line hint (kept for the game sessi
 
 ### Jumping to a floor
 
-Floors are picked on the game's own map. **M / A** opens the current act's map; playback holds while it is open. The
+Floors are picked on the game's own map. The top bar's map icon (or **M / A**) opens the current act's map; playback holds while it is open. The
 rooms the recorded run entered in that act are the only ones you can choose, including rooms later in the act the
 replay has not reached yet (shown as travelable). The bar's table switches to the map's controls:
 
@@ -76,8 +76,8 @@ replay has not reached yet (shown as travelable). The bar's table switches to th
 |---|---|---|
 | Choose a room | Click, or Enter | A |
 | Move between rooms | ↑ / ↓ | D-pad ↑ / ↓ (or left stick) |
-| Previous / next act | Page Up / Page Down | LB / RB |
-| Close the map | M or Esc | B |
+| Previous / next act | the bar's ◀ Previous act / Next act ▶ buttons, or Page Up / Page Down | LB / RB |
+| Close the map | the map icon, M or Esc | B |
 
 On a controller, up and down step from one recorded room to the next in the order they were played, whatever the
 map's paths, and the map scrolls to follow. Choosing a room loads that floor's start snapshot and playback continues
@@ -95,7 +95,9 @@ recompute every room's state from the run and restores the focus wiring.
 While a replay plays, **every other click, key and controller button is swallowed**, so you cannot act on the replayed
 run. Mouse movement still passes, so hover tooltips work. Left Shift / R3 (the SpireLens menu) and F5 (Core hot reload)
 also pass. With the map open for picking a floor, the map also gets arrow keys, Enter, the mouse wheel, left clicks on
-the map itself (not the top bar over it), and the controller's d-pad, left stick and A.
+the map itself and the bar's act buttons (not the rest of the top bar over it, where potions are), and the
+controller's d-pad, left stick and A. During a replay the top bar's map icon opens and closes the floor picker
+instead of the plain map.
 
 ## Playlists
 

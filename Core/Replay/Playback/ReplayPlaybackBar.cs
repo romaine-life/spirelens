@@ -8,12 +8,17 @@ namespace SpireLens.Core.Replay.Playback;
 /// in <see cref="ReplayPlayer.HandleInput"/>. Shows the status line, a short
 /// note, and a controls table with labeled Keyboard and Controller columns;
 /// while the floor picker has the map open, the table lists the picker's
-/// controls instead. H / L3 hides the table down to a one-line hint.
+/// controls instead, with Previous / Next act buttons for the mouse (the
+/// only part of the bar that takes clicks). H / L3 hides the table down to a
+/// one-line hint.
 /// Plain Godot controls on a CanvasLayer under the scene root, like the
 /// options menu; freed on playback end and at Core shutdown.
 /// </summary>
 internal static class ReplayPlaybackBar
 {
+    /// <summary>The act the map shows and the recorded acts before and after it (null at either end).</summary>
+    public readonly record struct ActNav(int Act, int? Previous, int? Next);
+
     private const int Layer = 950;
     private const int TextSize = 13;
 
@@ -23,7 +28,7 @@ internal static class ReplayPlaybackBar
         ("Step (paused)", ". or →", "D-pad →"),
         ("Slower / faster", "− / +", "LB / RB"),
         ("Restart floor", "R", "Y"),
-        ("Pick a floor on the map", "M", "A"),
+        ("Pick a floor on the map", "Map icon or M", "A"),
         ("Previous / next act", "PgUp / PgDn", "D-pad ↓ / ↑"),
         ("Previous / next run", "B / N", "LT / RT"),
         ("Restart run", "Home", "X"),
@@ -36,8 +41,8 @@ internal static class ReplayPlaybackBar
     {
         ("Choose a room", "Click or Enter", "A"),
         ("Move between rooms", "↑ / ↓", "D-pad ↑ / ↓"),
-        ("Previous / next act", "PgUp / PgDn", "LB / RB"),
-        ("Close the map", "M or Esc", "B"),
+        ("Previous / next act", "PgUp / PgDn, or the buttons", "LB / RB"),
+        ("Close the map", "Map icon, M or Esc", "B"),
         ("Hide controls", "H", "L3"),
     };
 
@@ -49,6 +54,11 @@ internal static class ReplayPlaybackBar
     private static GridContainer? _pickerTable;
     private static Label? _pickerTitle;
     private static Label? _hiddenHint;
+    private static HBoxContainer? _actRow;
+    private static Button? _previousAct;
+    private static Button? _nextAct;
+    private static Label? _actLabel;
+    private static ActNav? _acts;
     private static bool _picking;
     private static (bool Controls, bool Picking, bool Note)? _shown;
 
@@ -104,6 +114,16 @@ internal static class ReplayPlaybackBar
         _pickerTitle = NewLabel(TextSize + 1, new Color(0.95f, 0.95f, 0.95f));
         _pickerTitle.Text = "Map: pick a floor to jump to";
         rows.AddChild(_pickerTitle);
+        _actRow = new HBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
+        _actRow.AddThemeConstantOverride("separation", 10);
+        _previousAct = NewActButton(-1);
+        _actRow.AddChild(_previousAct);
+        _actLabel = NewLabel(TextSize + 1, new Color(0.95f, 0.95f, 0.95f));
+        _actLabel.VerticalAlignment = VerticalAlignment.Center;
+        _actRow.AddChild(_actLabel);
+        _nextAct = NewActButton(+1);
+        _actRow.AddChild(_nextAct);
+        rows.AddChild(_actRow);
         _pickerTable = NewTable(PickerControls);
         rows.AddChild(_pickerTable);
         _hiddenHint = NewLabel(TextSize, new Color(0.6f, 0.6f, 0.62f));
@@ -111,6 +131,7 @@ internal static class ReplayPlaybackBar
         rows.AddChild(_hiddenHint);
 
         _picking = false;
+        _acts = null;
         _shown = null;
         ApplyVisibility();
     }
@@ -138,6 +159,27 @@ internal static class ReplayPlaybackBar
         return grid;
     }
 
+    private static Button NewActButton(int direction)
+    {
+        var button = new Button
+        {
+            Text = direction < 0 ? "◀ Previous act" : "Next act ▶",
+            FocusMode = Control.FocusModeEnum.None,
+            MouseFilter = Control.MouseFilterEnum.Stop,
+        };
+        button.AddThemeFontSizeOverride("font_size", TextSize);
+        button.Pressed += () => ReplayPlayer.RequestAct(direction);
+        return button;
+    }
+
+    /// <summary>The mouse is over one of the bar's clickable parts (the act buttons).</summary>
+    public static bool IsUnderMouse()
+    {
+        if (_actRow == null || !GodotObject.IsInstanceValid(_actRow) || !_actRow.IsVisibleInTree()) return false;
+        var hovered = _actRow.GetViewport()?.GuiGetHoveredControl();
+        return hovered != null && _actRow.IsAncestorOf(hovered);
+    }
+
     private static Label Text(Label label, string text)
     {
         label.Text = text;
@@ -152,7 +194,8 @@ internal static class ReplayPlaybackBar
         return label;
     }
 
-    public static void Update(string status, string? note, bool picking)
+    /// <summary><paramref name="acts"/> is non-null while the floor picker has the map open.</summary>
+    public static void Update(string status, string? note, ActNav? acts)
     {
         if (_status == null || !GodotObject.IsInstanceValid(_status)) return;
         if (_status.Text != status) _status.Text = status;
@@ -161,7 +204,14 @@ internal static class ReplayPlaybackBar
             _note.Visible = note != null;
             if (note != null && _note.Text != note) _note.Text = note;
         }
-        _picking = picking;
+        _picking = acts != null;
+        if (acts != _acts && acts is { } nav && _actLabel != null && _previousAct != null && _nextAct != null)
+        {
+            _actLabel.Text = $"Act {nav.Act + 1}";
+            _previousAct.Disabled = nav.Previous == null;
+            _nextAct.Disabled = nav.Next == null;
+        }
+        _acts = acts;
         ApplyVisibility();
     }
 
@@ -178,6 +228,7 @@ internal static class ReplayPlaybackBar
         _shown = shown;
         _playbackTable.Visible = ControlsVisible && !_picking;
         if (_pickerTitle != null) _pickerTitle.Visible = _picking;
+        if (_actRow != null) _actRow.Visible = _picking;
         if (_pickerTable != null) _pickerTable.Visible = ControlsVisible && _picking;
         if (_hiddenHint != null) _hiddenHint.Visible = !ControlsVisible;
         if (_panel != null && GodotObject.IsInstanceValid(_panel)) _panel.CallDeferred(Control.MethodName.ResetSize);
@@ -194,5 +245,10 @@ internal static class ReplayPlaybackBar
         _pickerTable = null;
         _pickerTitle = null;
         _hiddenHint = null;
+        _actRow = null;
+        _previousAct = null;
+        _nextAct = null;
+        _actLabel = null;
+        _acts = null;
     }
 }

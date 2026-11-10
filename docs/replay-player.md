@@ -26,10 +26,10 @@ the main menu; opened in a run, the Replays page shows why and greys out the Pla
 is drawn by the Core each time it opens, so it is current and follows Core hot reloads; if no Core is loaded the
 page says so in one line.
 
-Above the Replay section, the Replays page draws a **Playlists** section. Each saved playlist is shown with its name, run
-count and playable count, and a Play button; a playlist with nothing playable shows "Unavailable". The section also
-has a one-line hint that playlists are made in the web page (`spirelens-db serve`, http://127.0.0.1:8737). It is
-rebuilt every time the page opens. See [Playlists](#playlists).
+Above the Replay section, the Replays page draws a **Playlists** section: the built-in presets first, then each saved
+playlist, each with its name, run count, playable count and a Play button; one with nothing playable shows
+"Unavailable". The section ends with a one-line hint that saved playlists are made in the web page (`spirelens-db serve`,
+http://127.0.0.1:8737). It is rebuilt every time the page opens. See [Playlists](#playlists).
 
 To stop a replay: press **Esc**, choose **Stop replay** in the SpireLens overlay, or wait for the end. (The Replays page
 also shows Stop replay while one plays, but playback swallows the clicks needed to get there.) The game returns to the main menu and your data is restored. A finished
@@ -146,6 +146,16 @@ A playlist plays a list of recordings back to back. Playlists are made in the ru
 (`spirelens-db serve`, at http://127.0.0.1:8737; see [run-database.md](run-database.md)). The page filters runs and
 writes playlist files. The game reads those files and plays them. Saved playlists are listed with Play buttons in the
 **Playlists** section of the SpireLens Replays page.
+
+### Presets
+
+The Playlists section also offers built-in presets, defined in `Core/Replay/Playback/ReplayPresets.cs`: **All wins**,
+**Died on an Act 1 / Act 2 / Act 3 boss** and **Died to an elite**. Each takes every recording whose run ended that way,
+newest first, and plays only the playable ones. How a run ended comes from the game's own run history
+(`saves/history/<game_start_time>.run` in the current profile): the win and abandon flags, the number of acts entered,
+and the map node the run ended on. An abandoned run is never a death. A recording with no history file yet, such as a
+run still in progress or one from another profile, matches no preset. Each history is read once per Core load; the
+log line `Playlist presets: read N run histories ...` gives the count and time.
 
 ### Playing a list
 

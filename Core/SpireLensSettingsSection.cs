@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Godot;
 using SpireLens.Core.Patches;
 using SpireLens.Core.Replay.Playback;
@@ -25,9 +26,10 @@ namespace SpireLens.Core;
 internal static class SpireLensSettingsSection
 {
     /// <summary>
-    /// Saved playlists (playlists/&lt;slug&gt;.json, docs/replay-player.md) with
-    /// their run and playable counts and a Play button. Read fresh each time
-    /// the page opens; playlists themselves are made in the web page.
+    /// Built-in presets (ReplayPresets.cs) and then saved playlists
+    /// (playlists/&lt;slug&gt;.json, docs/replay-player.md), each with its run and
+    /// playable counts and a Play button. Read fresh each time the page opens;
+    /// saved playlists themselves are made in the web page.
     /// </summary>
     private static void FillPlaylists(
         Func<string, Control> makeSection,
@@ -35,42 +37,52 @@ internal static class SpireLensSettingsSection
         Func<string, string, Action?, Control> makeRow)
     {
         var section = makeSection("Playlists");
-        section.AddChild(makeNote(
-            $"Playlists are made in the run-database web page: run `spirelens-db serve`, then open {PlaylistPageUrl}."));
-
         string? blocked = ReplayPlayer.StartBlockedReason();
-        var playlists = ReplayPlaylistLibrary.List();
-        if (playlists.Count == 0)
+
+        foreach (var (preset, runs) in ReplayPresetLibrary.Resolve())
         {
-            section.AddChild(makeNote("No playlists yet."));
-            return;
+            var playable = runs.Where(r => r.Playable)
+                .Select(r => new PlaylistRunRef(r.GameStartTime, null))
+                .ToList();
+            var name = preset.Name;
+            section.AddChild(PlaylistRow(makeRow, name, runs.Count, playable.Count, blocked, () =>
+            {
+                CoreMain.Logger.Info($"Mods page: playing preset '{name}' ({playable.Count} runs)");
+                ReplayPlayer.StartRuns(name, playable);
+            }));
         }
 
+        var playlists = ReplayPlaylistLibrary.List();
         foreach (var playlist in playlists)
         {
             int playable = 0;
             foreach (var (_, listing) in ReplayPlaylistLibrary.Resolve(playlist.Runs))
                 if (listing is { Playable: true }) playable++;
 
-            string label = $"{playlist.Name}  —  {playlist.Runs.Count} run{(playlist.Runs.Count == 1 ? "" : "s")}, {playable} playable";
-            if (playable == 0)
-            {
-                section.AddChild(makeRow(label, "Unavailable", null));
-                continue;
-            }
-
             var chosen = playlist;
-            section.AddChild(makeRow(
-                label,
-                "Play",
-                blocked != null
-                    ? null
-                    : () =>
-                    {
-                        CoreMain.Logger.Info($"Mods page: playing playlist '{chosen.Name}'");
-                        ReplayPlayer.StartPlaylist(chosen);
-                    }));
+            section.AddChild(PlaylistRow(makeRow, playlist.Name, playlist.Runs.Count, playable, blocked, () =>
+            {
+                CoreMain.Logger.Info($"Mods page: playing playlist '{chosen.Name}'");
+                ReplayPlayer.StartPlaylist(chosen);
+            }));
         }
+
+        section.AddChild(makeNote(playlists.Count == 0
+            ? $"No saved playlists yet. Make them in the run-database web page: run `spirelens-db serve`, then open {PlaylistPageUrl}."
+            : $"Saved playlists are made in the run-database web page: run `spirelens-db serve`, then open {PlaylistPageUrl}."));
+    }
+
+    private static Control PlaylistRow(
+        Func<string, string, Action?, Control> makeRow,
+        string name,
+        int runs,
+        int playable,
+        string? blocked,
+        Action play)
+    {
+        string label = $"{name}  —  {runs} run{(runs == 1 ? "" : "s")}, {playable} playable";
+        if (playable == 0) return makeRow(label, "Unavailable", null);
+        return makeRow(label, "Play", blocked != null ? null : play);
     }
 
     public static void Register()

@@ -138,7 +138,7 @@ never force-pushed. The branch is verified from that host with `git ls-remote`.
 - `prepare-scenario` — runs the host face `prepare-scenario` (the
   restart→materialize→stop→install→restart→validate_load MCP flow, with the
   scenario validator embedded as the same verbatim Python the laptop's
-  spire-lens-mcp server is driven with).
+  spirelens-mcp server is driven with).
 - `run-verification` — runs the host face `run-phase --phase verification`. The
   unit-test gate is harness-owned and deterministic: before invoking the
   verification agent, the harness runs `dotnet test` on

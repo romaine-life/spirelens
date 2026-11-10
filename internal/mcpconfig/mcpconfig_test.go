@@ -35,7 +35,7 @@ func TestBuildRunConfig(t *testing.T) {
 	if err := json.Unmarshal(b, &doc); err != nil {
 		t.Fatal(err)
 	}
-	got := doc["mcpServers"].(map[string]any)["spire-lens-mcp"].(map[string]any)["env"].(map[string]any)["STS2_GAME_DIR"]
+	got := doc["mcpServers"].(map[string]any)["spirelens-mcp"].(map[string]any)["env"].(map[string]any)["STS2_GAME_DIR"]
 	if got != `D:\Games\STS2` {
 		t.Errorf("STS2_GAME_DIR not overridden, got %v", got)
 	}

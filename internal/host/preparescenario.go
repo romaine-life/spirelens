@@ -82,7 +82,7 @@ func prepareScenarioInner(ctx context.Context, w io.Writer, artifactDir string) 
 
 	mcpDir := mcpconfig.McpDirectoryFromTemplate()
 	if mcpDir == "" {
-		return step.HarnessError("scenario_setup_failed", "could not resolve the spire-lens-mcp --directory from the MCP template", nil)
+		return step.HarnessError("scenario_setup_failed", "could not resolve the spirelens-mcp --directory from the MCP template", nil)
 	}
 	outputPath := filepath.Join(artifactDir, "scenario-setup.json")
 

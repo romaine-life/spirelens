@@ -1,4 +1,4 @@
-// Package mcpconfig embeds the canonical spire-lens-mcp client config template
+// Package mcpconfig embeds the canonical spirelens-mcp client config template
 // and builds the per-run MCP config the verification agent uses.
 //
 // The template is compiled INTO the harness binary, so the binary built from a
@@ -24,7 +24,7 @@ var templateJSON []byte
 func Template() []byte { return templateJSON }
 
 // BuildRunConfig writes a per-run MCP config under workingDir/mcp, derived from
-// the embedded template with the spire-lens-mcp server's STS2_GAME_DIR overridden
+// the embedded template with the spirelens-mcp server's STS2_GAME_DIR overridden
 // to the resolved game dir. It returns the written path. Mirrors
 // native-runtime.ps1's New-NativeMcpConfig (UTF-8, the
 // "<run>-<attempt>-SpireLens.mcp.json" filename, depth-20 JSON).
@@ -37,9 +37,9 @@ func BuildRunConfig(workingDir, gameDir, runID, attemptIndex string) (string, er
 	if !ok {
 		return "", fmt.Errorf("mcp template missing mcpServers object")
 	}
-	server, ok := servers["spire-lens-mcp"].(map[string]any)
+	server, ok := servers["spirelens-mcp"].(map[string]any)
 	if !ok {
-		return "", fmt.Errorf("mcp template missing the spire-lens-mcp server")
+		return "", fmt.Errorf("mcp template missing the spirelens-mcp server")
 	}
 	env, ok := server["env"].(map[string]any)
 	if !ok {
@@ -63,7 +63,7 @@ func BuildRunConfig(workingDir, gameDir, runID, attemptIndex string) (string, er
 	return out, nil
 }
 
-// McpDirectoryFromTemplate returns the spire-lens-mcp server's --directory arg
+// McpDirectoryFromTemplate returns the spirelens-mcp server's --directory arg
 // (the on-host mcp/ checkout dir uv runs from), empty when absent. Mirrors
 // prepare-scenario.ps1's Get-McpDirectory.
 func McpDirectoryFromTemplate() string {
@@ -75,7 +75,7 @@ func McpDirectoryFromTemplate() string {
 	if err := json.Unmarshal(templateJSON, &doc); err != nil {
 		return ""
 	}
-	s, ok := doc.McpServers["spire-lens-mcp"]
+	s, ok := doc.McpServers["spirelens-mcp"]
 	if !ok {
 		return ""
 	}
@@ -98,7 +98,7 @@ func GameDirFromTemplate() string {
 	if err := json.Unmarshal(templateJSON, &doc); err != nil {
 		return ""
 	}
-	if s, ok := doc.McpServers["spire-lens-mcp"]; ok {
+	if s, ok := doc.McpServers["spirelens-mcp"]; ok {
 		return s.Env["STS2_GAME_DIR"]
 	}
 	return ""

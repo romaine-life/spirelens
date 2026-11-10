@@ -10,8 +10,8 @@ import (
 
 // Host-local locations ported from prepare-host.ps1.
 const (
-	mcpRepoRoot = `D:\repos\spire-lens-mcp`
-	mcpRepoURL  = "https://forgejo.romaine.life/romaine-life/spire-lens-mcp.git"
+	mcpRepoRoot = `D:\repos\spirelens-mcp`
+	mcpRepoURL  = "https://forgejo.romaine.life/romaine-life/spirelens-mcp.git"
 )
 
 // PrepareHostParams are the prepare-host host subcommand inputs.
@@ -59,7 +59,7 @@ func installMcp(ctx context.Context, w io.Writer, gameDir, modsDir string) error
 			}
 		}
 	} else {
-		if err := mustRun(ctx, w, "", nil, "git clone spire-lens-mcp", "git", "clone", mcpRepoURL, mcpRepoRoot); err != nil {
+		if err := mustRun(ctx, w, "", nil, "git clone spirelens-mcp", "git", "clone", mcpRepoURL, mcpRepoRoot); err != nil {
 			return err
 		}
 	}

@@ -130,10 +130,10 @@ func TestPhaseDefinitions(t *testing.T) {
 	if !containsTool(vd.DisallowedTools, "Bash(dotnet test *)") {
 		t.Error("verification must disallow dotnet test (harness owns it)")
 	}
-	if !containsTool(vd.DisallowedTools, "mcp__spire-lens-mcp__mp_get_game_state") {
+	if !containsTool(vd.DisallowedTools, "mcp__spirelens-mcp__mp_get_game_state") {
 		t.Error("verification must disallow multiplayer tools")
 	}
-	if !containsTool(vd.AllowedTools, "mcp__spire-lens-mcp__capture_screenshot") {
+	if !containsTool(vd.AllowedTools, "mcp__spirelens-mcp__capture_screenshot") {
 		t.Error("verification must allow capture_screenshot")
 	}
 	if !containsAbort(vd.AllowedAbortReasons, "unit_tests_failed") {

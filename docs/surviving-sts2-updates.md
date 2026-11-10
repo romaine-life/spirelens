@@ -2,7 +2,7 @@
 
 Slay the Spire 2 ships an update roughly **every two weeks**. Each update can:
 
-- rename or remove the game C# symbols the **bridge** (`spire-lens-mcp`) and the
+- rename or remove the game C# symbols the **bridge** (`spirelens-mcp`) and the
   **core mod** (`spirelens`) compile and reflect against, and
 - desync the third-party **BaseLib** mod, whose Harmony patches hard-reference
   game symbols that the update may have moved.
@@ -29,13 +29,13 @@ while the rendered HUD lies. Pixels are the only signal that catches them.
 
 | Concern | Repo | Key paths |
 |---|---|---|
-| Bridge mod build + deploy | `romaine-life/spire-lens-mcp` | `build.ps1`, `McpMod*.cs`, `mod_manifest.json` |
+| Bridge mod build + deploy | `romaine-life/spirelens-mcp` | `build.ps1`, `McpMod*.cs`, `mod_manifest.json` |
 | Core mod + verify-loop harness | `romaine-life/spirelens` | `.github/scripts/*.ps1` (`Sts2HostPaths.ps1`, `prepare-scenario.ps1`, `prepare-host.ps1`), `scripts/glimmung-native/*.sh` |
 | Third-party utility lib | `Alchyr/BaseLib-StS2` (vendored on host) | host `mods\BaseLib\` only |
 
 The harness scripts (`Sts2HostPaths.ps1`, `prepare-scenario.ps1`) live **only in
 `spirelens`** — a common mistake is pointing a harness invocation at the
-`spire-lens-mcp` checkout and getting *"… is not recognized"*.
+`spirelens-mcp` checkout and getting *"… is not recognized"*.
 
 ## Failure mode 1: bridge / core build drift
 
@@ -59,7 +59,7 @@ references the old shape.
 **Fix.** Update the references, preferring **null-graceful** equivalents over
 index access so a future shape change degrades instead of throwing.
 
-> **2026-05 example (spire-lens-mcp#10).** `MerchantRoom.Inventory` was replaced
+> **2026-05 example (spirelens-mcp#10).** `MerchantRoom.Inventory` was replaced
 > by `MerchantRoom.Inventories` (a `List`) plus `GetLocalInventory()`. Fixed in
 > `McpMod.Actions.cs` and `McpMod.StateBuilder.cs` by reading
 > `Inventories.FirstOrDefault()` — preserves the old graceful-null behavior
@@ -132,7 +132,7 @@ beta-compat update changed the fallback to the current input field.
 they were constructed with instead of the loaded state.
 
 **Mitigation.** The bridge exposes a dev action `dev_refresh_combat_view`
-(`spire-lens-mcp#10`) that re-fires the HUD refresh on each creature display
+(`spirelens-mcp#10`) that re-fires the HUD refresh on each creature display
 (HP bars), the energy counter, and the visible hand via reflection, and reports
 per-creature `display_bound_matches_entity` so the caller can confirm the
 widgets are bound to the live entities.

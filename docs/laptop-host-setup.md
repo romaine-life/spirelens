@@ -56,7 +56,7 @@ The pwsh contract is Glimmung-shaped — `GLIMMUNG_RUN_ID`,
     `env-prep` hard-resets it to the run's commit before any `.ps1` runs (see
     "How the checkout stays current" below). If the checkout is absent, the
     sync creates it from the canonical upstream.
-  - `D:\repos\spire-lens-mcp` — the bridge repo. `prepare-host.ps1` clones it on
+  - `D:\repos\spirelens-mcp` — the bridge repo. `prepare-host.ps1` clones it on
     first run and `git pull --ff-only origin main` on subsequent runs.
 
 ## Mods policy

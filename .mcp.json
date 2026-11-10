@@ -1,12 +1,12 @@
 {
   "mcpServers": {
-    "spire-lens-mcp": {
+    "spirelens-mcp": {
       "type": "stdio",
       "command": "uv",
       "args": [
         "run",
         "--directory",
-        "D:\\repos\\spire-lens-mcp\\mcp",
+        "D:\\repos\\spirelens-mcp\\mcp",
         "python",
         "server.py"
       ],

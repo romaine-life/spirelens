@@ -8,7 +8,7 @@ mode = sys.argv[1]
 setup_path = Path(sys.argv[2])
 output_path = Path(sys.argv[3])
 server_path = Path.cwd() / "server.py"
-spec = importlib.util.spec_from_file_location("spire_lens_mcp_server", server_path)
+spec = importlib.util.spec_from_file_location("spirelens_mcp_server", server_path)
 server = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(server)
 

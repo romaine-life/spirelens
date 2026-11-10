@@ -97,6 +97,14 @@ the choice itself: a left click on a recorded room, or A / Enter on the focused 
 Closing the map has the game recompute every room's state from the run, puts travel back as it was, and restores the
 path dots and the focus wiring.
 
+### Looking around during a replay
+
+The top bar's deck and pause (gear) buttons and the combat draw, discard and exhaust piles work as in the game, and so
+does everything on the screens they open: the deck view, pile views, the pause menu, settings and the compendium.
+Playback holds while one of those screens is up and carries on when it closes; Esc closes it, as in the game. The
+controls that would end the run stop the replay instead, exactly as Esc does, so your data is restored: the pause
+menu's Give Up, Save & Quit and Disconnect, and settings' Abandon Run.
+
 While a replay plays, **every other click, key and controller button is swallowed**, so you cannot act on the replayed
 run. Mouse movement still passes, so hover tooltips work. Left Shift / R3 (the SpireLens menu) and F5 (Core hot reload)
 also pass. With the map open for picking a floor, the map also gets arrow keys, Enter, the mouse wheel, left clicks on

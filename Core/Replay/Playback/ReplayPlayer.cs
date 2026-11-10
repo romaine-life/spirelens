@@ -401,6 +401,7 @@ public static class ReplayPlayer
         _request = Request.None;
         _jumpTarget = null;
         _reopenPickerAfterLoad = false;
+        ReplayOverlayAccess.Reset();
         ReplayPlaybackGuard.SetPlayerActive(true);
         ReplayPlaybackGuard.SetMarkerPresent(true);
         RunTracker.SuspendForPlayback();
@@ -700,9 +701,10 @@ public static class ReplayPlayer
                 if (generation != _generation) return;
                 UpdateBar();
 
-                // The map is open for picking a floor: nothing is fed and no
-                // wait runs down until it closes.
-                if (ReplayMapFloorPicker.IsOpen) { wait.Reset(); continue; }
+                // The map is open for picking a floor, or the watcher has the
+                // deck, a pile, the pause menu or settings up: nothing is fed
+                // and no wait runs down until it closes.
+                if (ReplayMapFloorPicker.IsOpen || ReplayOverlayAccess.WatcherScreenOpen) { wait.Reset(); continue; }
 
                 var plan = _plan;
                 if (plan == null) continue;
@@ -1195,6 +1197,9 @@ public static class ReplayPlayer
     /// <summary>A left press on the top bar's map icon was consumed; its release is consumed too.</summary>
     private static bool _iconReleasePending;
 
+    /// <summary>The last left press went through to a view-only control, so its release does too.</summary>
+    private static bool _leftPressPassed;
+
     private static StringName? PadAction(InputEvent evt, StringName[] actions)
     {
         if (evt is not (InputEventAction or InputEventJoypadButton or InputEventJoypadMotion)) return null;
@@ -1233,20 +1238,17 @@ public static class ReplayPlayer
             case InputEventMouseMotion:
                 return false;
 
-            case InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: true } when IsOverMapIcon():
-                _iconReleasePending = true;
-                OpenFloorPicker();
-                return true;
-
-            case InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: false }:
-                _iconReleasePending = false;
-                return true;
+            case InputEventMouseButton mouse:
+                return HandlePlaybackMouse(mouse);
 
             case InputEventKey key:
             {
                 if (key.Keycode is Key.Shift or Key.F5 || key.PhysicalKeycode is Key.Shift or Key.F5) return false;
-                if (!key.Pressed || key.Echo) return true;
                 var k = key.Keycode != Key.None ? key.Keycode : key.PhysicalKeycode;
+                // Esc closes a screen the watcher opened (deck, pause menu,
+                // settings), as in the game, instead of stopping the replay.
+                if (k == Key.Escape && ReplayOverlayAccess.WatcherScreenOpen) return false;
+                if (!key.Pressed || key.Echo) return true;
                 switch (k)
                 {
                     case Key.Space: TogglePause(); break;
@@ -1294,6 +1296,43 @@ public static class ReplayPlayer
         // Everything else (mouse buttons, other pad input, the game's own
         // actions) is consumed so the watcher cannot act on the replayed run.
         return true;
+    }
+
+    /// <summary>
+    /// Mouse buttons outside the floor picker. The wheel passes (it only
+    /// scrolls). A left click passes when it is on a view-only control
+    /// (<see cref="ReplayOverlayAccess"/>), and its release passes with it; a
+    /// click on the map icon opens the floor picker; a click on a control
+    /// that would end the run stops the replay; anything else is swallowed.
+    /// </summary>
+    private static bool HandlePlaybackMouse(InputEventMouseButton mouse)
+    {
+        if (mouse.ButtonIndex is MouseButton.WheelUp or MouseButton.WheelDown) return false;
+        if (mouse.ButtonIndex != MouseButton.Left) return true;
+        if (!mouse.Pressed)
+        {
+            bool passed = _leftPressPassed;
+            _leftPressPassed = false;
+            _iconReleasePending = false;
+            return !passed;
+        }
+
+        _leftPressPassed = false;
+        if (IsOverMapIcon())
+        {
+            _iconReleasePending = true;
+            OpenFloorPicker();
+            return true;
+        }
+        var hovered = ReplayOverlayAccess.Hovered();
+        if (ReplayOverlayAccess.EndsRun(hovered))
+        {
+            CoreMain.Logger.Info("Replay: a run-ending menu button was clicked; stopping the replay instead");
+            RequestStop();
+            return true;
+        }
+        _leftPressPassed = ReplayOverlayAccess.IsViewOnly(hovered);
+        return !_leftPressPassed;
     }
 
     /// <summary>

@@ -14,6 +14,27 @@ import (
 // SpireLens's per-run stat record (Core/RunData.cs, snake_case JSON). Only
 // run-level linkage and a handful of headline aggregate numbers are typed;
 // everything else stays reachable through raw_json.
+// takenOver is the taken_over tag of a stats record or recording header
+// (TakenOverInfo in Core/Replay/TakenOverRun.cs).
+type takenOver struct {
+	FromGameStartTime *int64 `json:"from_game_start_time"`
+	FromFloor         *int64 `json:"from_floor"`
+}
+
+func (t *takenOver) fromGameStartTime() any {
+	if t == nil {
+		return nil
+	}
+	return nullInt64Ptr(t.FromGameStartTime)
+}
+
+func (t *takenOver) atFloor() any {
+	if t == nil {
+		return nil
+	}
+	return nullInt64Ptr(t.FromFloor)
+}
+
 type spirelensRun struct {
 	RunID           string                     `json:"run_id"`
 	StartedAt       string                     `json:"started_at"`
@@ -24,6 +45,7 @@ type spirelensRun struct {
 	FloorReached    *int64                     `json:"floor_reached"`
 	Outcome         string                     `json:"outcome"`
 	GameStartTime   *int64                     `json:"game_start_time"`
+	TakenOver       *takenOver                 `json:"taken_over"`
 	Aggregates      map[string]json.RawMessage `json:"aggregates"`
 	RelicAggregates map[string]json.RawMessage `json:"relic_aggregates"`
 	Events          []json.RawMessage          `json:"events"`
@@ -172,11 +194,13 @@ func writeSpireLensRun(ctx context.Context, tx execer, path string, run *spirele
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO spirelens_runs (run_id, game_start_time, source_path, started_at, updated_at, ended_at, character,
-			ascension, floor_reached, outcome, card_instance_count, relic_count, event_count, raw_json)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			ascension, floor_reached, outcome, card_instance_count, relic_count, event_count, raw_json,
+			taken_over_from_game_start_time, taken_over_at_floor)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		run.RunID, nullInt64Ptr(run.GameStartTime), path, nullString(run.StartedAt), nullString(run.UpdatedAt),
 		nullStringPtr(run.EndedAt), nullStringPtr(run.Character), nullInt64Ptr(run.Ascension), nullInt64Ptr(run.FloorReached),
-		nullString(run.Outcome), len(run.Aggregates), len(run.RelicAggregates), len(run.Events), string(content)); err != nil {
+		nullString(run.Outcome), len(run.Aggregates), len(run.RelicAggregates), len(run.Events), string(content),
+		run.TakenOver.fromGameStartTime(), run.TakenOver.atFloor()); err != nil {
 		return err
 	}
 

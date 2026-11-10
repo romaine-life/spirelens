@@ -9,6 +9,11 @@ New fixtures added going forward do not need a `v*-` prefix.
   Power orb outcomes for cards such as Storm, Spinner, Trash to Treasure, and
   Lightning Rod.
 
+- `taken-over-run.json`
+  A run the player took over from a replay of another recording: carries the
+  `taken_over` tag (source recording's game start time, floor, act and save
+  point seq, and when). Older runs have no `taken_over` and load with it null.
+
 - `v1-pooled-run.json`
   Pooled shape. Aggregates are keyed by card definition id and do not carry
   the per-instance resume metadata introduced later. Loads as historical-only;

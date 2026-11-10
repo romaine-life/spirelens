@@ -513,6 +513,7 @@ tool.
 |---|---|
 | 1 | Initial schema. |
 | 2 | Dropped `raw_json` from `spirelens_card_aggregates` and `spirelens_relic_aggregates`. It duplicated `spirelens_runs.raw_json`. |
+| 3 | Added `taken_over_from_game_start_time` and `taken_over_at_floor` to `recordings` and `spirelens_runs`: the tag of a run taken over from a replay (docs/replay-player.md, "Taking over"). NULL for every other run. |
 
 | table | key | what |
 |---|---|---|

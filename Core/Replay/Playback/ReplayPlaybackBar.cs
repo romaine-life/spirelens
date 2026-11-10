@@ -32,6 +32,7 @@ internal static class ReplayPlaybackBar
         ("Previous / next act", "PgUp / PgDn", "D-pad ↓ / ↑"),
         ("Previous / next run", "B / N", "LT / RT"),
         ("Restart run", "Home", "X"),
+        ("Take over this run", "T", "Menu → Take over"),
         ("Hide replay bar", "H", "L3"),
         ("SpireLens menu", "Left Shift", "R3"),
         ("Exit replay", "Esc", "Menu → Stop replay"),

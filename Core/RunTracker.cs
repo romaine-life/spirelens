@@ -1972,6 +1972,65 @@ public static partial class RunTracker
     /// Nothing is un-parked afterwards: the next Continue adopts the record
     /// from disk exactly as after a game restart.
     /// </summary>
+    /// <summary>
+    /// A run the player took over from a replay reached its first room
+    /// (docs/replay-player.md, "Taking over"): start its stats record now,
+    /// tagged, and bind the deck it already has the way an adopt does. The
+    /// replay suspended tracking, so there is no current record.
+    /// </summary>
+    internal static void BeginTakenOverRun(RunState runState, long gameStartTime, Replay.TakenOverInfo? info)
+    {
+        lock (_lock)
+        {
+            _lastEndedRun = null;
+            string now = Now();
+            var run = new RunData
+            {
+                RunId = Guid.NewGuid().ToString("N"),
+                StartedAt = now,
+                UpdatedAt = now,
+                Character = runState.Players.FirstOrDefault()?.Character?.Id.ToString(),
+                Ascension = runState.AscensionLevel,
+                FloorReached = runState.TotalFloor,
+                GoldStats =
+                {
+                    GoldAcquired = Math.Max(
+                        0,
+                        runState.Players.FirstOrDefault(IsTrackedPlayer)?.Gold
+                            ?? runState.Players.FirstOrDefault()?.Gold
+                            ?? 0),
+                },
+                GameStartTime = gameStartTime,
+                TakenOver = info,
+            };
+            AdoptRunLocked(run, runState, "TakeOver", repairAggregates: false);
+            CoreMain.Logger.Info(
+                $"Take over: started stats record {run.RunId} game_start_time={gameStartTime} "
+                + $"(from recording {info?.FromGameStartTime}, floor {info?.FromFloor})");
+            SaveCurrentRun();
+        }
+    }
+
+    /// <summary>
+    /// The player's in-progress run was abandoned to make room for a run taken
+    /// over from a replay. The game's abandon ran while SpireLens had no
+    /// current record (the replay suspended it), so close the saved record
+    /// for that run here, as the game's main-menu abandon would have.
+    /// </summary>
+    internal static void CloseSavedRunAsAbandoned(long gameStartTime)
+    {
+        lock (_lock)
+        {
+            var saved = RunStorage.FindByGameStartTime(gameStartTime, out _, requireInProgress: true);
+            if (saved == null || saved.Outcome != InProgressOutcome) return;
+            saved.Outcome = "abandoned";
+            saved.EndedAt = Now();
+            saved.UpdatedAt = saved.EndedAt;
+            RunStorage.SaveAsync(saved);
+            CoreMain.Logger.Info($"Take over: closed stats record {saved.RunId} (game_start_time={gameStartTime}) as abandoned");
+        }
+    }
+
     internal static void SuspendForPlayback()
     {
         lock (_lock)
@@ -2723,6 +2782,9 @@ public static partial class RunTracker
 
     private static void OnRunStartedImpl(RunState runState)
     {
+        // A run taken over from a replay that is continued (or restarted from
+        // its save) before its first room: tracking starts here, normally.
+        Replay.Playback.ReplayPlaybackGuard.EndTakeOverWait("RunStarted");
         // The replay player drives a recorded run through the real game; it is
         // not the user's run and must never be adopted, minted or written.
         if (Replay.Playback.ReplayPlaybackGuard.SuppressTracking)
@@ -2820,6 +2882,7 @@ public static partial class RunTracker
                 // second raw read here would rethrow into the game's
                 // RunStarted dispatch exactly when the first read failed.
                 GameStartTime = gameStartTime != 0 ? gameStartTime : null,
+                TakenOver = Replay.TakenOverRuns.Find(gameStartTime),
             };
             _unsavedRunTimeSeconds = 0;
             UnsubscribeCardOrbEventsLocked();

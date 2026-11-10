@@ -24,6 +24,7 @@ type migration struct {
 var migrations = []migration{
 	{1, "initial run database", schemaV1, false},
 	{2, "drop per-aggregate raw_json (duplicates spirelens_runs.raw_json)", schemaV2, true},
+	{3, "taken-over tag on recordings and stats runs", schemaV3, false},
 }
 
 // LatestSchemaVersion is the schema version a fully migrated database has.
@@ -427,6 +428,18 @@ CREATE INDEX spirelens_relic_aggregates_relic ON spirelens_relic_aggregates(reli
 const schemaV2 = `
 ALTER TABLE spirelens_card_aggregates DROP COLUMN raw_json;
 ALTER TABLE spirelens_relic_aggregates DROP COLUMN raw_json;
+`
+
+// schemaV3 adds the taken-over tag (docs/replay-player.md, "Taking over"): a
+// run the player took over from a replay of another recording. Its stats and
+// recording begin at the first room after the take-over, so it is not the
+// same kind of data as a run played from its first floor. NULL for every
+// other run. Rows ingested before this version are untagged runs.
+const schemaV3 = `
+ALTER TABLE recordings ADD COLUMN taken_over_from_game_start_time INTEGER;
+ALTER TABLE recordings ADD COLUMN taken_over_at_floor INTEGER;
+ALTER TABLE spirelens_runs ADD COLUMN taken_over_from_game_start_time INTEGER;
+ALTER TABLE spirelens_runs ADD COLUMN taken_over_at_floor INTEGER;
 `
 
 // Open opens (creating if needed) the database at path and applies any

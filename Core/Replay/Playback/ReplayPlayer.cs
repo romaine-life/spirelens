@@ -48,7 +48,7 @@ namespace SpireLens.Core.Replay.Playback;
 /// </summary>
 public static class ReplayPlayer
 {
-    private enum Request { None, RestartFloor, JumpToRoom, NextAct, PreviousAct, NextRun, PreviousRun, RestartRun, Stop }
+    private enum Request { None, RestartFloor, JumpToRoom, NextAct, PreviousAct, NextRun, PreviousRun, RestartRun, TakeOver, Stop }
 
     internal static readonly double[] Speeds = { 0.5, 1, 2, 4, double.PositiveInfinity };
     private const int DefaultSpeedIndex = 1;
@@ -163,6 +163,7 @@ public static class ReplayPlayer
         if (!_active) return;
         _generation++;
         _active = false;
+        ReplayTakeOverConfirm.Close();
         bool pickerOpen = ReplayMapFloorPicker.IsOpen;
         ReplayMapFloorPicker.Close();
         if (!_stopping && _plan != null && _runIndex >= 0 && _runIndex < _queue.Count)
@@ -510,6 +511,7 @@ public static class ReplayPlayer
         _generation++;
         CoreMain.Logger.Info($"Replay: stopping ({reason})");
 
+        ReplayTakeOverConfirm.Close();
         ReplayMapFloorPicker.Close();
         ReleaseGameHooks();
         ReplayPlaybackBar.Destroy();
@@ -704,7 +706,11 @@ public static class ReplayPlayer
                 // The map is open for picking a floor, or the watcher has the
                 // deck, a pile, the pause menu or settings up: nothing is fed
                 // and no wait runs down until it closes.
-                if (ReplayMapFloorPicker.IsOpen || ReplayOverlayAccess.WatcherScreenOpen) { wait.Reset(); continue; }
+                if (ReplayMapFloorPicker.IsOpen || ReplayOverlayAccess.WatcherScreenOpen || ReplayTakeOverConfirm.IsOpen)
+                {
+                    wait.Reset();
+                    continue;
+                }
 
                 var plan = _plan;
                 if (plan == null) continue;
@@ -909,6 +915,10 @@ public static class ReplayPlayer
                 if (await BeginRunAsync(_runIndex, +1)) ShowNote($"Restarted run {_runIndex + 1}/{_queue.Count}");
                 return true;
 
+            case Request.TakeOver:
+                await TakeOverAsync();
+                return true;
+
             case Request.RestartFloor:
             {
                 if (plan == null) return true;
@@ -1101,6 +1111,199 @@ public static class ReplayPlayer
         return new ReplayPlaybackBar.ActNav(act, plan.AdjacentAct(act, -1), plan.AdjacentAct(act, +1));
     }
 
+    // -------- Taking over (docs/replay-player.md, "Taking over") --------
+
+    /// <summary>Why the replayed run can't be taken over right now, or null.</summary>
+    private static string? TakeOverBlockedReason()
+    {
+        var plan = _plan;
+        if (!_active || _stopping || plan == null) return "no replay is playing";
+        if (_finished) return "the recorded run has ended";
+        if (_loadInFlight) return "a floor is loading";
+        if (RunManager.Instance?.IsInProgress != true) return "no run is live";
+        if (_selector?.Pending != null) return "the replay is in the middle of a card choice; try again in a moment";
+        if (plan.CurrentRoomStartIndex(_pos) < 0) return "the replay has no saved start for this room";
+        return null;
+    }
+
+    /// <summary>T, or "Take over this run" in the SpireLens menu: ask first.</summary>
+    internal static void OpenTakeOverConfirm()
+    {
+        string? blocked = TakeOverBlockedReason();
+        if (blocked != null)
+        {
+            ShowNote($"Can't take over: {blocked}");
+            return;
+        }
+        ReplayMapFloorPicker.Close();
+
+        string previous;
+        try
+        {
+            var read = SaveManager.Instance.LoadRunSave();
+            previous = read.Success && read.SaveData is { } save
+                ? $"Your run in progress (floor {save.FloorReached}, ascension {save.Ascension}) will be abandoned, the game's own way: it goes into the game's run history as abandoned. Its recording stays in the replay list."
+                : "You have no run in progress, so nothing is abandoned.";
+        }
+        catch (Exception e)
+        {
+            CoreMain.Logger.Warn($"Take over: reading the current run save failed: {e.Message}");
+            previous = "Your run in progress, if you have one, will be abandoned the game's own way.";
+        }
+
+        ReplayTakeOverConfirm.Open(
+            "You'll play this run yourself from here, as a new run. Your progress and settings go back to how they were "
+            + "before the replay, so nothing from the replayed floors counts.\n\n"
+            + previous + "\n\n"
+            + "SpireLens's stats and recording for the new run start at the next room, tagged as taken over from this "
+            + "recording.",
+            () => _request = Request.TakeOver);
+        UpdateBar();
+    }
+
+    /// <summary>
+    /// The take-over itself, on the driver loop between steps. In order:
+    /// put the user's data back as it was before the replay; switch the live
+    /// run to a new game start time with saving on, and tag it; abandon the
+    /// user's previous in-progress run the game's own way (main-menu
+    /// AbandonRun: progress update, run-history entry, delete the save), which
+    /// closes its SpireLens record and recording; write the current room's
+    /// start snapshot as the new run's save, so a Save &amp; Quit before the next
+    /// room continues from this room's start; then stop driving. SpireLens
+    /// tracking and recording stay off until the next room
+    /// (<see cref="ReplayPlaybackGuard.OnSavePoint"/>).
+    ///
+    /// The steps from the identity switch to the start of the wait run in one
+    /// synchronous stretch: tracking is briefly unsuppressed there so the
+    /// abandon's run-end hooks reach the old run's record and recording, and
+    /// no game event can interleave.
+    /// </summary>
+    private static async Task TakeOverAsync()
+    {
+        string? blocked = TakeOverBlockedReason();
+        if (blocked != null)
+        {
+            ShowNote($"Can't take over: {blocked}");
+            return;
+        }
+        var plan = _plan!;
+        var rm = RunManager.Instance;
+        var roomStart = plan.Steps[plan.CurrentRoomStartIndex(_pos)];
+        var roomSave = ReadSnapshot(_dir, roomStart.Snapshot);
+        if (roomSave == null)
+        {
+            ShowNote("Can't take over: this room's saved start could not be read");
+            return;
+        }
+
+        // 1. The user's data as it was before the replay.
+        ReplayDataGuard.Restore("taken over");
+        if (ReplayDataGuard.MarkerExists)
+        {
+            ShowNote("Can't take over: your data could not be restored (see the log); the replay continues");
+            return;
+        }
+
+        long fromStart = _queue[_runIndex].Ref.GameStartTime;
+        long newStart = Math.Max(DateTimeOffset.UtcNow.ToUnixTimeSeconds(), rm._startTime + 1);
+        var info = new TakenOverInfo
+        {
+            FromGameStartTime = fromStart,
+            FromFloor = CurrentFloor(),
+            FromAct = CurrentAct(),
+            FromSeq = roomStart.Seq,
+            TakenOverAtUtc = DateTime.UtcNow.ToString("o"),
+        };
+
+        // 2. Stop driving: no more feeding, the game's own selection screens
+        // and time scale back.
+        _generation++;
+        ReplayTakeOverConfirm.Close();
+        ReplayMapFloorPicker.Close();
+        ReleaseGameHooks();
+        ReplayPlaybackBar.Destroy();
+        _active = false;
+
+        // 3-5, synchronous: new identity, abandon the previous run, then wait.
+        TakenOverRuns.Add(newStart, info);
+        rm._startTime = newStart;
+        rm.ShouldSave = true;
+        ReplayPlaybackGuard.SetPlayerActive(false);
+        try
+        {
+            var previous = SaveManager.Instance.LoadRunSave();
+            if (previous.Success && previous.SaveData is { } old)
+            {
+                SaveManager.Instance.UpdateProgressWithRunData(old, victory: false);
+                RunHistoryUtilities.CreateRunHistoryEntry(old, victory: false, isAbandoned: true, old.PlatformType);
+                RunTracker.CloseSavedRunAsAbandoned(old.StartTime);
+                CoreMain.Logger.Info($"Take over: abandoned the previous in-progress run (game_start_time={old.StartTime})");
+            }
+            SaveManager.Instance.DeleteCurrentRun();
+        }
+        catch (Exception e)
+        {
+            CoreMain.Logger.Error($"Take over: abandoning the previous run failed: {e}");
+        }
+        finally
+        {
+            ReplayPlaybackGuard.BeginTakeOverWait(newStart);
+        }
+
+        // 6. This room's start, as the new run's save.
+        try
+        {
+            roomSave.StartTime = newStart;
+            await SaveManager.Instance._runSaveManager.SaveRun(roomSave, isMultiplayer: false);
+        }
+        catch (Exception e)
+        {
+            CoreMain.Logger.Error($"Take over: writing the new run's save failed: {e}");
+        }
+
+        CoreMain.Logger.Info(
+            $"Replay: taken over at floor {info.FromFloor} (recording {fromStart}, seq {info.FromSeq}); "
+            + $"playing as game_start_time={newStart}");
+        _plan = null;
+        _queue = new List<QueuedRun>();
+        _runIndex = -1;
+        ReplayPlayNowWatcher.OnReplayEnded();
+        Toast("You took over: it's your run now");
+    }
+
+    /// <summary>
+    /// Input while the take-over confirmation is up: Enter / T / A confirm,
+    /// Esc / B cancel, clicks go to its buttons; everything else stays
+    /// blocked. Mouse motion passes (hover).
+    /// </summary>
+    private static bool HandleConfirmInput(InputEvent evt)
+    {
+        switch (evt)
+        {
+            case InputEventMouseMotion:
+                return false;
+            case InputEventMouseButton mouse:
+                return !(mouse.ButtonIndex == MouseButton.Left && ReplayTakeOverConfirm.IsUnderMouse());
+            case InputEventKey key:
+            {
+                if (!key.Pressed || key.Echo) return true;
+                var k = key.Keycode != Key.None ? key.Keycode : key.PhysicalKeycode;
+                if (k is Key.Enter or Key.KpEnter or Key.T) ReplayTakeOverConfirm.Confirm();
+                else if (k == Key.Escape) ReplayTakeOverConfirm.Cancel();
+                UpdateBar();
+                return true;
+            }
+        }
+        if (PadAction(evt, PadActions) is { } a && PadPress(evt, a))
+        {
+            if (a == Controller.faceButtonSouth) ReplayTakeOverConfirm.Confirm();
+            else if (a == Controller.faceButtonEast) ReplayTakeOverConfirm.Cancel();
+            UpdateBar();
+        }
+        return true;
+    }
+
+
     /// <summary>The picker closed (a choice, M / Esc / B, the map icon, or the map's own back button).</summary>
     internal static void OnFloorPickerClosed() => UpdateBar();
 
@@ -1231,6 +1434,7 @@ public static class ReplayPlayer
     {
         if (!_active) return false;
         if (SpireLensOptionsMenu.IsOpen || ReplayPickerMenu.IsOpen) return false;
+        if (ReplayTakeOverConfirm.IsOpen) return HandleConfirmInput(evt);
         if (ReplayMapFloorPicker.IsOpen) return HandlePickerInput(evt);
 
         switch (evt)
@@ -1269,6 +1473,7 @@ public static class ReplayPlayer
                     case Key.B: RequestPreviousRun(); break;
                     case Key.Home: RequestRestartRun(); break;
                     case Key.H: ToggleControls(); break;
+                    case Key.T: OpenTakeOverConfirm(); break;
                     case Key.Escape: RequestStop(); break;
                 }
                 return true;

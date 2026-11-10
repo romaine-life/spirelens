@@ -1,0 +1,35 @@
+{
+  "run_id": "taken-over-fixture",
+  "started_at": "2026-11-09T23:40:00Z",
+  "updated_at": "2026-11-09T23:52:00Z",
+  "character": "IRONCLAD",
+  "ascension": 10,
+  "floor_reached": 14,
+  "outcome": "in_progress",
+  "game_start_time": 1794301200,
+  "taken_over": {
+    "from_game_start_time": 1794200070,
+    "from_floor": 12,
+    "from_act": 0,
+    "from_seq": 412,
+    "taken_over_at_utc": "2026-11-09T23:40:00.0000000Z"
+  },
+  "aggregates": {
+    "CARD.STRIKE_IRONCLAD#1": {
+      "combats_in_deck": 2,
+      "plays": 3,
+      "times_drawn": 4
+    }
+  },
+  "events": [],
+  "relic_aggregates": {},
+  "enemy_aggregates": {},
+  "instance_numbers_by_def": {
+    "CARD.STRIKE_IRONCLAD": [
+      1
+    ]
+  },
+  "def_counters": {
+    "CARD.STRIKE_IRONCLAD": 1
+  }
+}

@@ -120,6 +120,26 @@ public static class ReplayRecorder
         CoreMain.Logger.Info("Run recording hooks wired.");
     }
 
+    /// <summary>
+    /// A run taken over from a replay reached its first room: open its
+    /// recording (mid-run, tagged through <see cref="TakenOverRuns"/>) and
+    /// subscribe to its run objects, which the replay left unsubscribed. The
+    /// save point the game is about to write becomes the first keyframe.
+    /// </summary>
+    public static void AttachToLiveRun() => Guard(nameof(AttachToLiveRun), () =>
+    {
+        var rm = RunManager.Instance;
+        if (!rm.IsInProgress || rm.State == null || rm.NetService?.Type == NetGameType.Replay) return;
+        lock (_lock)
+        {
+            var session = EnsureSessionLocked(rm._startTime, () => HeaderFromRunState(rm.State!), midRunIfCreated: true, out _);
+            if (session == null) return;
+            if (session.Header.SpirelensRunId == null && RunTracker.Current?.RunId is { } runId)
+                session.UpdateHeader(h => h.SpirelensRunId = runId);
+            SubscribeRunObjectsLocked(rm);
+        }
+    });
+
     public static void TeardownHooks()
     {
         // First: any callback still reaching this (soon orphaned) assembly —
@@ -191,6 +211,9 @@ public static class ReplayRecorder
     public static void OnRunEnded(long gameStartTime, string outcome, int floor)
     {
         RecordRunEnd(gameStartTime, outcome, floor);
+        // Both the stats record and the recording carry the tag by now.
+        try { TakenOverRuns.Remove(gameStartTime); }
+        catch (Exception e) { CoreMain.Logger.Warn($"Taken-over runs: removing {gameStartTime} failed: {e.Message}"); }
         // Outside the recording guard: the game's history file and the stats
         // record are worth importing even with recording disabled. Queued
         // behind the run-end writes RecordRunEnd just queued.
@@ -1334,6 +1357,7 @@ public static class ReplayRecorder
     private static ReplayHeader HeaderFromRunState(RunState state)
     {
         var h = NewHeaderWithBuildInfo();
+        Try(() => h.TakenOver = TakenOverRuns.Find(RunManager.Instance._startTime));
         Try(() => h.SeedString = state.Rng.StringSeed);
         Try(() => h.SeedHash = state.Rng.Seed);
         Try(() => h.Ascension = state.AscensionLevel);
@@ -1351,6 +1375,7 @@ public static class ReplayRecorder
     private static ReplayHeader HeaderFromSave(SerializableRun save)
     {
         var h = NewHeaderWithBuildInfo();
+        Try(() => h.TakenOver = TakenOverRuns.Find(save.StartTime));
         Try(() => h.SeedString = save.SerializableRng?.Seed);
         Try(() => h.Ascension = save.Ascension);
         Try(() => h.GameMode = save.GameMode.ToString());

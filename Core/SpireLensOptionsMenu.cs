@@ -69,6 +69,7 @@ public static class SpireLensOptionsMenu
     private static Button? _replayButton;
     private static Label? _replayHeader;
     private static int _replayIndex = -1;
+    private static int _takeOverIndex = -1;
     private static Label? _buildInfoLabel;
     private static bool _restartArmed;
     private static int _selectedIndex;
@@ -194,6 +195,7 @@ public static class SpireLensOptionsMenu
         _replayButton = null;
         _replayHeader = null;
         _replayIndex = -1;
+        _takeOverIndex = -1;
         _restartArmed = false;
         _selectedIndex = 0;
         _leftStickVerticalDirection = 0;
@@ -317,6 +319,8 @@ public static class SpireLensOptionsMenu
         _replayHeader = AddHeader(rows, "Replay");
         _replayIndex = SelectableButtons.Count;
         _replayButton = AddAction(rows, "Replay a run…", OnReplayActivated);
+        _takeOverIndex = SelectableButtons.Count;
+        AddAction(rows, "Take over this run  —  play it yourself from here", OnTakeOverActivated);
 
         AddHeader(rows, "Practice");
         _restartRoomIndex = SelectableButtons.Count;
@@ -926,8 +930,17 @@ public static class SpireLensOptionsMenu
         Replay.Playback.ReplayPickerMenu.Open();
     }
 
+    private static void OnTakeOverActivated()
+    {
+        Close("take over button");
+        Replay.Playback.ReplayPlayer.OpenTakeOverConfirm();
+    }
+
     private static void RefreshReplayRow()
     {
+        // Taking over is only for a replay that is playing.
+        if (IsSelectableRowIndex(_takeOverIndex))
+            SelectableRows[_takeOverIndex].Visible = Replay.Playback.ReplayPlayer.IsActive;
         if (_replayButton == null || !GodotObject.IsInstanceValid(_replayButton)) return;
         // Starting a replay needs the main menu, so a run has no use for the
         // row. It stays while a replay plays so it can be stopped from here.

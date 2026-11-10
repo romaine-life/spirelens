@@ -7350,6 +7350,44 @@ public class SchemaLoadingTests
     }
 
     [Fact]
+    public void HistoricalLoad_AcceptsTakenOverFixture()
+    {
+        var loaded = RunStorage.LoadHistorical(FixturePath("taken-over-run.json"));
+
+        Assert.NotNull(loaded);
+        Assert.True(loaded!.SupportsResume);
+        AssertTakenOverFixture(loaded.Data.TakenOver);
+    }
+
+    [Fact]
+    public void ResumableLoad_AcceptsTakenOverFixture()
+    {
+        var resumed = RunStorage.LoadResumable(FixturePath("taken-over-run.json"));
+
+        Assert.NotNull(resumed);
+        AssertTakenOverFixture(resumed!.TakenOver);
+    }
+
+    [Fact]
+    public void HistoricalLoad_OlderFixturesAreNotTakenOver()
+    {
+        var loaded = RunStorage.LoadHistorical(FixturePath("aggression-power-run.json"));
+
+        Assert.NotNull(loaded);
+        Assert.Null(loaded!.Data.TakenOver);
+    }
+
+    private static void AssertTakenOverFixture(SpireLens.Core.Replay.TakenOverInfo? info)
+    {
+        Assert.NotNull(info);
+        Assert.Equal(1794200070, info!.FromGameStartTime);
+        Assert.Equal(12, info.FromFloor);
+        Assert.Equal(0, info.FromAct);
+        Assert.Equal(412, info.FromSeq);
+        Assert.Equal("2026-11-09T23:40:00.0000000Z", info.TakenOverAtUtc);
+    }
+
+    [Fact]
     public void HistoricalLoad_DefaultsPowerDamageForOlderFixtures()
     {
         var loaded = RunStorage.LoadHistorical(

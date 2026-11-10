@@ -19,13 +19,14 @@ import (
 
 // header.json (ReplayHeader in Core/Replay/ReplayStorage.cs).
 type recordingHeader struct {
-	FormatVersion          *int64  `json:"format_version"`
-	DecisionsFormatVersion *int64  `json:"decisions_format_version"`
-	GameStartTime          *int64  `json:"game_start_time"`
-	SpireLensRunID         *string `json:"spirelens_run_id"`
-	CreatedAtUTC           *string `json:"created_at_utc"`
-	UpdatedAtUTC           *string `json:"updated_at_utc"`
-	RecordingStartedMidRun *bool   `json:"recording_started_mid_run"`
+	FormatVersion          *int64     `json:"format_version"`
+	DecisionsFormatVersion *int64     `json:"decisions_format_version"`
+	GameStartTime          *int64     `json:"game_start_time"`
+	SpireLensRunID         *string    `json:"spirelens_run_id"`
+	CreatedAtUTC           *string    `json:"created_at_utc"`
+	UpdatedAtUTC           *string    `json:"updated_at_utc"`
+	RecordingStartedMidRun *bool      `json:"recording_started_mid_run"`
+	TakenOver              *takenOver `json:"taken_over"`
 	Game                   *struct {
 		Version          *string     `json:"version"`
 		Commit           *string     `json:"commit"`
@@ -599,8 +600,9 @@ func (in *ingester) ingestRecording(ctx context.Context, st int64, dir, fingerpr
 			character, player_count, ascension, game_mode, daily_time_utc, header_outcome, ended_at, final_floor,
 			canonical_outcome, death_undone, max_canonical_floor, event_count, canonical_event_count, torn_line_count,
 			branch_count, unanchored_load_count, decision_count, canonical_decision_count, decision_segment_count,
-			torn_decision_line_count, snapshot_file_count, combat_file_count, mods_json, players_json, modifiers_json, header_json)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			torn_decision_line_count, snapshot_file_count, combat_file_count, mods_json, players_json, modifiers_json, header_json,
+			taken_over_from_game_start_time, taken_over_at_floor)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		st, dir, boolInt(headerOK), nullInt64Ptr(header.FormatVersion), nullInt64Ptr(header.DecisionsFormatVersion),
 		nullStringPtr(header.SpireLensRunID), nullStringPtr(header.CreatedAtUTC), nullStringPtr(header.UpdatedAtUTC),
 		nullBoolPtr(header.RecordingStartedMidRun), gameVersion, gameCommit, releaseDate, asmHash, modelHash,
@@ -611,7 +613,8 @@ func (in *ingester) ingestRecording(ctx context.Context, st int64, dir, fingerpr
 		nullStringPtr(canonicalOutcome), boolInt(deathUndone), nullInt64Ptr(maxFloor), len(log), len(timeline.Canonical), torn,
 		len(timeline.Branches), len(timeline.UnanchoredLoads), decisionCount, canonicalDecisions, len(segments),
 		tornDecisions, countFiles("snapshots"), countFiles("combats"),
-		rawJSON(header.Mods), rawJSON(header.PlayersRaw), rawJSON(header.Modifiers), headerJSON); err != nil {
+		rawJSON(header.Mods), rawJSON(header.PlayersRaw), rawJSON(header.Modifiers), headerJSON,
+		header.TakenOver.fromGameStartTime(), header.TakenOver.atFloor()); err != nil {
 		return err
 	}
 

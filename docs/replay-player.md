@@ -47,6 +47,7 @@ replay stays on the final screen until you exit.
 | Previous / next act | Page Up / Page Down | D-pad ↓ / ↑ |
 | Previous / next run (playlists) | B / N | LT / RT |
 | Restart the current run | Home | X |
+| Take over this run (play it yourself from here) | T | SpireLens menu → Take over this run |
 | Hide / show the replay bar | H | L3 |
 | Exit (back to the main menu; ends the whole playlist) | Esc | SpireLens menu → Stop replay |
 | SpireLens menu | Left Shift | R3 (Steam Input off only) |
@@ -96,6 +97,33 @@ between the recorded rooms, with the game's selection reticle on the focused one
 the choice itself: a left click on a recorded room, or A / Enter on the focused one. No game method is patched.
 Closing the map has the game recompute every room's state from the run, puts travel back as it was, and restores the
 path dots and the focus wiring.
+
+### Taking over
+
+**T** (or **Take over this run** in the SpireLens menu) hands the replayed run to you: you play it yourself from where
+the replay is, as a new run. A confirmation says what will happen first; Enter / A confirms, Esc / B cancels. It is
+refused while the replay is choosing cards, loading a floor, or after the recorded run has ended.
+
+What taking over does, in order:
+
+1. **Your data goes back** to how it was before the replay (the same restore Esc does), so nothing the replayed floors
+   unlocked or counted stays.
+2. **The run becomes yours:** the replay stops driving, the game's saving is switched on for the live run, and it gets
+   a new game start time, so the game treats it as a new run and the original run's history entry is untouched.
+3. **Your previous in-progress run is abandoned the game's own way**, exactly as the main menu's Abandon Run does: the
+   game updates progress, adds it to the run history as abandoned, and deletes its save. Its SpireLens record and
+   recording are closed as abandoned. Every run is recorded, so it stays in the replay list and can itself be taken
+   over later.
+4. **The current room's saved start becomes the new run's save**, so a Save & Quit before the next room continues from
+   the start of this room, as the game's own saves do.
+
+The game carries on exactly where the replay was. SpireLens's stats and recording for the new run start at the **next
+room** (or at a Continue of its save, whichever comes first), so they never hold half a room. Both are tagged
+`taken_over` with the source recording's game start time, the floor, act and save-point seq the run continued from, and
+when; the run database carries the tag too (`taken_over_from_game_start_time`, `taken_over_at_floor` on `recordings`
+and `spirelens_runs`). Data from a taken-over run is not the same kind of information as a run played from its first
+floor, and the tag is how later use tells them apart. Until both are created, the tag waits in
+`user://SpireLens/taken-over-runs.json`, keyed by the new run's game start time; an entry is removed when its run ends.
 
 ### Looking around during a replay
 

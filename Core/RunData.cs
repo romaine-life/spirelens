@@ -38,6 +38,15 @@ public class RunData
     /// </summary>
     public long? GameStartTime { get; set; }
 
+    /// <summary>
+    /// Set when the player took this run over from a replay
+    /// (docs/replay-player.md, "Taking over"): the game state was cloned from
+    /// a recording, and this record's stats begin at the first room after
+    /// the take-over, not at the run's first floor. Null for every run played
+    /// from its start.
+    /// </summary>
+    public Replay.TakenOverInfo? TakenOver { get; set; }
+
     /// <summary>Per-card aggregates. Keyed by card definition ID (e.g. "STRIKE_KIN"). Upgraded and base versions share a key for now; upgrade breakout is a future issue.</summary>
     public Dictionary<string, CardAggregate> Aggregates { get; set; } = new();
 

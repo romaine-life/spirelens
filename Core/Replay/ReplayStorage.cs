@@ -38,6 +38,13 @@ public sealed class ReplayHeader
     /// </summary>
     public bool RecordingStartedMidRun { get; set; }
 
+    /// <summary>
+    /// Set when the run was taken over from a replay of another recording
+    /// (docs/replay-player.md, "Taking over"). Such a recording also starts
+    /// mid-run, at the first room after the take-over.
+    /// </summary>
+    public TakenOverInfo? TakenOver { get; set; }
+
     public ReplayGameBuild Game { get; set; } = new();
     public List<ReplayModInfo> Mods { get; set; } = new();
     public string? SpirelensVersion { get; set; }

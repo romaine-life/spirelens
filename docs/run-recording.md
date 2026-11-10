@@ -104,6 +104,11 @@ format, unlike the structurally-versioned `RunData`. Fields:
 - `recording_started_mid_run`: true when the first thing recorded was a load
   of an existing save rather than the run's start. In that case the genesis
   snapshot is not the real run start.
+- `taken_over`: present when the player took the run over from a replay of
+  another recording (docs/replay-player.md, "Taking over"): `from_game_start_time`,
+  `from_floor`, `from_act`, `from_seq` (the source recording's room-start save
+  point) and `taken_over_at_utc`. Such a recording starts mid-run, at the first
+  room after the take-over.
 - `game`:
   - `version`, `commit`, `release_date` and `main_assembly_hash`, from
     `release_info.json`;

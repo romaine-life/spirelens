@@ -4,7 +4,9 @@ using System.Reflection;
 using System.Runtime.Loader;
 using System.Threading;
 using BaseLib.Config;
+using HarmonyLib;
 using SpireLens.Config;
+using SpireLensReplays;
 using Godot;
 using MegaCrit.Sts2.Core.Logging;
 using MegaCrit.Sts2.Core.Modding;
@@ -93,6 +95,8 @@ public partial class LoaderMain : Node
         try
         {
             ModConfigRegistry.Register(ModId, new SpireLensConfig());
+            ModConfigRegistry.Register(SpireLensReplaysConfig.RegistryId, new SpireLensReplaysConfig());
+            SpireLensReplaysConfig.InstallTitle(new Harmony($"{ModId}.Loader"));
             RuntimeOptionsBridge.Initialize();
             D("config registry initialized");
         }

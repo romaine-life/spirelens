@@ -7,7 +7,7 @@ did the first time. A replay plays only on the exact game build that recorded it
 
 ## Using it
 
-From the main menu, open **Settings → Mods → SpireLens** and scroll to the **Replay** section. Each recording has its
+From the main menu, open **Settings → Mod Configuration → SpireLens Replays**; the recordings are in the **Replay** section. Each recording has its
 own row with a **Play** button. Navigate the page with the mouse, keyboard or controller as on any BaseLib page.
 
 As a shortcut, the SpireLens overlay (Left Shift or R3, from the main menu) also has **Replay → Replay a run…**, which
@@ -22,16 +22,16 @@ Both show the 60 newest recordings, newest first:
   snapshot.
 
 Both use the same loading and start code (`ReplayPickerMenu.LoadListings` / `TryStart`). A replay can start only from
-the main menu; opened in a run, the Mods page shows why and greys out the Play buttons. The Mods page's Replay section
-is drawn by the Core each time the page opens, so it is current and follows Core hot reloads; if no Core is loaded the
+the main menu; opened in a run, the Replays page shows why and greys out the Play buttons. The Replays page
+is drawn by the Core each time it opens, so it is current and follows Core hot reloads; if no Core is loaded the
 page says so in one line.
 
-Above the Replay section, the Mods page draws a **Playlists** section. Each saved playlist is shown with its name, run
+Above the Replay section, the Replays page draws a **Playlists** section. Each saved playlist is shown with its name, run
 count and playable count, and a Play button; a playlist with nothing playable shows "Unavailable". The section also
 has a one-line hint that playlists are made in the web page (`spirelens-db serve`, http://127.0.0.1:8737). It is
 rebuilt every time the page opens. See [Playlists](#playlists).
 
-To stop a replay: press **Esc**, choose **Stop replay** in the SpireLens overlay, or wait for the end. (The Mods page
+To stop a replay: press **Esc**, choose **Stop replay** in the SpireLens overlay, or wait for the end. (The Replays page
 also shows Stop replay while one plays, but playback swallows the clicks needed to get there.) The game returns to the main menu and your data is restored. A finished
 replay stays on the final screen until you exit.
 
@@ -145,7 +145,7 @@ instead of the plain map.
 A playlist plays a list of recordings back to back. Playlists are made in the run-database web page
 (`spirelens-db serve`, at http://127.0.0.1:8737; see [run-database.md](run-database.md)). The page filters runs and
 writes playlist files. The game reads those files and plays them. Saved playlists are listed with Play buttons in the
-**Playlists** section of the Mods page.
+**Playlists** section of the SpireLens Replays page.
 
 ### Playing a list
 

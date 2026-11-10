@@ -1,6 +1,4 @@
-using System;
 using BaseLib.Config;
-using BaseLib.Config.UI;
 using Godot;
 using SpireLens.Loader;
 
@@ -13,8 +11,8 @@ namespace SpireLens.Config;
 ///
 /// The property names are legacy on-disk keys: keep them stable. Declaration
 /// order and [ConfigSection] only shape the page (BaseLib saves by name).
-/// Below the generated rows the hot-reloaded Core renders its own section
-/// (Replay) through <see cref="RuntimeOptionsBridge.RegisterCoreHooks"/>.
+/// Replays and playlists have their own entry, SpireLens Replays
+/// (<see cref="SpireLensReplays.SpireLensReplaysConfig"/>).
 /// </summary>
 public sealed class SpireLensConfig : SimpleModConfig
 {
@@ -98,14 +96,12 @@ public sealed class SpireLensConfig : SimpleModConfig
 
     public override void SetupConfigUI(Control root)
     {
-        // base.SetupConfigUI in pieces, so the Core section and build info
-        // land before Restore Defaults and inside the focus chain.
+        // base.SetupConfigUI in pieces, so the build info lands before
+        // Restore Defaults and inside the focus chain.
         GenerateOptionsForAllProperties(root);
         foreach (var (property, label) in Labels)
             RelabelGeneratedOption(root, property, label);
 
-        var buildSection = FindSectionOf(root, nameof(BuildTimeZone));
-        AddCoreSection(root, buildSection);
         AddBuildInfo(root, nameof(BuildTimeZone));
 
         AddRestoreDefaultsButton(root);
@@ -122,97 +118,6 @@ public sealed class SpireLensConfig : SimpleModConfig
         RuntimeOptionsBridge.OnSettingsPageChanged();
     }
 
-    /// <summary>
-    /// Hosts whatever the registered Core renders (rebuilt on every page open,
-    /// so the replay list is current), placed above the Build section.
-    /// </summary>
-    private void AddCoreSection(Control root, Control? beforeSection)
-    {
-        var host = new VBoxContainer
-        {
-            Name = "SpireLensCoreSection",
-            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
-        };
-        root.AddChild(host);
-        if (beforeSection != null && beforeSection.GetParent() == root)
-            root.MoveChild(host, beforeSection.GetIndex());
-
-        int generation = RuntimeOptionsBridge.CoreHooksGeneration;
-        bool filled = RuntimeOptionsBridge.TryFillCoreSettingsSection(
-            host,
-            title => MakeSection(host, title),
-            MakeNote,
-            (label, buttonText, onPressed) => MakeRow(label, buttonText, onPressed, generation));
-
-        if (!filled)
-        {
-            host.AddChild(MakeNote(
-                "Replay and other SpireLens actions appear here once the SpireLens Core has loaded."));
-        }
-    }
-
-    private Control MakeSection(Control host, string title)
-    {
-        var section = CreateCollapsibleSection(title);
-        host.AddChild(section);
-        return section.ContentContainer;
-    }
-
-    private static Control MakeNote(string text)
-    {
-        var note = CreateRawLabelControl(text, 22);
-        // Same wrap-and-grow setup BaseLib uses for its own multi-line notice.
-        note.FitContent = true;
-        note.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
-        note.Modulate = new Color(0.75f, 0.75f, 0.75f);
-        return note;
-    }
-
-    /// <summary>
-    /// An option row shaped like BaseLib's generated ones: label on the left,
-    /// an <see cref="NConfigButton"/> on the right, so focus navigation and
-    /// controller confirm behave the same. The press is dropped if the Core
-    /// that built the row has since been hot-reloaded away.
-    /// </summary>
-    private Control MakeRow(string label, string buttonText, Action? onPressed, int generation)
-    {
-        var labelControl = CreateRawLabelControl(label, 24);
-        Control setting;
-        if (onPressed == null)
-        {
-            var text = CreateRawLabelControl(buttonText, 22);
-            text.Modulate = new Color(0.55f, 0.55f, 0.55f);
-            // NConfigOptionRow is a MarginContainer that overlays its two
-            // children; pin this one to the right edge like a button.
-            text.CustomMinimumSize = new Vector2(260, 64);
-            text.SizeFlagsHorizontal = Control.SizeFlags.ShrinkEnd;
-            setting = text;
-        }
-        else
-        {
-            setting = CreateRawButtonControl(buttonText, () =>
-            {
-                if (generation != RuntimeOptionsBridge.CoreHooksGeneration)
-                {
-                    LoaderMain.Logger.Warn(
-                        "SpireLens Mods page: ignored a press from before a Core reload; reopen the page");
-                    return;
-                }
-
-                try
-                {
-                    onPressed();
-                }
-                catch (Exception e)
-                {
-                    LoaderMain.Logger.Error($"SpireLens Mods page: action '{buttonText}' failed: {e}");
-                }
-            });
-        }
-
-        return new NConfigOptionRow(ModPrefix, $"SpireLensCoreRow_{label.GetHashCode():X8}", labelControl, setting);
-    }
-
     private void AddBuildInfo(Control root, string buildRowName)
     {
         // Inside the generated Build section, under its time-zone dropdown.
@@ -223,15 +128,6 @@ public sealed class SpireLensConfig : SimpleModConfig
         target.AddChild(CreateRawLabelControl($"Commit: {BuildCommit}", 18));
         target.AddChild(CreateRawLabelControl($"Build date: {BuildDate}", 18));
         target.AddChild(CreateRawLabelControl($"Build timestamp UTC: {BuildTimestampUtc}", 18));
-    }
-
-    /// <summary>The top-level section node that holds a generated row.</summary>
-    private static Control? FindSectionOf(Node root, string rowName)
-    {
-        Node? node = root.FindChild(rowName, recursive: true, owned: false);
-        while (node != null && node.GetParent() != root)
-            node = node.GetParent();
-        return node as Control;
     }
 
     private static void RelabelGeneratedOption(Node root, string optionName, string labelText)

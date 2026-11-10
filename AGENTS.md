@@ -79,7 +79,7 @@ When inspecting `mods/`, treat any non-(SpireLens|SpirePad|BaseLib|SpireLensMcp)
   - Combat-generated cards that do not meaningfully exist in the deck may use pooled summaries instead of fake deck-instance identities.
 - Attribution prefers observed outcomes over listed card text whenever the game can diverge from the card face.
   - Examples already in tree: actual energy gained, Regent stars spent/gained, forge granted, observed cards drawn, blocked draw attempts/reasons, successful self-summons to hand, Artifact-blocked debuffs, and downstream poison damage.
-- Every SpireLens setting, the recorded-run list and playlists live on the game's **Mods → SpireLens** page (Core renders its section into the BaseLib page). The Left Shift / R3 overlay is only an optional in-run shortcut; nothing may require it. The user rejected an overlay-first design.
+- Every SpireLens setting lives on the game's **Mod Configuration → SpireLens** page; the recorded-run list and playlists have their own entry, **Mod Configuration → SpireLens Replays**, which the Core renders into a BaseLib page. The Left Shift / R3 overlay is only an optional in-run shortcut; nothing may require it. The user rejected an overlay-first design.
 - Every run is recorded for replay and model training ([docs/run-recording.md](docs/run-recording.md)); the user's product decisions for replay, the database and training are in that doc's "Decisions" section.
 - Tooltip style is intentionally quiet.
   - Hand view stays compact.

@@ -63,7 +63,8 @@ A compact **Open SpireLens menu** shortcut sits beside the game's existing
 "View Upgrades" toggle on the in-run deck view. The same modal options window
 opens from anywhere the game is taking input — gameplay, the main menu, and the
 Pause, Settings, and Compendium screens included — by tapping **Left Shift** on
-keyboard or pressing **Right Stick (R3)** on controller. The shortcuts stay out
+keyboard or pressing **Right Stick (R3)** on controller (on Windows R3 is read
+through GameInput, so it works with Steam Input on too). The shortcuts stay out
 of the way while you type in a text field, rebind a key, or have the dev
 console or a platform overlay open. Shift-based chords such as Steam's
 Shift+Tab and Windows+Shift+S are left alone, including chords whose other

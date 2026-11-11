@@ -20,6 +20,7 @@ using MegaCrit.Sts2.Core.Nodes.Audio;
 using MegaCrit.Sts2.Core.Rooms;
 using MegaCrit.Sts2.Core.Runs;
 using MegaCrit.Sts2.Core.Saves;
+using SpireLens.Core.Pad;
 
 namespace SpireLens.Core.Replay.Playback;
 
@@ -1294,7 +1295,7 @@ public static class ReplayPlayer
                 return true;
             }
         }
-        if (PadAction(evt, PadActions) is { } a && PadPress(evt, a))
+        if (PadInput.Action(evt, PadActions) is { } a && PadHeld.Press(evt, a))
         {
             if (a == Controller.faceButtonSouth) ReplayTakeOverConfirm.Confirm();
             else if (a == Controller.faceButtonEast) ReplayTakeOverConfirm.Cancel();
@@ -1363,13 +1364,8 @@ public static class ReplayPlayer
 
     // -------- Input (from StatsVisibilityHotkeyPatch's existing _Input postfix) --------
 
-    // Pad buttons are matched by the game's controller actions, not raw
-    // JoyButton values. Under Steam Input (the game's preferred path) a pad
-    // press reaches Godot only as an InputEventAction the game parses
-    // (SteamControllerInputStrategy), never as InputEventJoypadButton; with
-    // Steam Input off, Godot's joypad events match the same actions through
-    // the InputMap. Steam Input's action set has no right-stick click, so R3
-    // (the SpireLens menu) is matched raw and only exists with Steam Input off.
+    // Pad buttons are matched by the game's controller actions (see PadInput).
+    // R3, the SpireLens menu, passes through to StatsVisibilityHotkeyPatch.
     private static readonly StringName[] PadActions =
     {
         Controller.selectButton, Controller.dPadUp, Controller.dPadDown, Controller.dPadRight,
@@ -1395,34 +1391,13 @@ public static class ReplayPlayer
     /// release is consumed too: the A that opens the map must not release onto
     /// it as a click.
     /// </summary>
-    private static readonly HashSet<string> PadHeld = new();
+    private static readonly PadPresses PadHeld = new();
 
     /// <summary>A left press on the top bar's map icon was consumed; its release is consumed too.</summary>
     private static bool _iconReleasePending;
 
     /// <summary>The last left press went through to a view-only control, so its release does too.</summary>
     private static bool _leftPressPassed;
-
-    private static StringName? PadAction(InputEvent evt, StringName[] actions)
-    {
-        if (evt is not (InputEventAction or InputEventJoypadButton or InputEventJoypadMotion)) return null;
-        foreach (var action in actions)
-        {
-            // IsAction on an InputMap action that doesn't exist logs an error
-            // for every event; a parsed InputEventAction just compares names.
-            if (evt is not InputEventAction && !InputMap.HasAction(action)) continue;
-            if (evt.IsAction(action)) return action;
-        }
-        return null;
-    }
-
-    /// <summary>True on the press edge of a pad control; tracks its release.</summary>
-    private static bool PadPress(InputEvent evt, StringName action)
-    {
-        if (evt.IsPressed()) return PadHeld.Add(action.ToString());
-        PadHeld.Remove(action.ToString());
-        return false;
-    }
 
     /// <summary>
     /// Playback hotkeys, and blocking of every other input that could act on
@@ -1483,7 +1458,7 @@ public static class ReplayPlayer
                 return false;
         }
 
-        if (PadAction(evt, PadActions) is { } a && PadPress(evt, a))
+        if (PadInput.Action(evt, PadActions) is { } a && PadHeld.Press(evt, a))
         {
             if (a == Controller.selectButton) TogglePause();
             else if (a == Controller.dPadRight) StepOnce();
@@ -1600,18 +1575,18 @@ public static class ReplayPlayer
                 return false;
         }
 
-        if (PadAction(evt, PadActions) is { } a)
+        if (PadInput.Action(evt, PadActions) is { } a)
         {
             // The release of a press a control consumed (the A that opened
             // the map included) is consumed with it.
-            if (!evt.IsPressed() && PadHeld.Remove(a.ToString())) return true;
+            if (!evt.IsPressed() && PadHeld.Release(a)) return true;
 
             bool pickerControl = a == Controller.faceButtonEast || a == Controller.rightBumper
                                  || a == Controller.leftBumper || a == Controller.lStickPress
                                  || a == Controller.faceButtonSouth;
             if (pickerControl)
             {
-                if (PadPress(evt, a))
+                if (PadHeld.Press(evt, a))
                 {
                     if (a == Controller.faceButtonEast) ReplayMapFloorPicker.Close();
                     else if (a == Controller.faceButtonSouth) ReplayMapFloorPicker.TryChooseFocused();
@@ -1623,7 +1598,7 @@ public static class ReplayPlayer
             }
         }
 
-        return PadAction(evt, PickerPassActions) == null;
+        return PadInput.Action(evt, PickerPassActions) == null;
     }
 
     /// <summary>

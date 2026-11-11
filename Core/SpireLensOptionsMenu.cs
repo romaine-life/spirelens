@@ -2,10 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Godot;
+using MegaCrit.Sts2.Core.ControllerInput;
 using MegaCrit.Sts2.Core.Nodes.HoverTips;
 using MegaCrit.Sts2.Core.Nodes.Screens;
 using MegaCrit.Sts2.Core.Nodes.Screens.MainMenu;
 using MegaCrit.Sts2.Core.Runs;
+using SpireLens.Core.Pad;
 using SpireLens.Core.Patches;
 
 namespace SpireLens.Core;
@@ -73,9 +75,7 @@ public static class SpireLensOptionsMenu
     private static Label? _buildInfoLabel;
     private static bool _restartArmed;
     private static int _selectedIndex;
-    private static int _leftStickVerticalDirection;
-    private static int _leftStickHorizontalDirection;
-    private static bool _leftTriggerPressed;
+    private static readonly PadPresses PadHeld = new();
 
     public static bool IsOpen =>
         _layer != null && GodotObject.IsInstanceValid(_layer) && _layer.Visible;
@@ -106,9 +106,7 @@ public static class SpireLensOptionsMenu
         RefreshBuildInfo();
         _layer!.Visible = true;
         _selectedIndex = NearestSelectable(Math.Clamp(_selectedIndex, 0, SelectableButtons.Count - 1));
-        _leftStickVerticalDirection = 0;
-        _leftStickHorizontalDirection = 0;
-        _leftTriggerPressed = false;
+        PadHeld.Clear();
         RefreshSelectionHighlight();
         ScrollSelectedIntoView();
         CoreMain.Logger.Info($"SpireLens options menu opened ({source})");
@@ -143,37 +141,28 @@ public static class SpireLensOptionsMenu
             return true;
         }
 
-        if (evt is InputEventJoypadMotion motion)
-            return HandleLeftStick(motion);
+        // Every pad event is the menu's while it is open, so none acts on the
+        // game beneath. The game turns its left stick into d-pad actions, and
+        // under Steam Input the right stick too.
+        if (!PadInput.IsPadEvent(evt)) return false;
 
-        if (evt is InputEventJoypadButton { Pressed: true } button)
+        if (PadInput.Action(evt, PadInput.ControllerActions) is not { } action)
         {
-            switch (button.ButtonIndex)
-            {
-                case JoyButton.DpadUp:
-                    MoveFocus(-1);
-                    return true;
-                case JoyButton.DpadDown:
-                    MoveFocus(1);
-                    return true;
-                case JoyButton.DpadLeft:
-                    JumpToEdge(first: true);
-                    return true;
-                case JoyButton.DpadRight:
-                    JumpToEdge(first: false);
-                    return true;
-                case JoyButton.LeftShoulder:
-                    JumpToEdge(first: true);
-                    return true;
-                case JoyButton.A:
-                    ActivateSelection(_selectedIndex, "menu confirm");
-                    return true;
-                default:
-                    Close("menu controller button");
-                    return true;
-            }
+            // A button the game has no action for, such as R3.
+            if (evt is InputEventJoypadButton { Pressed: true })
+                Close("menu controller button");
+            return true;
         }
-        return false;
+
+        if (!PadHeld.Press(evt, action)) return true;
+
+        if (action == Controller.dPadUp) MoveFocus(-1);
+        else if (action == Controller.dPadDown) MoveFocus(1);
+        else if (action == Controller.dPadLeft || action == Controller.leftBumper) JumpToEdge(first: true);
+        else if (action == Controller.dPadRight || action == Controller.leftTrigger) JumpToEdge(first: false);
+        else if (action == Controller.faceButtonSouth) ActivateSelection(_selectedIndex, "menu confirm");
+        else if (!PadInput.IsStickDirection(action)) Close("menu controller button");
+        return true;
     }
 
     public static void Destroy()
@@ -198,9 +187,7 @@ public static class SpireLensOptionsMenu
         _takeOverIndex = -1;
         _restartArmed = false;
         _selectedIndex = 0;
-        _leftStickVerticalDirection = 0;
-        _leftStickHorizontalDirection = 0;
-        _leftTriggerPressed = false;
+        PadHeld.Clear();
     }
 
     private static void Build(SceneTree tree)
@@ -709,52 +696,6 @@ public static class SpireLensOptionsMenu
                 highlight.Visible = false;
             }
         }
-    }
-
-    private static bool HandleLeftStick(InputEventJoypadMotion motion)
-    {
-        const float deadZone = 0.55f;
-
-        if (motion.Axis == JoyAxis.LeftY)
-        {
-            var direction = motion.AxisValue > deadZone ? 1 : motion.AxisValue < -deadZone ? -1 : 0;
-            if (direction == 0)
-            {
-                _leftStickVerticalDirection = 0;
-            }
-            else if (direction != _leftStickVerticalDirection)
-            {
-                _leftStickVerticalDirection = direction;
-                MoveFocus(direction);
-            }
-            return true;
-        }
-
-        if (motion.Axis == JoyAxis.LeftX)
-        {
-            var direction = motion.AxisValue > deadZone ? 1 : motion.AxisValue < -deadZone ? -1 : 0;
-            if (direction == 0)
-            {
-                _leftStickHorizontalDirection = 0;
-            }
-            else if (direction != _leftStickHorizontalDirection)
-            {
-                _leftStickHorizontalDirection = direction;
-                JumpToEdge(first: direction < 0);
-            }
-            return true;
-        }
-
-        if (motion.Axis == JoyAxis.TriggerLeft)
-        {
-            var pressed = motion.AxisValue > deadZone;
-            if (pressed && !_leftTriggerPressed)
-                JumpToEdge(first: false);
-            _leftTriggerPressed = pressed;
-            return true;
-        }
-
-        return false;
     }
 
     /// <summary>

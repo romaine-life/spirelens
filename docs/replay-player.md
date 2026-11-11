@@ -50,11 +50,11 @@ replay stays on the final screen until you exit.
 | Take over this run (play it yourself from here) | T | SpireLens menu → Take over this run |
 | Hide / show the replay bar | H | L3 |
 | Exit (back to the main menu; ends the whole playlist) | Esc | SpireLens menu → Stop replay |
-| SpireLens menu | Left Shift | R3 (Steam Input off only) |
+| SpireLens menu | Left Shift | R3 |
 
 Controller buttons are read through the game's own controller actions, so they work with Steam Input on (the game then
-sees a pad only through those actions) and off. Steam Input gives the game no right-stick click, so R3 opens the
-SpireLens menu only with Steam Input off.
+sees a pad only through those actions) and off. Steam Input gives the game no right-stick click, so R3 is read through
+Windows GameInput, which still sees the pad under Steam Input (`Core/Pad/GameInputPad.cs`).
 
 The status bar sits bottom-left. It shows playing or paused, the speed, the floor (`floor N/total`), the input index
 (`input i/n`) and the resync count, plus a short note when something happens. While a playlist plays, it adds a line

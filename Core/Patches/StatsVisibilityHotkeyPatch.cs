@@ -8,18 +8,22 @@ using MegaCrit.Sts2.Core.Nodes.CommonUi;
 using MegaCrit.Sts2.Core.Nodes.Debug;
 using MegaCrit.Sts2.Core.Nodes.Screens.Settings;
 using MegaCrit.Sts2.Core.Platform;
+using SpireLens.Core.Pad;
 
 namespace SpireLens.Core.Patches;
 
 /// <summary>
 /// Opens and closes the global SpireLens options menu with Left Shift or
 /// Right Stick press (R3), closes it with Escape, and dispatches the menu's
-/// keyboard/controller option shortcuts while that modal is open.
+/// keyboard/controller option shortcuts while that modal is open. R3 comes
+/// from GameInput where it sees the pad (the only source under Steam Input)
+/// and otherwise from Godot's raw joypad event.
 /// </summary>
 [HarmonyPatch]
 public static class StatsVisibilityHotkeyPatch
 {
     private static readonly LeftShiftTapTracker TapTracker = new();
+    private static readonly RightStickClickArbiter RightStickClicks = new();
 
     private static MethodBase? TargetMethod()
     {
@@ -31,6 +35,39 @@ public static class StatsVisibilityHotkeyPatch
 
     [HarmonyPostfix]
     public static void Postfix(InputEvent evt)
+    {
+        try
+        {
+            if (evt is InputEventJoypadButton { ButtonIndex: JoyButton.RightStick } rightStick)
+            {
+                if (!rightStick.Pressed)
+                {
+                    RightStickClicks.OnRawRelease();
+                }
+                else if (!RightStickClicks.OnRawPress(GameInputPad.IsDown() == true))
+                {
+                    // GameInput reports this click; GameInputRightStickPatch dispatches it.
+                    NInputManager.Instance?.GetViewport()?.SetInputAsHandled();
+                    return;
+                }
+            }
+        }
+        catch (Exception e)
+        {
+            CoreMain.LogDebug($"StatsVisibilityHotkeyPatch R3 check failed: {e.Message}");
+        }
+
+        Handle(evt);
+    }
+
+    /// <summary>GameInput reported a right-stick click (see <see cref="GameInputRightStickPatch"/>).</summary>
+    internal static void OnGameInputRightStickPress()
+    {
+        if (!RightStickClicks.OnGameInputPress()) return;
+        Handle(new InputEventJoypadButton { ButtonIndex = JoyButton.RightStick, Pressed = true });
+    }
+
+    private static void Handle(InputEvent evt)
     {
         try
         {
@@ -88,8 +125,6 @@ public static class StatsVisibilityHotkeyPatch
             }
             else
             {
-                if (SpireLensOptionsMenu.IsOpen && evt is InputEventJoypadButton or InputEventJoypadMotion)
-                    inputManager.GetViewport()?.SetInputAsHandled();
                 return;
             }
 

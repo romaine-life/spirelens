@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using Godot;
+using MegaCrit.Sts2.Core.ControllerInput;
+using SpireLens.Core.Pad;
 
 namespace SpireLens.Core.Replay.Playback;
 
@@ -24,7 +26,7 @@ internal static class ReplayPickerMenu
     private static int _selected;
     private static Label? _footer;
     private static ScrollContainer? _scroll;
-    private static int _stickDirection;
+    private static readonly PadPresses PadHeld = new();
 
     public static bool IsOpen => _layer != null && GodotObject.IsInstanceValid(_layer) && _layer.Visible;
 
@@ -84,7 +86,7 @@ internal static class ReplayPickerMenu
         Highlights.Clear();
         _footer = null;
         _scroll = null;
-        _stickDirection = 0;
+        PadHeld.Clear();
     }
 
     public static bool HandleShortcut(InputEvent evt)
@@ -106,27 +108,25 @@ internal static class ReplayPickerMenu
             return true;
         }
 
-        if (evt is InputEventJoypadButton { Pressed: true } button)
+        // Every pad event is the list's while it is open. The game turns its
+        // left stick into d-pad actions, and under Steam Input the right stick too.
+        if (!PadInput.IsPadEvent(evt)) return false;
+
+        if (PadInput.Action(evt, PadInput.ControllerActions) is not { } action)
         {
-            switch (button.ButtonIndex)
-            {
-                case JoyButton.DpadUp: Move(-1); break;
-                case JoyButton.DpadDown: Move(1); break;
-                case JoyButton.A: Activate(_selected); break;
-                default: Close(); break;
-            }
+            // A button the game has no action for, such as R3.
+            if (evt is InputEventJoypadButton { Pressed: true }) Close();
             return true;
         }
 
-        if (evt is InputEventJoypadMotion { Axis: JoyAxis.LeftY } motion)
-        {
-            int direction = motion.AxisValue > 0.55f ? 1 : motion.AxisValue < -0.55f ? -1 : 0;
-            if (direction != 0 && direction != _stickDirection) Move(direction);
-            _stickDirection = direction;
-            return true;
-        }
+        if (!PadHeld.Press(evt, action)) return true;
 
-        return false;
+        if (action == Controller.dPadUp) Move(-1);
+        else if (action == Controller.dPadDown) Move(1);
+        else if (action == Controller.faceButtonSouth) Activate(_selected);
+        else if (action != Controller.dPadLeft && action != Controller.dPadRight
+                 && !PadInput.IsStickDirection(action)) Close();
+        return true;
     }
 
     private static void Build(SceneTree tree)

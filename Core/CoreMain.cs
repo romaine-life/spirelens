@@ -231,6 +231,9 @@ public static class CoreMain
         try { SpireLensOptionsMenu.Destroy(); }
         catch (Exception e) { Logger.Error($"Shutdown: options menu teardown failed: {e}"); }
 
+        try { Pad.GameInputPad.Release(); }
+        catch (Exception e) { Logger.Error($"Shutdown: GameInput release failed: {e}"); }
+
         try { StatsTooltipPinManager.Teardown(); }
         catch (Exception e) { Logger.Error($"Shutdown: stats tooltip pin teardown failed: {e}"); }
 

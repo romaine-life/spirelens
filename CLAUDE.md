@@ -18,9 +18,7 @@ Use `pr-create romaine-life/spirelens --head <branch> --title <title> --body-fil
 `pr-merge <Forgejo-PR-URL>` after the checks pass. These commands supersede the
 GitHub PR commands in the historical dev-work document. GitHub is a push mirror.
 CI lives in `.forgejo/workflows/ci.yml`: Go and mod checks gate PRs; the main
-release job publishes the signed package and Workshop update. Keep the primary
-`D:\repos\spirelens` checkout clean on `main`; branch work belongs in a fresh
-clone or worktree under `D:\workspace\spirelens\<branch>`.
+release job publishes the signed package and Workshop update.
 
 ## Non-negotiables that are easy to get backwards
 

@@ -14,12 +14,34 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: romaine-life/pipeline-templates/actions/check-fetches@main
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "$EVENT" != pull_request ]; then
+            echo code=true >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files=$(git diff --name-only "$BASE...HEAD")
+          if grep -qvE '\.md$|^docs/|^LICENSE$' <<< "$files"; then
+            echo code=true >> "$GITHUB_OUTPUT"
+          fi
+
   go:
     runs-on: [ubuntu-latest, upstairspc-linux]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: romaine-life/pipeline-templates/actions/check-fetches@main
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -29,6 +51,8 @@ jobs:
       - run: go test ./...
 
   build:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: windows-latest
     timeout-minutes: 25
     outputs:

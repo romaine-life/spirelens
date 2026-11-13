@@ -310,6 +310,9 @@ jobs:
             Invoke-RestMethod "$api/$($release.id)/assets?name=SpireLens.zip" -Method Post -Headers $h -Form @{attachment=Get-Item workshop_artifact/SpireLens.zip} | Out-Null
           }
           Invoke-RestMethod "$api/$($release.id)" -Method Patch -Headers $h -ContentType application/json -Body '{"draft":false}' | Out-Null
+      - name: Delete the files of older releases
+        if: steps.version.outputs.publish == 'true'
+        uses: romaine-life/pipeline-templates/actions/prune-releases@main
       - name: Remove isolated Steam credential
         if: always()
         run: |

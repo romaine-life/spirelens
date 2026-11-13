@@ -190,7 +190,7 @@ jobs:
           $steamArchive = Join-Path $PWD "steamcmd.zip"
           New-Item -ItemType Directory -Path $steamDirectory -Force | Out-Null
           Invoke-WebRequest `
-            -Uri "https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip" -OutFile $steamArchive # internet: SteamCMD bootstrap for Workshop publishing
+            -Uri "https://artifacts.home.romaine.life/general/steam/client/installer/steamcmd.zip" -OutFile $steamArchive
           Expand-Archive -LiteralPath $steamArchive -DestinationPath $steamDirectory -Force
 
           # A fresh SteamCMD can replace and relaunch itself, then return exit

@@ -42,7 +42,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
       - run: go build ./...
@@ -65,9 +65,9 @@ jobs:
         with:
           fetch-depth: 0
       - uses: romaine-life/pipeline-templates/actions/home-cache@main
-      - uses: actions/setup-dotnet@v4
+      - uses: romaine-life/pipeline-templates/actions/setup-dotnet@main
         with:
-          dotnet-version: '9.0.x'
+          dotnet-version: '9.0'
       - name: Test against reference assemblies
         run: dotnet test Tests/SpireLens.Core.Tests/SpireLens.Core.Tests.csproj -c Release -p:SkipModsDeploy=true -p:Sts2DataDir=Z:/forgejo-no-game --filter "Category!=RequiresLiveGame" --logger "console;verbosity=normal"
       - name: Build mod

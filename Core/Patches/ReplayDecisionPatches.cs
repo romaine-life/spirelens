@@ -1,3 +1,4 @@
+using System.Reflection;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Entities.Merchant;
 using MegaCrit.Sts2.Core.Multiplayer.Game;
@@ -62,32 +63,44 @@ public static class ReplayRewardsSkippedPatch
 }
 
 /// <summary>
-/// <c>MerchantEntry.OnTryPurchaseWrapper(MerchantInventory? inventory, bool ignoreCost)</c>:
-/// shop card / relic / potion purchase attempts (and card removal when reached
-/// through the base entry, as AutoSlay does). <c>ignoreCost</c> purchases come
-/// from game logic (Lord's Parasol) and are recorded with <c>auto=true</c>.
+/// The shared purchase method (<c>MerchantEntry.OnTryPurchaseUnsynchronized</c>
+/// on STS2 v0.113+, <c>OnTryPurchaseWrapper</c> before): shop card / relic /
+/// potion purchase attempts, plus card removal on v0.113+ (and before it when
+/// reached through the base entry, as AutoSlay does). <c>ignoreCost</c>
+/// purchases come from game logic (Lord's Parasol) and are recorded with
+/// <c>auto=true</c>.
 /// </summary>
-[HarmonyPatch(typeof(MerchantEntry), nameof(MerchantEntry.OnTryPurchaseWrapper),
-    new[] { typeof(MerchantInventory), typeof(bool) })]
+[HarmonyPatch]
 public static class ReplayMerchantPurchasePatch
 {
+    private static MethodBase? TargetMethod() => MerchantPurchaseApi.SharedPurchase;
+
+    private static bool Prepare() => TargetMethod() != null;
+
     [HarmonyPrefix]
     public static void Prefix(MerchantEntry __instance, MerchantInventory? inventory, bool ignoreCost)
     {
         PatchGuard.Run(nameof(ReplayMerchantPurchasePatch), () =>
-            ReplayRecorder.OnMerchantPurchaseAttempt(__instance, inventory, ignoreCost, null));
+        {
+            if (!MerchantPurchaseApi.IsLocal(__instance)) return;
+            ReplayRecorder.OnMerchantPurchaseAttempt(
+                __instance, inventory, ignoreCost, MerchantPurchaseApi.SharedPathCancelable(__instance));
+        });
     }
 }
 
 /// <summary>
-/// <c>MerchantCardRemovalEntry.OnTryPurchaseWrapper(MerchantInventory? inventory, bool ignoreCost, bool cancelable)</c>:
-/// the shop's card-removal service as the UI invokes it. The card picked
-/// afterwards arrives separately as a PlayerChoice.
+/// <c>MerchantCardRemovalEntry.OnTryPurchaseWrapper(MerchantInventory? inventory, bool ignoreCost, bool cancelable)</c>,
+/// before STS2 v0.113: the shop's card-removal service as the UI invokes it.
+/// The card picked afterwards arrives separately as a PlayerChoice.
 /// </summary>
-[HarmonyPatch(typeof(MerchantCardRemovalEntry), nameof(MerchantCardRemovalEntry.OnTryPurchaseWrapper),
-    new[] { typeof(MerchantInventory), typeof(bool), typeof(bool) })]
+[HarmonyPatch]
 public static class ReplayMerchantCardRemovalPatch
 {
+    private static MethodBase? TargetMethod() => MerchantPurchaseApi.RemovalWrapper;
+
+    private static bool Prepare() => TargetMethod() != null;
+
     [HarmonyPrefix]
     public static void Prefix(MerchantCardRemovalEntry __instance, MerchantInventory? inventory, bool ignoreCost, bool cancelable)
     {

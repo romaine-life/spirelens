@@ -306,8 +306,10 @@ Run recording (`Core/Replay/`, format in [run-recording.md](run-recording.md)) r
 
 - Event options, rest site options, reward take or skip, shop purchases and opening the treasure chest each go through one `*Synchronizer` (or `MerchantEntry`) method.
 - In multiplayer, that method broadcasts an index message, which is what makes it the local-decision choke point.
-- `MerchantEntry.OnTryPurchaseWrapper` is also called by game logic (Lord's Parasol), with `ignoreCost: true`.
-- `MerchantCardRemovalEntry` has its own three-parameter `OnTryPurchaseWrapper`. The UI calls that one. AutoSlay reaches removal through the base two-parameter method.
+- The shop's shared purchase method is also called by game logic (Lord's Parasol), with `ignoreCost: true`.
+- Before v0.113 that method is `MerchantEntry.OnTryPurchaseWrapper`, run only for the local player. `MerchantCardRemovalEntry` has its own three-parameter `OnTryPurchaseWrapper`, which the UI calls; AutoSlay reaches removal through the base two-parameter method. The removal itself runs in `OneOffSynchronizer.DoLocalMerchantCardRemoval(goldCost, cancelable)`.
+- From v0.113 the UI calls `MerchantSynchronizer.PurchaseLocalEntry`, which broadcasts the entry id, and every machine then runs `MerchantEntry.OnTryPurchaseUnsynchronized(inventory, ignoreCost)` for the buying player, card removal included. Hooks on it must filter to the local player. Removal's cancelability lives on the entry (`_isCancelable`, cleared by `SetPurchaseUncancelable`), and the removal runs in the entry's `OnTryPurchaseInternal`. The local inventory moved from `MerchantRoom.GetLocalInventory()` to `RunManager.MerchantSynchronizer.GetLocalInventory()`.
+- `Core/Patches/MerchantPurchaseApi.cs` resolves whichever of these the running build has; shop hooks go through it.
 
 **Resumes go through `SetUpSaved*`.**
 
@@ -620,6 +622,12 @@ potion-owned `BlockChunk`. That chunk shares the normal FIFO absorbed / LIFO
 wasted ledger semantics. If a tracked owner targets a co-op partner, retain the
 observed gain on the potion but do not mix the partner's block pool into the
 tracked player's effective/wasted ledger.
+
+The final multi-target `CreatureCmd.Damage` overload is the one every
+multi-target damage call ends in. Before v0.113 it takes
+`IEnumerable<Creature>`; from v0.113 it takes `IEnumerable<DamageTargetData>`,
+the creature-list overload forwards to it, and card attacks (`AttackCommand`)
+call it directly. `Core/Patches/CreatureDamageFunnel.cs` resolves it.
 
 Explosive Ampoule's protected `OnUse` callback snapshots the hittable enemies,
 waits for its VFX, then calls the final multi-target `CreatureCmd.Damage`
@@ -1805,13 +1813,14 @@ one nested read on the arming thread and released in a `finally`; a leaked flag
 would silently remove the discount from live shop prices.
 
 Take that snapshot before the purchase runs, not at
-`Hook.AfterItemPurchased`. `MerchantEntry.OnTryPurchaseWrapper` calls
+`Hook.AfterItemPurchased`. The shared purchase method calls
 `RestockAfterPurchase` (which re-runs `CalcCost` for a *different* item) or
 `ClearAfterPurchase` between charging the player and announcing the sale, so
 `_cost` at hook time can already belong to the replacement stock whenever the
-player also owns The Courier. `MerchantCardRemovalEntry` declares its own
-cancelable `OnTryPurchaseWrapper` overload rather than calling the shared one,
-so both wrappers need the prefix. `Hook.AfterItemPurchased` then supplies the
+player also owns The Courier. Before v0.113, `MerchantCardRemovalEntry` declares
+its own cancelable `OnTryPurchaseWrapper` overload rather than calling the
+shared one, so both wrappers need the prefix; from v0.113 removal goes through
+the shared method too. `Hook.AfterItemPurchased` then supplies the
 authoritative `goldSpent` and fires only on success; a free purchase
 (`ignoreCost`) reports zero and must record no saving rather than the full
 price.

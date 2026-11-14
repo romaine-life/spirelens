@@ -24,6 +24,8 @@ using MegaCrit.Sts2.Core.Rooms;
 using MegaCrit.Sts2.Core.Runs;
 using MegaCrit.Sts2.Core.Saves;
 
+using SpireLens.Core.Patches;
+
 namespace SpireLens.Core.Replay;
 
 /// <summary>
@@ -560,7 +562,7 @@ public static class ReplayRecorder
         Try(() => data["cost"] = entry.Cost);
         Try(() =>
         {
-            inventory ??= (RunManager.Instance.State?.CurrentRoom as MerchantRoom)?.GetLocalInventory();
+            inventory ??= MerchantPurchaseApi.LocalInventory();
             switch (entry)
             {
                 case MerchantCardRemovalEntry:
@@ -597,7 +599,7 @@ public static class ReplayRecorder
         {
             Try(() =>
             {
-                inventory ??= (RunManager.Instance.State?.CurrentRoom as MerchantRoom)?.GetLocalInventory();
+                inventory ??= MerchantPurchaseApi.LocalInventory();
                 var offered = DecisionCapture.MerchantOptions(inventory);
                 int idx = offered.FindIndex(o => ReferenceEquals(o.Ref, entry));
                 training = new TrainingSpec(offered, idx >= 0 ? idx : null);

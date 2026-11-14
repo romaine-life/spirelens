@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 using System.Collections.Generic;
 using System.Threading;
 using HarmonyLib;
@@ -103,21 +104,13 @@ public static class PaperPhrogVulnerableModifyDamagePatch
     }
 }
 
-[HarmonyPatch(
-    typeof(CreatureCmd),
-    nameof(CreatureCmd.Damage),
-    new[]
-    {
-        typeof(PlayerChoiceContext),
-        typeof(IEnumerable<Creature>),
-        typeof(decimal),
-        typeof(ValueProp),
-        typeof(Creature),
-        typeof(CardModel),
-        typeof(CardPlay),
-    })]
+[HarmonyPatch]
 public static class PaperPhrogCreatureDamagePatch
 {
+    private static MethodBase? TargetMethod() => CreatureDamageFunnel.Target;
+
+    private static bool Prepare() => TargetMethod() != null;
+
     [HarmonyPrefix]
     public static void Prefix(
         decimal amount,

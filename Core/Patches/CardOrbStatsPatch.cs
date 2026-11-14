@@ -155,20 +155,13 @@ internal static class TrackedCardOrbDamageScopePatch
 /// final CreatureCmd overload sees both single-target Dark and multi-target
 /// Glass calls without counting any intermediate overload twice.
 /// </summary>
-[HarmonyPatch(
-    typeof(CreatureCmd),
-    nameof(CreatureCmd.Damage),
-    [
-        typeof(PlayerChoiceContext),
-        typeof(IEnumerable<Creature>),
-        typeof(decimal),
-        typeof(ValueProp),
-        typeof(Creature),
-        typeof(CardModel),
-        typeof(CardPlay),
-    ])]
+[HarmonyPatch]
 internal static class TrackedCardOrbDamageResultPatch
 {
+    private static MethodBase? TargetMethod() => CreatureDamageFunnel.Target;
+
+    private static bool Prepare() => TargetMethod() != null;
+
     [HarmonyPrefix]
     public static void Prefix(Creature? dealer, out OrbModel? __state)
     {

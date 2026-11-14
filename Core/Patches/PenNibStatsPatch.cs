@@ -164,21 +164,13 @@ public static class HookBeforeSideTurnEndPenNibPatch
 /// any hook modifiers run. Pen Nib's multiplicative hook can then record the
 /// command's base per-hit amount rather than an intermediate modified value.
 /// </summary>
-[HarmonyPatch(
-    typeof(CreatureCmd),
-    nameof(CreatureCmd.Damage),
-    new[]
-    {
-        typeof(PlayerChoiceContext),
-        typeof(IEnumerable<Creature>),
-        typeof(decimal),
-        typeof(ValueProp),
-        typeof(Creature),
-        typeof(CardModel),
-        typeof(CardPlay),
-    })]
+[HarmonyPatch]
 public static class PenNibCreatureDamagePatch
 {
+    private static MethodBase? TargetMethod() => CreatureDamageFunnel.Target;
+
+    private static bool Prepare() => TargetMethod() != null;
+
     [HarmonyPrefix]
     public static void Prefix(
         decimal amount,

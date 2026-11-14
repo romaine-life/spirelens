@@ -297,7 +297,7 @@ public static class RelicBarFilterPatch
                 SetPotionDownNeighbors(topBar.PotionContainer, downPath);
             }
 
-            var firstPotionControl = topBar.PotionContainer?.FirstPotionControl;
+            Control? firstPotionControl = topBar.PotionContainer?._holders.FirstOrDefault();
             for (var i = 0; i < visibleRelics.Length; i++)
             {
                 var relic = visibleRelics[i];
@@ -591,9 +591,18 @@ public static class RelicInventoryVisibleNavigationPatch
     public static void Postfix() => RelicBarFilterPatch.RefreshVisibleNavigation();
 }
 
-[HarmonyPatch(typeof(NPotionContainer), "UpdateNavigation")]
+/// <summary>
+/// Before STS2 v0.113 the potion container sets its own navigation; from v0.113
+/// NTopBar.UpdateNavigation does, which the top-bar patch already covers.
+/// </summary>
+[HarmonyPatch]
 public static class PotionContainerVisibleRelicNavigationPatch
 {
+    private static MethodBase? TargetMethod()
+        => AccessTools.DeclaredMethod(typeof(NPotionContainer), "UpdateNavigation");
+
+    private static bool Prepare() => TargetMethod() != null;
+
     [HarmonyPostfix]
     public static void Postfix() => RelicBarFilterPatch.RefreshVisibleNavigation();
 }

@@ -26,6 +26,10 @@ public static class StatsTooltip
     private const string NativeHintTipId = "SPIRELENS.HINT";
     private const int BodyFontSize = 20;
 
+    // Id is an auto-property; v0.113 dropped its setter, so write the backing field.
+    private static readonly FieldInfo IdField =
+        AccessTools.Field(typeof(HoverTip), "<Id>k__BackingField");
+
     private static readonly PropertyInfo TitleProperty =
         AccessTools.Property(typeof(HoverTip), nameof(HoverTip.Title));
 
@@ -39,7 +43,6 @@ public static class StatsTooltip
     {
         var tip = new HoverTip
         {
-            Id = NativeStatsTipId,
             ShouldOverrideTextOverflow = stretchHorizontally,
         };
 
@@ -47,6 +50,7 @@ public static class StatsTooltip
         // setters are private. Box it so the same native fields used by the
         // game can be populated without inventing a parallel UI node.
         object boxed = tip;
+        IdField.SetValue(boxed, NativeStatsTipId);
         TitleProperty.SetValue(boxed, titleText);
         DescriptionProperty.SetValue(
             boxed,
@@ -56,13 +60,9 @@ public static class StatsTooltip
 
     internal static HoverTip CreateNativeHint(string bodyText)
     {
-        var tip = new HoverTip
-        {
-            Id = NativeHintTipId,
-        };
-
         // Leave Title null so the native scene omits its header entirely.
-        object boxed = tip;
+        object boxed = new HoverTip();
+        IdField.SetValue(boxed, NativeHintTipId);
         DescriptionProperty.SetValue(
             boxed,
             $"[left][font_size={BodyFontSize}]{EscapeBbcode(bodyText)}[/font_size][/left]");

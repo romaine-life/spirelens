@@ -194,8 +194,8 @@ Every `sem` also has the action's `text`.
 | `rest_option` | `index`, `option_id` | `RestSiteSynchronizer.ChooseLocalOption(int index)` |
 | `reward_take` | `set_id`, `index`, `reward_type`, `reward` | `RewardsSetSynchronizer.SelectLocalReward(Reward reward)` |
 | `reward_skip` | `set_id` | `RewardsSetSynchronizer.SkipLocalRewardsSet()` |
-| `shop_buy` | `category` (`character_card`, `colorless_card`, `relic`, `potion`), `slot`, `model`, `cost`, `auto` | `MerchantEntry.OnTryPurchaseWrapper(MerchantInventory?, bool ignoreCost)` |
-| `shop_remove_card` | `cost`, `auto`, `cancelable` | `MerchantCardRemovalEntry.OnTryPurchaseWrapper(MerchantInventory?, bool, bool)` |
+| `shop_buy` | `category` (`character_card`, `colorless_card`, `relic`, `potion`), `slot`, `model`, `cost`, `auto` | `MerchantEntry.OnTryPurchaseUnsynchronized(MerchantInventory?, bool ignoreCost)` for the local player (v0.113+); `MerchantEntry.OnTryPurchaseWrapper(MerchantInventory?, bool ignoreCost)` before |
+| `shop_remove_card` | `cost`, `auto`, `cancelable` | the same shared method (v0.113+); `MerchantCardRemovalEntry.OnTryPurchaseWrapper(MerchantInventory?, bool, bool)` before |
 | `treasure_chest_open` | none | `OneOffSynchronizer.DoLocalTreasureRoomRewards()` |
 
 `auto: true` marks purchases made by game logic (Lord's Parasol uses

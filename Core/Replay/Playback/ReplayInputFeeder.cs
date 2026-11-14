@@ -35,6 +35,7 @@ using MegaCrit.Sts2.Core.Nodes.Screens.Overlays;
 using MegaCrit.Sts2.Core.Rewards;
 using MegaCrit.Sts2.Core.Rooms;
 using MegaCrit.Sts2.Core.Runs;
+using SpireLens.Core.Patches;
 
 namespace SpireLens.Core.Replay.Playback;
 
@@ -453,9 +454,9 @@ internal static class ReplayInputFeeder
         int slot = data.TryGetProperty("slot", out var sl) && sl.ValueKind == JsonValueKind.Number ? sl.GetInt32() : -1;
 
         MerchantInventory? inventory = null;
-        if (state.CurrentRoom is MerchantRoom merchantRoom)
+        if (state.CurrentRoom is MerchantRoom)
         {
-            inventory = merchantRoom.GetLocalInventory();
+            inventory = MerchantPurchaseApi.LocalInventory();
             var ui = NMerchantRoom.Instance;
             if (ui?.Inventory != null && !ui.Inventory.IsOpen) ui.OpenInventory();
         }
@@ -476,15 +477,8 @@ internal static class ReplayInputFeeder
         };
         if (entry == null) return Impossible($"shop slot {category}#{slot} not found");
 
-        if (entry is MerchantCardRemovalEntry removal)
-        {
-            bool cancelable = !data.TryGetProperty("cancelable", out var cn) || cn.ValueKind != JsonValueKind.False;
-            TaskHelper.RunSafely(removal.OnTryPurchaseWrapper(inventory, ignoreCost: false, cancelable: cancelable));
-        }
-        else
-        {
-            TaskHelper.RunSafely(entry.OnTryPurchaseWrapper(inventory));
-        }
+        bool cancelable = !data.TryGetProperty("cancelable", out var cn) || cn.ValueKind != JsonValueKind.False;
+        TaskHelper.RunSafely(MerchantPurchaseApi.PurchaseLocal(entry, inventory, cancelable));
         return FeedResult.Fed;
     }
 
@@ -492,8 +486,8 @@ internal static class ReplayInputFeeder
     {
         var room = NRun.Instance?.TreasureRoom;
         if (room == null) return NotReady("treasure room not open");
-        if (room._hasChestBeenOpened) return Impossible("chest already open");
-        TaskHelper.RunSafely(room.OpenChest());
+        if (!room._chestButton.IsEnabled) return Impossible("chest already open");
+        room.OnChestButtonReleased(null!);
         return FeedResult.Fed;
     }
 

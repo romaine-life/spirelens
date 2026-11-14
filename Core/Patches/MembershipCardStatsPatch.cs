@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Entities.Merchant;
 using MegaCrit.Sts2.Core.Entities.Players;
@@ -124,20 +125,22 @@ public static class MembershipCardCounterfactualPricePatch
 }
 
 /// <summary>
-/// Snapshots the entry price before the shared purchase wrapper mutates the
+/// Snapshots the entry price before the shared purchase method mutates the
 /// entry.
 /// </summary>
-[HarmonyPatch(
-    typeof(MerchantEntry),
-    nameof(MerchantEntry.OnTryPurchaseWrapper),
-    new[] { typeof(MerchantInventory), typeof(bool) })]
+[HarmonyPatch]
 public static class MerchantEntryPurchaseCostSnapshotPatch
 {
+    private static MethodBase? TargetMethod() => MerchantPurchaseApi.SharedPurchase;
+
+    private static bool Prepare() => TargetMethod() != null;
+
     [HarmonyPrefix]
     private static void Prefix(MerchantEntry __instance, bool ignoreCost)
     {
         try
         {
+            if (!MerchantPurchaseApi.IsLocal(__instance)) return;
             MembershipCardDiscountSnapshot.Capture(__instance, ignoreCost);
         }
         catch (Exception e)
@@ -149,15 +152,17 @@ public static class MerchantEntryPurchaseCostSnapshotPatch
 }
 
 /// <summary>
-/// Card removal declares its own cancelable purchase wrapper instead of going
-/// through the shared one, so it needs the same pre-purchase snapshot.
+/// Before STS2 v0.113, card removal declares its own cancelable purchase
+/// wrapper instead of going through the shared one, so it needs the same
+/// pre-purchase snapshot.
 /// </summary>
-[HarmonyPatch(
-    typeof(MerchantCardRemovalEntry),
-    nameof(MerchantCardRemovalEntry.OnTryPurchaseWrapper),
-    new[] { typeof(MerchantInventory), typeof(bool), typeof(bool) })]
+[HarmonyPatch]
 public static class MerchantCardRemovalPurchaseCostSnapshotPatch
 {
+    private static MethodBase? TargetMethod() => MerchantPurchaseApi.RemovalWrapper;
+
+    private static bool Prepare() => TargetMethod() != null;
+
     [HarmonyPrefix]
     private static void Prefix(MerchantCardRemovalEntry __instance, bool ignoreCost)
     {

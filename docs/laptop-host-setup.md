@@ -64,8 +64,9 @@ The pwsh contract is Glimmung-shaped — `GLIMMUNG_RUN_ID`,
 `env-prep`'s `probe-mod-set` step fails closed if the STS2 `mods/` directory
 contains anything outside `{BaseLib, SpireLens, SpireLensMcp}`. Keep the mods
 folder limited to those three (`SpireLensMcp` is deployed per-run by
-`prepare-host.ps1 -InstallMcp`). A clean run shows `Loaded 3 mods` in the game
-log; `Loaded 2 mods` means the bridge is not installed yet.
+`prepare-host.ps1 -InstallMcp`). A clean run shows `Loaded 4 mods` in the game
+log (BaseLibCompatibilityHelper, in `mods\BaseLib\`, counts as one); `Loaded 3
+mods` means the bridge is not installed yet.
 
 `BaseLib` and `SpireLens` are **host-local persistent state** — they are not
 re-installed per run (only `SpireLensMcp` is), and the per-run checkout sync
@@ -77,9 +78,14 @@ that pin at or above the floor below; a stale pin silently downgrades the
 host (2026-10-16: the 3.4.0 pin replaced an installed 3.4.5 on a Loader
 deploy).
 
-### BaseLib version floor: **>= v3.4.7**
+### BaseLib version floor: **>= v3.4.8**
 
-`BaseLib` must be **v3.4.7 or newer**. On STS2 v0.111, BaseLib v3.4.0's
+`BaseLib` must be **v3.4.8 or newer**. On STS2 v0.113, BaseLib v3.4.7
+references the removed `SingletonModel` type and fails to load, and the game
+then skips SpireLens. v3.4.8 depends on a second mod,
+`BaseLibCompatibilityHelper`, which ships only in the GitHub release and sits in
+`mods\BaseLib\` beside BaseLib; the root build downloads it from the release
+matching the pinned version. On STS2 v0.111, BaseLib v3.4.0's
 `CustomActTreasureChest` hard-references the removed `NTreasureRoom._chestNode`
 and throws a `TypeInitializationException` every time a treasure room loads;
 v3.4.7 looks the field up as nullable. Earlier: STS2 v0.110.1 removed
@@ -96,12 +102,14 @@ path/existence, raw BaseLib version, normalized BaseLib version, and any JSON
 parse error. It fails closed with
 `baselib_too_old:found=<ver>:expected>=<floor>` below the floor (or
 `baselib_missing_or_unversioned:found=<ver-or-empty>:manifest_exists=<bool>:expected>=<floor>`
-if BaseLib is absent or its version is unparseable), and emits
+if BaseLib is absent or its version is unparseable), fails with
+`baselib_dependency_missing:<id>` when a mod `BaseLib.json` lists under
+`dependencies` has no manifest under `mods\`, and emits
 `baselib_version` as a phase output on pass. The floor itself is the
 `BaseLibMinVersion` constant near the top of `internal/host/probe.go`. **Bump
 `BaseLibMinVersion`** when a future STS2 update requires a newer BaseLib. When
 re-provisioning a host, fetch the current Alchyr/BaseLib-StS2 release and confirm
-`mods\BaseLib\BaseLib.json` reports `"version": "v3.4.7"` or newer.
+`mods\BaseLib\BaseLib.json` reports `"version": "v3.4.8"` or newer.
 
 > Game updates land about every two weeks and routinely break this — see
 > [docs/surviving-sts2-updates.md](./surviving-sts2-updates.md) for the full

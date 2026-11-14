@@ -19,6 +19,7 @@ using MegaCrit.Sts2.Core.Nodes;
 using MegaCrit.Sts2.Core.Nodes.Audio;
 using MegaCrit.Sts2.Core.Rooms;
 using MegaCrit.Sts2.Core.Runs;
+using MegaCrit.Sts2.Core.TestSupport;
 using MegaCrit.Sts2.Core.Saves;
 using SpireLens.Core.Pad;
 
@@ -665,11 +666,34 @@ public static class ReplayPlayer
     {
         try { _selectorScope?.Dispose(); } catch { }
         _selector = new ReplayCardSelector();
-        _selectorScope = CardSelectCmd.PushSelector(_selector, localOnly: true);
+        _selectorScope = PushLocalSelector(_selector);
 
         try { if (_checksumSource != null) _checksumSource.ChecksumGenerated -= OnChecksum; } catch { }
         _checksumSource = RunManager.Instance.ChecksumTracker;
         if (_checksumSource != null) _checksumSource.ChecksumGenerated += OnChecksum;
+    }
+
+    private static readonly System.Reflection.MethodInfo? StaticPushSelector =
+        HarmonyLib.AccessTools.DeclaredMethod(
+            typeof(CardSelectCmd), "PushSelector", new[] { typeof(ICardSelector), typeof(bool) });
+
+    private static readonly System.Reflection.PropertyInfo? RunCardSelectorStack =
+        HarmonyLib.AccessTools.DeclaredProperty(typeof(RunManager), "CardSelectorStack");
+
+    /// <summary>
+    /// Installs the local player's selector: on the run's CardSelectorStack on
+    /// v0.113+, on CardSelectCmd's static local stack before.
+    /// </summary>
+    private static IDisposable PushLocalSelector(ICardSelector selector)
+    {
+        if (StaticPushSelector != null)
+            return (IDisposable)StaticPushSelector.Invoke(null, new object[] { selector, true })!;
+
+        var stack = RunCardSelectorStack?.GetValue(RunManager.Instance)
+            ?? throw new InvalidOperationException("RunManager.CardSelectorStack not found");
+        var useLocal = HarmonyLib.AccessTools.Method(stack.GetType(), "UseLocalSelector", new[] { typeof(ICardSelector) })
+            ?? throw new MissingMethodException("CardSelectorStack", "UseLocalSelector");
+        return (IDisposable)useLocal.Invoke(stack, new object[] { selector })!;
     }
 
     private static async Task LoadKeyframeAsync(int index, string why)

@@ -251,8 +251,20 @@ internal static class ReplayMapFloorPicker
     {
         var screen = _screen;
         if (screen == null || !GodotObject.IsInstanceValid(screen)) return;
-        screen._targetDragPos = new Vector2(0f, -600f + point.Point.coord.row * screen._distY);
+        int row = point.Point.coord.row;
+        // v0.113 spaces rows unevenly and computes the offset itself; earlier
+        // builds space them evenly by _distY.
+        float y = RowScrollPos?.Invoke(screen, new object[] { row }) is float pos
+            ? pos
+            : -600f + row * (float)(RowDistY?.GetValue(screen) ?? 0f);
+        screen._targetDragPos = new Vector2(0f, y);
     }
+
+    private static readonly System.Reflection.MethodInfo? RowScrollPos =
+        HarmonyLib.AccessTools.DeclaredMethod(typeof(NMapScreen), "GetRowScrollPos", new[] { typeof(int) });
+
+    private static readonly System.Reflection.FieldInfo? RowDistY =
+        HarmonyLib.AccessTools.DeclaredField(typeof(NMapScreen), "_distY");
 
     /// <summary>A left click: true (and the jump is requested) when it is on a recorded room.</summary>
     public static bool TryChooseUnderMouse()

@@ -514,21 +514,13 @@ public sealed record PotionBlockCommandFrame(
 /// context identifies the exact potion without a dealer-wide attribution
 /// window, and the command result supplies the observed AOE damage split.
 /// </summary>
-[HarmonyPatch(
-    typeof(CreatureCmd),
-    nameof(CreatureCmd.Damage),
-    new[]
-    {
-        typeof(PlayerChoiceContext),
-        typeof(IEnumerable<Creature>),
-        typeof(decimal),
-        typeof(ValueProp),
-        typeof(Creature),
-        typeof(CardModel),
-        typeof(CardPlay),
-    })]
+[HarmonyPatch]
 public static class ExplosiveAmpouleHistoryDamagePatch
 {
+    private static MethodBase? TargetMethod() => CreatureDamageFunnel.Target;
+
+    private static bool Prepare() => TargetMethod() != null;
+
     private static readonly HashSet<PlayerChoiceContext> ClaimedContexts =
         new(ReferenceEqualityComparer.Instance);
 

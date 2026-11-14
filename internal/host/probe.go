@@ -13,9 +13,9 @@ import (
 )
 
 // BaseLibMinVersion is the BaseLib version floor enforced during env prep.
-// BaseLib 3.3.7 hard-references the removed MegaInput.releaseCard field from
-// its NPlayerHand patch, preventing every attempted card play on STS2 v0.110.1.
-const BaseLibMinVersion = "3.4.7"
+// BaseLib 3.4.7 references the removed SingletonModel type and fails to load on
+// STS2 v0.113, which takes SpireLens down with it.
+const BaseLibMinVersion = "3.4.8"
 
 // allowedMods is the AGENTS.md mod allowlist; SpireLensMcp may be absent before
 // install (per-run), so only a name OUTSIDE this set is unexpected.
@@ -43,7 +43,11 @@ func ProbeMods(out io.Writer) error {
 		res.AbortReason = "host_unavailable"
 		return writeJSONTo(out, res)
 	}
-	modsDir := filepath.Join(gameDir, "mods")
+	return writeJSONTo(out, probeModsDir(filepath.Join(gameDir, "mods")))
+}
+
+func probeModsDir(modsDir string) ModProbeResult {
+	res := ModProbeResult{ModsFound: []string{}}
 	entries, _ := os.ReadDir(modsDir)
 	for _, e := range entries {
 		if e.IsDir() {
@@ -57,20 +61,43 @@ func ProbeMods(out io.Writer) error {
 	for _, m := range res.ModsFound {
 		if !containsFold(allowedMods, m) {
 			res.AbortReason = "unexpected_mod:" + m
-			return writeJSONTo(out, res)
+			return res
 		}
 	}
 
-	res.BaseLibVersion = readBaseLibVersion(filepath.Join(modsDir, "BaseLib", "BaseLib.json"))
+	manifest := readModManifest(filepath.Join(modsDir, "BaseLib", "BaseLib.json"))
+	res.BaseLibVersion = manifest.version
 	if res.BaseLibVersion == "" {
 		res.AbortReason = "baselib_missing_or_unversioned:expected>=" + BaseLibMinVersion
-		return writeJSONTo(out, res)
+		return res
 	}
 	if !semverGE(res.BaseLibVersion, BaseLibMinVersion) {
 		res.AbortReason = "baselib_too_old:found=" + res.BaseLibVersion + ":expected>=" + BaseLibMinVersion
-		return writeJSONTo(out, res)
+		return res
 	}
-	return writeJSONTo(out, res)
+	// The game refuses to load a mod whose declared dependency has no manifest,
+	// and every mod depending on it goes down too.
+	for _, dep := range manifest.dependencies {
+		if !manifestExists(modsDir, dep) {
+			res.AbortReason = "baselib_dependency_missing:" + dep
+			return res
+		}
+	}
+	return res
+}
+
+// manifestExists reports whether <id>.json sits anywhere under modsDir, which is
+// where the game's mod loader looks for manifests.
+func manifestExists(modsDir, id string) bool {
+	found := false
+	_ = filepath.WalkDir(modsDir, func(_ string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && strings.EqualFold(d.Name(), id+".json") {
+			found = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found
 }
 
 // ProbeBridge waits (90s deadline) for the SpireLensMcp bridge to report game
@@ -87,24 +114,38 @@ func ProbeBridge(ctx context.Context, out io.Writer) bool {
 	return ready
 }
 
-func readBaseLibVersion(manifestPath string) string {
+type modManifest struct {
+	version      string
+	dependencies []string
+}
+
+func readModManifest(manifestPath string) modManifest {
+	var m modManifest
 	b, err := os.ReadFile(manifestPath)
 	if err != nil {
-		return ""
+		return m
 	}
 	var doc struct {
-		Version any `json:"version"`
+		Version      any `json:"version"`
+		Dependencies []struct {
+			ID string `json:"id"`
+		} `json:"dependencies"`
 	}
 	if json.Unmarshal(b, &doc) != nil {
-		return ""
+		return m
 	}
 	switch v := doc.Version.(type) {
 	case string:
-		return strings.TrimSpace(v)
+		m.version = strings.TrimSpace(v)
 	case float64:
-		return strconv.FormatFloat(v, 'f', -1, 64)
+		m.version = strconv.FormatFloat(v, 'f', -1, 64)
 	}
-	return ""
+	for _, d := range doc.Dependencies {
+		if id := strings.TrimSpace(d.ID); id != "" {
+			m.dependencies = append(m.dependencies, id)
+		}
+	}
+	return m
 }
 
 // semverGE reports whether a >= b numerically per MAJOR.MINOR.PATCH, accepting a

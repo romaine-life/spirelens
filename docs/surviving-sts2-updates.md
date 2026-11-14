@@ -18,7 +18,7 @@ recur every cycle.
 |---|---|---|
 | `build.ps1` fails: *"X does not contain a definition for Y"* | game API drift | [Failure mode 1](#failure-mode-1-bridge--core-build-drift) |
 | Run passes, model JSON is correct, but **screenshots show a frozen/placeholder HUD** (e.g. `88/88` HP, `0/4` energy) | BaseLib too old for the new game build | [Failure mode 2](#failure-mode-2-baselib-version-desync-frozen-hud) |
-| `env-prep` aborts `baselib_too_old:found=<ver>:expected>=<floor>` or `baselib_missing_or_unversioned:expected>=<floor>` | host BaseLib below the enforced floor | [Failure mode 2](#failure-mode-2-baselib-version-desync-frozen-hud) |
+| `env-prep` aborts `baselib_too_old:found=<ver>:expected>=<floor>`, `baselib_missing_or_unversioned:expected>=<floor>` or `baselib_dependency_missing:<id>` | host BaseLib below the enforced floor, or installed without a mod it depends on | [Failure mode 2](#failure-mode-2-baselib-version-desync-frozen-hud) |
 | HUD stale only on **debug-loaded** combat saves, BaseLib is current | `CombatStateChanged` not raised on debug load | [Failure mode 3](#failure-mode-3-hud-desync-on-debug-loaded-saves) |
 
 **Golden rule:** after a game update, **look at the screenshots, not just the

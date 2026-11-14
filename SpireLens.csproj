@@ -11,6 +11,9 @@
         <!-- Godot.NET.Sdk defaults to false here; we need true so Mono.Cecil
              and other NuGet deps land in bin/Release for us to copy into mods/. -->
         <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+        <BaseLibVersion>3.4.8</BaseLibVersion>
+        <BaseLibReleaseUrl>https://github.com/Alchyr/BaseLib-StS2/releases/download/v$(BaseLibVersion)</BaseLibReleaseUrl>
+        <BaseLibHelperDir>$(MSBuildProjectDirectory)/obj/baselib-release/$(BaseLibVersion)/</BaseLibHelperDir>
     </PropertyGroup>
 
     <PropertyGroup>
@@ -40,7 +43,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="Alchyr.Sts2.BaseLib" Version="3.4.7" PrivateAssets="All" GeneratePathProperty="true"/>
+        <PackageReference Include="Alchyr.Sts2.BaseLib" Version="$(BaseLibVersion)" PrivateAssets="All" GeneratePathProperty="true"/>
         <PackageReference Include="Krafs.Publicizer" Version="2.3.0" PrivateAssets="All"/>
         <PackageReference Include="Alchyr.Sts2.ModAnalyzers" Version="0.1.9" />
         <!-- Mono.Cecil: rewrites the Core assembly's manifest name per load so
@@ -127,11 +130,18 @@
         <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(ModsPath)$(MSBuildProjectName)/" />
         <Copy SourceFiles="$(AssemblyName).json" DestinationFolder="$(ModsPath)$(MSBuildProjectName)/" />
         <!-- BaseLib is a real STS2 mod dependency, not only a DLL reference.
-             Keep the worker's mods/BaseLib folder present whenever we deploy. -->
+             Keep the worker's mods/BaseLib folder present whenever we deploy.
+             BaseLib.json depends on BaseLibCompatibilityHelper, which ships only
+             in the BaseLib GitHub release (not the NuGet package) and installs
+             into the same folder. -->
+        <DownloadFile SourceUrl="$(BaseLibReleaseUrl)/BaseLibCompatibilityHelper.dll" DestinationFolder="$(BaseLibHelperDir)" SkipUnchangedFiles="true" />
+        <DownloadFile SourceUrl="$(BaseLibReleaseUrl)/BaseLibCompatibilityHelper.json" DestinationFolder="$(BaseLibHelperDir)" SkipUnchangedFiles="true" />
         <ItemGroup>
             <BaseLibModFiles Include="$(TargetDir)BaseLib.dll" />
             <BaseLibModFiles Include="$(PkgAlchyr_Sts2_BaseLib)\Content\BaseLib.json" />
             <BaseLibModFiles Include="$(PkgAlchyr_Sts2_BaseLib)\Content\BaseLib.pck" />
+            <BaseLibModFiles Include="$(BaseLibHelperDir)BaseLibCompatibilityHelper.dll" />
+            <BaseLibModFiles Include="$(BaseLibHelperDir)BaseLibCompatibilityHelper.json" />
         </ItemGroup>
         <Copy SourceFiles="@(BaseLibModFiles)" DestinationFolder="$(ModsPath)BaseLib/" SkipUnchangedFiles="true" />
         <!-- Copy NuGet dependency DLLs (Mono.Cecil, its companions) alongside

@@ -38,7 +38,7 @@ jobs:
           fi
 
   go:
-    runs-on: [ubuntu-latest, upstairspc-linux]
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4

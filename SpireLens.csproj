@@ -2,6 +2,7 @@
     <Import Project=".\Sts2PathDiscovery.props"/>
     <PropertyGroup>
         <TargetFramework>net9.0</TargetFramework>
+        <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
         <ImplicitUsings>true</ImplicitUsings>
         <Nullable>enable</Nullable> <!--Makes code analysis regarding null values stricter.-->
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -14,6 +15,8 @@
         <BaseLibVersion>3.4.8</BaseLibVersion>
         <BaseLibReleaseUrl>https://github.com/Alchyr/BaseLib-StS2/releases/download/v$(BaseLibVersion)</BaseLibReleaseUrl>
         <BaseLibHelperDir>$(MSBuildProjectDirectory)/obj/baselib-release/$(BaseLibVersion)/</BaseLibHelperDir>
+        <!-- The release's version (prefix.N), which the CI suites' release build sets. -->
+        <SpireLensReleaseVersion>$(InformationalVersion)</SpireLensReleaseVersion>
     </PropertyGroup>
 
     <PropertyGroup>
@@ -76,6 +79,12 @@
     </ItemGroup>
 
     <ItemGroup>
+        <!-- Built and restored with the Loader so its publish can ship Core; never referenced,
+             since the Loader loads Core from a path at runtime. -->
+        <ProjectReference Include="Core/SpireLens.Core.csproj" ReferenceOutputAssembly="false" Private="false" />
+    </ItemGroup>
+
+    <ItemGroup>
         <None Condition="Exists('Directory.Build.props')" Include="Directory.Build.props"/>
         <None Include=".gitignore" />
         <None Include="SpireLens.json" />
@@ -103,7 +112,7 @@
             <SpireLensBuildSource Condition="'$(GITHUB_ACTIONS)' == 'true'">GitHub</SpireLensBuildSource>
             <SpireLensBuildSource Condition="'$(GITHUB_SERVER_URL)' == 'https://forgejo.romaine.life'">Forgejo</SpireLensBuildSource>
             <SpireLensBuildVersion>$(SpireLensGitCommitHash)</SpireLensBuildVersion>
-            <SpireLensBuildVersion Condition="'$(GITHUB_ACTIONS)' == 'true' and '$(GITHUB_REF_NAME)' != ''">$(GITHUB_REF_NAME)</SpireLensBuildVersion>
+            <SpireLensBuildVersion Condition="'$(SpireLensReleaseVersion)' != ''">$(SpireLensReleaseVersion)</SpireLensBuildVersion>
         </PropertyGroup>
         <ItemGroup>
             <Compile Include="$(IntermediateOutputPath)BuildInfo.g.cs" />
@@ -125,7 +134,7 @@
             Overwrite="true" />
     </Target>
 
-    <Target Name="CopyToModsFolderOnBuild" AfterTargets="PostBuildEvent" Condition="'$(SkipModsDeploy)' != 'true'">
+    <Target Name="CopyToModsFolderOnBuild" AfterTargets="PostBuildEvent" Condition="'$(SkipModsDeploy)' != 'true' and Exists('$(Sts2Path)')">
         <Message Text="Copying .dll, manifest, and dependencies to mods folder." Importance="high" />
         <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(ModsPath)$(MSBuildProjectName)/" />
         <Copy SourceFiles="$(AssemblyName).json" DestinationFolder="$(ModsPath)$(MSBuildProjectName)/" />
@@ -153,20 +162,29 @@
         <Copy SourceFiles="@(LoaderRuntimeDeps)" DestinationFolder="$(ModsPath)$(MSBuildProjectName)/" />
     </Target>
 
-    <Target Name="CopyQuickPck" AfterTargets="PackPck" Condition="Exists('$(PckPackerOutputPath)') And '$(PckPackerSkipped)' != 'true' And '$(SkipModsDeploy)' != 'true'">
+    <Target Name="CopyQuickPck" AfterTargets="PackPck" Condition="Exists('$(PckPackerOutputPath)') And '$(PckPackerSkipped)' != 'true' And '$(SkipModsDeploy)' != 'true' And Exists('$(Sts2Path)')">
         <Message Text="Copying quick .pck to mods folder." Importance="high"/>
         <Copy SourceFiles="$(PckPackerOutputPath)"
               DestinationFolder="$(ModsPath)/$(MSBuildProjectName)" />
     </Target>
 
-    <Target Name="NeedGodotForPublish" BeforeTargets="Publish">
-        <Error Text=" Godot path must be set up before publishing; Godot not found at path '$(GodotPath)'. Check Directory.Build.props file."
-               Condition="'$(GodotPath)' == '' or !Exists('$(GodotPath)')"/>
-    </Target>
-    <Target Name="GodotPublish" AfterTargets="Publish" Condition="'$(GodotPath)' != '' and Exists('$(GodotPath)') and '$(IsInnerGodotExport)' != 'true'">
-        <Message Text="Exporting Godot .pck to mods folder" Importance="high"/>
-        <Exec Command="&quot;$(GodotPath)&quot; --headless --export-pack &quot;BasicExport&quot; &quot;$(ModsPath)$(MSBuildProjectName)/$(MSBuildProjectName).pck&quot;"
-              EnvironmentVariables="IsInnerGodotExport=true;MSBUILDDISABLENODEREUSE=1"
-              ContinueOnError="WarnAndContinue"/>
+    <!-- dotnet publish lays out the mod folder players install: the Loader, its Mono.Cecil
+         dependencies, Core, and the manifest carrying the release's version. -->
+    <Target Name="PublishModFolder" AfterTargets="Publish">
+        <MSBuild Projects="Core/SpireLens.Core.csproj" Targets="GetTargetPath" Properties="Configuration=$(Configuration)">
+            <Output TaskParameter="TargetOutputs" ItemName="_SpireLensCoreAssembly" />
+        </MSBuild>
+        <PropertyGroup>
+            <_SpireLensManifest>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/$(AssemblyName).json').TrimEnd())</_SpireLensManifest>
+            <_SpireLensManifest Condition="'$(SpireLensReleaseVersion)' != ''">$([System.Text.RegularExpressions.Regex]::Replace($(_SpireLensManifest), '"version":\s*"[^"]*"', '"version": "$(SpireLensReleaseVersion)"'))</_SpireLensManifest>
+        </PropertyGroup>
+        <ItemGroup>
+            <_SpireLensPublished Include="@(ResolvedFileToPublish->'$(PublishDir)%(RelativePath)')" />
+            <_SpireLensPublished Include="$(PublishDir)$(AssemblyName).deps.json" />
+            <_SpireLensPublished Remove="$(PublishDir)$(TargetFileName);$(PublishDir)Mono.Cecil*.dll" />
+        </ItemGroup>
+        <Delete Files="@(_SpireLensPublished)" />
+        <Copy SourceFiles="@(_SpireLensCoreAssembly)" DestinationFolder="$(PublishDir)" />
+        <WriteLinesToFile File="$(PublishDir)$(AssemblyName).json" Lines="$([MSBuild]::Escape($(_SpireLensManifest)))" Overwrite="true" />
     </Target>
 </Project>

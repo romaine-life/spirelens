@@ -12,6 +12,7 @@
     <Import Project="..\Sts2PathDiscovery.props"/>
     <PropertyGroup>
         <TargetFramework>net9.0</TargetFramework>
+        <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
         <ImplicitUsings>true</ImplicitUsings>
         <Nullable>enable</Nullable>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -85,8 +86,9 @@
     </Target>
 
     <!-- Deploy the Core DLL alongside the Loader's DLL in the mods folder.
-         The Loader reads it from there and copies to a temp path for loading. -->
-    <Target Name="CopyCoreToModsFolderOnBuild" AfterTargets="PostBuildEvent" Condition="'$(SkipModsDeploy)' != 'true'">
+         The Loader reads it from there and copies to a temp path for loading.
+         A solution build (the CI suites' checks, ci-check) never deploys. -->
+    <Target Name="CopyCoreToModsFolderOnBuild" AfterTargets="PostBuildEvent" Condition="'$(SkipModsDeploy)' != 'true' and '$(BuildingSolutionFile)' != 'true' and Exists('$(Sts2Path)')">
         <Message Text="Copying Core .dll to mods folder." Importance="high" />
         <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(ModsPath)SpireLens/" />
     </Target>

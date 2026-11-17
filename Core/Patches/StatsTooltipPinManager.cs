@@ -1591,10 +1591,10 @@ internal static class StatsTooltipPinManager
     private static bool IsCopyImageButtonPress(InputEvent inputEvent)
     {
         return inputEvent is InputEventMouseButton
-            {
-                ButtonIndex: MouseButton.Left,
-                Pressed: true,
-            } mouseButton
+        {
+            ButtonIndex: MouseButton.Left,
+            Pressed: true,
+        } mouseButton
             && IsLive(_copyImageButton)
             && _copyImageButton!.Visible
             && !_copyImageButton.Disabled

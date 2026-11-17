@@ -6,7 +6,7 @@ namespace SpireLens.Core.Tests;
 public class SchemaLoadingTests
 {
     private static readonly string RepoRoot =
-        Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
+        RepoPaths.Root;
 
     private static string FixturePath(string fileName) =>
         Path.Combine(RepoRoot, "Fixtures", "RunSchema", fileName);

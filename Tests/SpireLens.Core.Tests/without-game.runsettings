@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Against the checked-in reference stubs in lib/, the tests that need the real game don't run. -->
+<RunSettings>
+  <RunConfiguration>
+    <TestCaseFilter>Category!=RequiresLiveGame</TestCaseFilter>
+  </RunConfiguration>
+</RunSettings>

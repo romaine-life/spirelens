@@ -41,8 +41,11 @@ internal sealed class AttributionWindowRegistry
     {
         _windows.Add(new AttributionWindow
         {
-            Key = key, Kind = kind, OwnerId = ownerId,
-            ArmedAtHistoryCount = currentHistoryCount, MaxHistoryAdvance = maxHistoryAdvance,
+            Key = key,
+            Kind = kind,
+            OwnerId = ownerId,
+            ArmedAtHistoryCount = currentHistoryCount,
+            MaxHistoryAdvance = maxHistoryAdvance,
         });
     }
 

@@ -1,0 +1,5 @@
+root = true
+
+# Text is LF everywhere (.gitattributes), so dotnet format checks it as LF on Windows too.
+[*]
+end_of_line = lf

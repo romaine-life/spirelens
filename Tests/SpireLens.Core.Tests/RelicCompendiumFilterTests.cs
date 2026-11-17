@@ -14,7 +14,7 @@ namespace SpireLens.Core.Tests;
 public class RelicCompendiumFilterTests
 {
     private static readonly string RepoRoot =
-        Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
+        RepoPaths.Root;
 
     [Fact]
     public void CombatRelevanceTurn_IsAnExclusiveCutoff()

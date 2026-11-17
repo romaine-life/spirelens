@@ -2559,20 +2559,20 @@ public static partial class RunTracker
 
                 case CardPlayFinishedEntry finished
                     when finished.CardPlay?.Card != null:
-                {
-                    var cardPlay = finished.CardPlay;
-                    if (cardPlay.Card is Soul && IsTrackedCard(cardPlay.Card))
                     {
-                        recovered.Plays++;
-                        recovered.TotalEnergySpent +=
-                            Math.Max(0, cardPlay.Resources.EnergySpent);
-                        recovered.TotalStarsSpent +=
-                            Math.Max(0, cardPlay.Resources.StarsSpent);
-                    }
+                        var cardPlay = finished.CardPlay;
+                        if (cardPlay.Card is Soul && IsTrackedCard(cardPlay.Card))
+                        {
+                            recovered.Plays++;
+                            recovered.TotalEnergySpent +=
+                                Math.Max(0, cardPlay.Resources.EnergySpent);
+                            recovered.TotalStarsSpent +=
+                                Math.Max(0, cardPlay.Resources.StarsSpent);
+                        }
 
-                    RemoveActiveCardPlay(activePlays, cardPlay);
-                    break;
-                }
+                        RemoveActiveCardPlay(activePlays, cardPlay);
+                        break;
+                    }
 
                 case CardDrawnEntry drawn when IsTrackedSoul(drawn.Card):
                     recovered.TimesDrawn++;
@@ -38667,17 +38667,20 @@ internal class PendingCombat
     public int EtherealCardsPlayed { get; set; }
     public Dictionary<string, CardAggregate> CombatAggregates { get; } = new();
     public Dictionary<CardModel, PendingRandomCardGenerationSource>
-        RandomGeneratedCardSources { get; }
+        RandomGeneratedCardSources
+    { get; }
             = new(ReferenceEqualityComparer.Instance);
     public HashSet<CardModel> RandomGeneratedCardsPlayed { get; }
         = new(ReferenceEqualityComparer.Instance);
     public Dictionary<CardModel, int> RandomCardDiscountsByCard { get; }
         = new(ReferenceEqualityComparer.Instance);
     public Dictionary<Player, RandomCardGenerationPowerWindow>
-        RandomCardGenerationPowerWindows { get; }
+        RandomCardGenerationPowerWindows
+    { get; }
             = new(ReferenceEqualityComparer.Instance);
     public Dictionary<Player, OrbGenerationPowerWindow>
-        OrbPowerWindows { get; }
+        OrbPowerWindows
+    { get; }
             = new(ReferenceEqualityComparer.Instance);
     public List<CardEvent> CombatEvents { get; } = new();
     public List<PotionRunHistoryEntry>? PotionHistory { get; set; }
@@ -38853,7 +38856,8 @@ internal class PendingCombat
     public HashSet<OrbModel> SymbioticVirusStartingOrbs { get; }
         = new(ReferenceEqualityComparer.Instance);
     public Dictionary<Player, HashSet<string>>
-        HappyFlowerCombatCountedRelicIdsByPlayer { get; }
+        HappyFlowerCombatCountedRelicIdsByPlayer
+    { get; }
         = new(ReferenceEqualityComparer.Instance);
     public HashSet<Player> PendulumCombatCountedPlayers { get; }
         = new(ReferenceEqualityComparer.Instance);
@@ -38914,7 +38918,8 @@ internal class PendingCombat
     public Dictionary<string, int> MetaPowerLastApplicationTurnByPowerId { get; }
         = new(StringComparer.Ordinal);
     public Dictionary<string, int>
-        MetaPowerApplicationsCountedInLastTurnByPowerId { get; }
+        MetaPowerApplicationsCountedInLastTurnByPowerId
+    { get; }
             = new(StringComparer.Ordinal);
     public HashSet<Player> JugglingPowerCombatCountedPlayers { get; }
         = new(ReferenceEqualityComparer.Instance);

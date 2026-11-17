@@ -27,19 +27,29 @@ public class ReplayPlaybackPlanTests
 
     private static Dictionary<string, object?> SaveIn(int act, string key, int floor, string? pre = null) => new()
     {
-        ["key"] = key, ["snapshot"] = $"snapshots/{key}.json.gz", ["floor"] = floor, ["act"] = act,
-        ["pre_finished_room"] = pre, ["reused"] = false,
+        ["key"] = key,
+        ["snapshot"] = $"snapshots/{key}.json.gz",
+        ["floor"] = floor,
+        ["act"] = act,
+        ["pre_finished_room"] = pre,
+        ["reused"] = false,
     };
 
     private static Dictionary<string, object?> Save(string key, string snapshot, int floor, string? pre = null, bool reused = false) => new()
     {
-        ["key"] = key, ["snapshot"] = snapshot, ["floor"] = floor, ["act"] = 0,
-        ["pre_finished_room"] = pre, ["reused"] = reused,
+        ["key"] = key,
+        ["snapshot"] = snapshot,
+        ["floor"] = floor,
+        ["act"] = 0,
+        ["pre_finished_room"] = pre,
+        ["reused"] = reused,
     };
 
     private static Dictionary<string, object?> Action(string kind, string cls, bool playerDriven = true) => new()
     {
-        ["class"] = cls, ["player_driven"] = playerDriven, ["net"] = "AAAA",
+        ["class"] = cls,
+        ["player_driven"] = playerDriven,
+        ["net"] = "AAAA",
         ["sem"] = new Dictionary<string, object?> { ["kind"] = kind },
     };
 

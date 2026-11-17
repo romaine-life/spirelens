@@ -317,7 +317,7 @@ cat > Directory.Build.props <<'XML'
 </Project>
 XML
 
-dotnet build -c Release
+dotnet build SpireLens.csproj -c Release
 ```
 
 The build's `CopyToModsFolderOnBuild` target auto-deploys the `.dll` and manifest to `<game>/mods/SpireLens/`. No manual copy step.

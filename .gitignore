@@ -8,7 +8,6 @@ obj/
 publish/
 Properties/
 packages/
-.editorconfig
 *.user
 Directory.Build.props
 .env.local

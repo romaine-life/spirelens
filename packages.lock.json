@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net9.0": {
+      "Alchyr.Sts2.BaseLib": {
+        "type": "Direct",
+        "requested": "[3.4.8, )",
+        "resolved": "3.4.8",
+        "contentHash": "TtwFUw46lGqx2dCfJyk93+FLTaU+XX7/516LRdgGMxZ36S/k2C6MnYg8KosmmEg7l249dzG225Xhh1/GesK3YA=="
+      },
+      "Alchyr.Sts2.ModAnalyzers": {
+        "type": "Direct",
+        "requested": "[0.1.9, )",
+        "resolved": "0.1.9",
+        "contentHash": "teENiNx0cUVhjLevWBsdZfvhnipwyD6tz3ibFD0s+1b10ABC2dWErjXZS0q5ei3RCe+5PWkwLaBdO3+mHjkykw=="
+      },
+      "Godot.SourceGenerators": {
+        "type": "Direct",
+        "requested": "[4.5.1, )",
+        "resolved": "4.5.1",
+        "contentHash": "HOHYJQO5A/kzf5CUobeTPOX+JawSvjkDE0v/Fyo4EMYEC2MvCTGUvpJFjqQQmHYLNsiiB7RLVilcnup+jiVfdA=="
+      },
+      "GodotSharp": {
+        "type": "Direct",
+        "requested": "[4.5.1, )",
+        "resolved": "4.5.1",
+        "contentHash": "5CFnEHT+FByv5desNHMipz/209SCrWR9CGWFZjGHnXupl1Rw8U8q4nf65/unqZVL97Rx+3J5hskPMoDGaiZL9g=="
+      },
+      "GodotSharpEditor": {
+        "type": "Direct",
+        "requested": "[4.5.1, )",
+        "resolved": "4.5.1",
+        "contentHash": "8CM49047b0Us3qPJo6L7kdldreOvR7JCoXlKoSHzpA0TQP6+Qnoxz/26GZ1ONg2wW4vV9uzor0AHXSGUFP9XSw==",
+        "dependencies": {
+          "GodotSharp": "4.5.1"
+        }
+      },
+      "Krafs.Publicizer": {
+        "type": "Direct",
+        "requested": "[2.3.0, )",
+        "resolved": "2.3.0",
+        "contentHash": "DjktTgctwxUMhMkWKrRECer3LR1lHzanCOlE4mpinAiY8SfWJq4DG/QitP5h1A+WBjyWHzQSOG+204i3VpO1FA=="
+      },
+      "Mono.Cecil": {
+        "type": "Direct",
+        "requested": "[0.11.5, )",
+        "resolved": "0.11.5",
+        "contentHash": "fxfX+0JGTZ8YQeu1MYjbBiK2CYTSzDyEeIixt+yqKKTn7FW8rv7JMY70qevup4ZJfD7Kk/VG/jDzQQTpfch87g=="
+      }
+    }
+  }
+}

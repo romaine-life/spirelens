@@ -31,21 +31,21 @@ D:\repos\spirelens-workshop\
 
 ## Normal release flow
 
-The normal release trigger is a merged version bump, not a manually pushed tag:
+Every merge that changes the mod is a release, numbered by pipeline-templates' release
+suite as the next `v0.5.N`; nobody bumps a version.
 
 1. Put the player-facing bullets in each feature pull request's `## Workshop notes` section.
-2. Open and merge a release pull request that bumps `SpireLens.json` to the next version.
-3. After the merged `main` checks succeed on Forgejo, the release job creates the matching tag.
-4. That job uploads the same package and changelog to Steam, then publishes the Forgejo release.
+2. Merge it. The release suite builds the mod, writes the release's version into the
+   packaged `SpireLens.json`, signs it and publishes the Forgejo release's `SpireLens.zip`.
+3. The suite then starts [workshop.yml](../.forgejo/workflows/workshop.yml), which uploads
+   that package to the Workshop.
 
-To retry a failed publication, dispatch `.forgejo/workflows/ci.yml` on the same
-`main` commit. Completed versions are left intact.
+To retry a failed upload, dispatch `.forgejo/workflows/workshop.yml` on `main`: it
+uploads the newest release again.
 
 ## Manual workspace publishing
 
-1. Bump `"version"` in [SpireLens.json](../SpireLens.json) (repo root, source of truth). SemVer-ish:
-   minor for features, patch for fixes. The string is shown to subscribers in-game.
-2. Download the released Forgejo package into the workspace:
+1. Download the released Forgejo package into the workspace:
 
    ```powershell
    $credential = "protocol=https`nhost=forgejo.romaine.life`n`n" | git credential fill
@@ -53,15 +53,14 @@ To retry a failed publication, dispatch `.forgejo/workflows/ci.yml` on the same
    $release = Invoke-RestMethod 'https://forgejo.romaine.life/api/v1/repos/romaine-life/spirelens/releases/latest' -Headers $headers
    $archive = Join-Path $env:TEMP 'SpireLens.zip'
    Invoke-WebRequest -Uri ($release.assets | Where-Object name -eq 'SpireLens.zip').browser_download_url -Headers $headers -OutFile $archive
-   Expand-Archive -LiteralPath $archive -DestinationPath 'D:\repos\spirelens-workshop\content' -Force
+   Expand-Archive -LiteralPath $archive -DestinationPath 'D:\repos\spirelens-workshop\content\SpireLens' -Force
    Remove-Item -LiteralPath $archive
    Remove-Variable credential, headers
    ```
 
-   (The signed package built by
-   [.forgejo/workflows/ci.yml](../.forgejo/workflows/ci.yml).)
-3. Set `changeNote` in `workshop.json`.
-4. Steam client running and logged in, then:
+   (The signed package the release suite built; the ZIP holds the mod folder's files.)
+2. Set `changeNote` in `workshop.json`.
+3. Steam client running and logged in, then:
 
    ```powershell
    Set-Location "D:\repos\spirelens-workshop"; .\ModUploader.exe upload -w "D:\repos\spirelens-workshop"
@@ -73,17 +72,17 @@ line is the SDK's idle state, not an error.
 
 ## Automated releases
 
-[The Forgejo workflow](../.forgejo/workflows/ci.yml) publishes the exact
-packaged mod to Workshop item `3774710835`. A successful merged `main` build
-publishes the manifest's version when it has not been released yet. The publication job:
+[workshop.yml](../.forgejo/workflows/workshop.yml) publishes the newest release's
+package to Workshop item `3774710835`. The release suite starts it after each release
+(`release.dispatch` in pipeline-templates' `fleet.json`). It:
 
-1. requires the tag to exactly match `SpireLens.json`'s version;
-2. validates the package allowlist;
-3. restores an isolated SteamCMD login from the Forgejo repository's Actions secret;
-4. builds the full Forgejo changelog and a Workshop version that excludes only
-   verified Markdown-only documentation changes;
+1. requires the packaged `SpireLens.json` version to match the release tag;
+2. checks the package's files against the mod's file list;
+3. builds the Workshop notes, which exclude verified Markdown-only documentation
+   changes, and leaves the item alone when nothing in the release is player-facing;
+4. restores an isolated SteamCMD login from the Forgejo repository's Actions secret;
 5. uploads only content and a change note, leaving page-managed metadata alone;
-6. serializes uploads so two tags cannot update the item concurrently.
+6. runs one upload at a time, so two releases cannot update the item concurrently.
 
 Release notes come from every merged pull request between the previous tag and
 the new tag. Put player-facing bullets in the pull request's
@@ -96,12 +95,12 @@ The Steam VDF keeps the notes' real line-feed characters inside the quoted
 `changenote` value. Workshop text omits Markdown-only maintenance changes and PR
 citation suffixes, and substitutes apostrophes for double quotes because
 SteamCMD parses KeyValues without escape processing. All runtime-change notes
-remain intact. The full Markdown changelog remains on the Forgejo release. Notes
+remain intact. Notes
 over 4,000 UTF-8 bytes fail before upload so oversized text is never truncated.
 Do not replace line feeds with a literal `\n`: Steam displays those two
 characters verbatim instead of creating a line break.
 
-The publication job runs only on `main` after both the Go and mod checks pass.
+The upload runs only on `main`, after the release suite has published the release.
 
 Bootstrap or refresh that Forgejo credential from a trusted Windows machine:
 

@@ -3,6 +3,7 @@
 
     <PropertyGroup>
         <TargetFramework>net9.0</TargetFramework>
+        <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
         <ImplicitUsings>true</ImplicitUsings>
         <Nullable>enable</Nullable>
         <IsPackable>false</IsPackable>
@@ -15,6 +16,7 @@
     <PropertyGroup>
         <Sts2LibDir Condition="'$(Sts2DataDir)' != '' and Exists('$(Sts2DataDir)')">$(Sts2DataDir)</Sts2LibDir>
         <Sts2LibDir Condition="'$(Sts2LibDir)' == ''">$(MSBuildThisFileDirectory)../../lib</Sts2LibDir>
+        <RunSettingsFilePath Condition="'$(Sts2LibDir)' == '$(MSBuildThisFileDirectory)../../lib'">$(MSBuildThisFileDirectory)without-game.runsettings</RunSettingsFilePath>
     </PropertyGroup>
 
     <ItemGroup>

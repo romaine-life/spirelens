@@ -1693,7 +1693,8 @@ public class RelicAggregate
     // preserves the exact orb type selected by the game's modifier hook.
     // Empty opportunities are sampled at each owner end-turn orb-queue pass.
     public Dictionary<string, RelicOrbActivationAggregate>
-        GoldPlatedCablesActivationsByOrbType { get; set; } = new();
+        GoldPlatedCablesActivationsByOrbType
+    { get; set; } = new();
     public int GoldPlatedCablesNoOrbTargets { get; set; }
 
     // Total relevant player turns that ended with unspent energy while the

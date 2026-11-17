@@ -772,64 +772,64 @@ public static class ReplayPlayer
                         continue;
 
                     case PlaybackStepKind.Keyframe:
-                    {
-                        if (ObservedSaves.Count == 0)
                         {
-                            if (!wait.IsRunning) wait.Restart();
-                            if (wait.Elapsed < StepTimeout) continue;
+                            if (ObservedSaves.Count == 0)
+                            {
+                                if (!wait.IsRunning) wait.Restart();
+                                if (wait.Elapsed < StepTimeout) continue;
+                                wait.Reset();
+                                await DivergeAsync(_pos, $"the game never reached save point seq {step.Seq} (floor {step.RoomFloor})");
+                                continue;
+                            }
                             wait.Reset();
-                            await DivergeAsync(_pos, $"the game never reached save point seq {step.Seq} (floor {step.RoomFloor})");
+                            string live = ObservedSaves.Dequeue();
+                            if (live == step.Key)
+                            {
+                                ResetChecksums();
+                                _pos++;
+                                continue;
+                            }
+                            await DivergeAsync(_pos, $"save point seq {step.Seq} differs: recorded {step.Key}, replay {live}");
                             continue;
                         }
-                        wait.Reset();
-                        string live = ObservedSaves.Dequeue();
-                        if (live == step.Key)
-                        {
-                            ResetChecksums();
-                            _pos++;
-                            continue;
-                        }
-                        await DivergeAsync(_pos, $"save point seq {step.Seq} differs: recorded {step.Key}, replay {live}");
-                        continue;
-                    }
 
                     case PlaybackStepKind.Input:
-                    {
-                        if (_paused && !_stepOnce) { wait.Reset(); continue; }
-                        if (DateTime.UtcNow < paceUntil) continue;
+                        {
+                            if (_paused && !_stepOnce) { wait.Reset(); continue; }
+                            if (DateTime.UtcNow < paceUntil) continue;
 
-                        ReplayInputFeeder.FeedResult result;
-                        try
-                        {
-                            result = _selector == null
-                                ? ReplayInputFeeder.FeedResult.NotReady
-                                : ReplayInputFeeder.TryFeed(step, _selector);
-                        }
-                        catch (Exception e)
-                        {
-                            CoreMain.Logger.Warn($"Replay: feeding seq {step.Seq} threw: {e.Message}");
-                            result = ReplayInputFeeder.FeedResult.Impossible;
-                        }
-                        if (result == ReplayInputFeeder.FeedResult.Fed)
-                        {
+                            ReplayInputFeeder.FeedResult result;
+                            try
+                            {
+                                result = _selector == null
+                                    ? ReplayInputFeeder.FeedResult.NotReady
+                                    : ReplayInputFeeder.TryFeed(step, _selector);
+                            }
+                            catch (Exception e)
+                            {
+                                CoreMain.Logger.Warn($"Replay: feeding seq {step.Seq} threw: {e.Message}");
+                                result = ReplayInputFeeder.FeedResult.Impossible;
+                            }
+                            if (result == ReplayInputFeeder.FeedResult.Fed)
+                            {
+                                wait.Reset();
+                                _stepOnce = false;
+                                _pos++;
+                                paceUntil = DateTime.UtcNow + PaceAfter(step.InputKind);
+                                continue;
+                            }
+
+                            if (result == ReplayInputFeeder.FeedResult.NotReady)
+                            {
+                                if (!wait.IsRunning) wait.Restart();
+                                if (wait.Elapsed < StepTimeout) continue;
+                            }
                             wait.Reset();
-                            _stepOnce = false;
-                            _pos++;
-                            paceUntil = DateTime.UtcNow + PaceAfter(step.InputKind);
+                            int next = plan.NextKeyframeIndex(_pos);
+                            await DivergeAsync(next,
+                                $"input seq {step.Seq} ({step.InputKind}) could not be fed: {ReplayInputFeeder.LastReason}");
                             continue;
                         }
-
-                        if (result == ReplayInputFeeder.FeedResult.NotReady)
-                        {
-                            if (!wait.IsRunning) wait.Restart();
-                            if (wait.Elapsed < StepTimeout) continue;
-                        }
-                        wait.Reset();
-                        int next = plan.NextKeyframeIndex(_pos);
-                        await DivergeAsync(next,
-                            $"input seq {step.Seq} ({step.InputKind}) could not be fed: {ReplayInputFeeder.LastReason}");
-                        continue;
-                    }
                 }
             }
             catch (Exception e)
@@ -945,48 +945,48 @@ public static class ReplayPlayer
                 return true;
 
             case Request.RestartFloor:
-            {
-                if (plan == null) return true;
-                int idx = plan.CurrentRoomStartIndex(_pos);
-                if (idx < 0) { ShowNote("No floor start to restart from"); return true; }
-                await LoadKeyframeAsync(idx, "restart floor");
-                ShowNote($"Restarted floor {plan.Steps[idx].RoomFloor}");
-                return true;
-            }
+                {
+                    if (plan == null) return true;
+                    int idx = plan.CurrentRoomStartIndex(_pos);
+                    if (idx < 0) { ShowNote("No floor start to restart from"); return true; }
+                    await LoadKeyframeAsync(idx, "restart floor");
+                    ShowNote($"Restarted floor {plan.Steps[idx].RoomFloor}");
+                    return true;
+                }
 
             case Request.JumpToRoom:
-            {
-                var room = _jumpTarget;
-                _jumpTarget = null;
-                if (plan == null || room == null) return true;
-                await LoadKeyframeAsync(room.KeyframeIndex, $"jump to floor {room.RoomFloor}");
-                ShowNote($"Jumped to floor {room.RoomFloor}");
-                return true;
-            }
+                {
+                    var room = _jumpTarget;
+                    _jumpTarget = null;
+                    if (plan == null || room == null) return true;
+                    await LoadKeyframeAsync(room.KeyframeIndex, $"jump to floor {room.RoomFloor}");
+                    ShowNote($"Jumped to floor {room.RoomFloor}");
+                    return true;
+                }
 
             case Request.NextAct:
             case Request.PreviousAct:
-            {
-                bool reopen = _reopenPickerAfterLoad;
-                if (plan == null) return true;
-                int direction = request == Request.NextAct ? +1 : -1;
-                int? act = plan.AdjacentAct(CurrentAct(), direction);
-                if (act is not { } target)
                 {
+                    bool reopen = _reopenPickerAfterLoad;
+                    if (plan == null) return true;
+                    int direction = request == Request.NextAct ? +1 : -1;
+                    int? act = plan.AdjacentAct(CurrentAct(), direction);
+                    if (act is not { } target)
+                    {
+                        _reopenPickerAfterLoad = false;
+                        ShowNote(direction > 0 ? "No later act in this recording" : "No earlier act in this recording");
+                        if (reopen) OpenFloorPicker();
+                        return true;
+                    }
+                    var first = plan.RoomsInAct(target)[0];
+                    // Kept set through the load, so a Core reload during it hands
+                    // "reopen the map" on with the load.
+                    await LoadKeyframeAsync(first.KeyframeIndex, $"jump to act {target + 1}");
                     _reopenPickerAfterLoad = false;
-                    ShowNote(direction > 0 ? "No later act in this recording" : "No earlier act in this recording");
+                    ShowNote($"Act {target + 1}, floor {first.RoomFloor}");
                     if (reopen) OpenFloorPicker();
                     return true;
                 }
-                var first = plan.RoomsInAct(target)[0];
-                // Kept set through the load, so a Core reload during it hands
-                // "reopen the map" on with the load.
-                await LoadKeyframeAsync(first.KeyframeIndex, $"jump to act {target + 1}");
-                _reopenPickerAfterLoad = false;
-                ShowNote($"Act {target + 1}, floor {first.RoomFloor}");
-                if (reopen) OpenFloorPicker();
-                return true;
-            }
         }
         return false;
     }
@@ -1310,14 +1310,14 @@ public static class ReplayPlayer
             case InputEventMouseButton mouse:
                 return !(mouse.ButtonIndex == MouseButton.Left && ReplayTakeOverConfirm.IsUnderMouse());
             case InputEventKey key:
-            {
-                if (!key.Pressed || key.Echo) return true;
-                var k = key.Keycode != Key.None ? key.Keycode : key.PhysicalKeycode;
-                if (k is Key.Enter or Key.KpEnter or Key.T) ReplayTakeOverConfirm.Confirm();
-                else if (k == Key.Escape) ReplayTakeOverConfirm.Cancel();
-                UpdateBar();
-                return true;
-            }
+                {
+                    if (!key.Pressed || key.Echo) return true;
+                    var k = key.Keycode != Key.None ? key.Keycode : key.PhysicalKeycode;
+                    if (k is Key.Enter or Key.KpEnter or Key.T) ReplayTakeOverConfirm.Confirm();
+                    else if (k == Key.Escape) ReplayTakeOverConfirm.Cancel();
+                    UpdateBar();
+                    return true;
+                }
         }
         if (PadInput.Action(evt, PadActions) is { } a && PadHeld.Press(evt, a))
         {
@@ -1445,38 +1445,38 @@ public static class ReplayPlayer
                 return HandlePlaybackMouse(mouse);
 
             case InputEventKey key:
-            {
-                if (key.Keycode is Key.Shift or Key.F5 || key.PhysicalKeycode is Key.Shift or Key.F5) return false;
-                var k = key.Keycode != Key.None ? key.Keycode : key.PhysicalKeycode;
-                // Esc closes a screen the watcher opened (deck, pause menu,
-                // settings), as in the game, instead of stopping the replay.
-                if (k == Key.Escape && ReplayOverlayAccess.WatcherScreenOpen) return false;
-                if (!key.Pressed || key.Echo) return true;
-                switch (k)
                 {
-                    case Key.Space: TogglePause(); break;
-                    case Key.Period:
-                    case Key.Right: StepOnce(); break;
-                    case Key.Equal:
-                    case Key.Plus:
-                    case Key.KpAdd:
-                    case Key.Bracketright: ChangeSpeed(+1); break;
-                    case Key.Minus:
-                    case Key.KpSubtract:
-                    case Key.Bracketleft: ChangeSpeed(-1); break;
-                    case Key.R: RequestRestartFloor(); break;
-                    case Key.M: ToggleFloorPicker(); break;
-                    case Key.Pagedown: RequestAct(+1); break;
-                    case Key.Pageup: RequestAct(-1); break;
-                    case Key.N: RequestNextRun(); break;
-                    case Key.B: RequestPreviousRun(); break;
-                    case Key.Home: RequestRestartRun(); break;
-                    case Key.H: ToggleControls(); break;
-                    case Key.T: OpenTakeOverConfirm(); break;
-                    case Key.Escape: RequestStop(); break;
+                    if (key.Keycode is Key.Shift or Key.F5 || key.PhysicalKeycode is Key.Shift or Key.F5) return false;
+                    var k = key.Keycode != Key.None ? key.Keycode : key.PhysicalKeycode;
+                    // Esc closes a screen the watcher opened (deck, pause menu,
+                    // settings), as in the game, instead of stopping the replay.
+                    if (k == Key.Escape && ReplayOverlayAccess.WatcherScreenOpen) return false;
+                    if (!key.Pressed || key.Echo) return true;
+                    switch (k)
+                    {
+                        case Key.Space: TogglePause(); break;
+                        case Key.Period:
+                        case Key.Right: StepOnce(); break;
+                        case Key.Equal:
+                        case Key.Plus:
+                        case Key.KpAdd:
+                        case Key.Bracketright: ChangeSpeed(+1); break;
+                        case Key.Minus:
+                        case Key.KpSubtract:
+                        case Key.Bracketleft: ChangeSpeed(-1); break;
+                        case Key.R: RequestRestartFloor(); break;
+                        case Key.M: ToggleFloorPicker(); break;
+                        case Key.Pagedown: RequestAct(+1); break;
+                        case Key.Pageup: RequestAct(-1); break;
+                        case Key.N: RequestNextRun(); break;
+                        case Key.B: RequestPreviousRun(); break;
+                        case Key.Home: RequestRestartRun(); break;
+                        case Key.H: ToggleControls(); break;
+                        case Key.T: OpenTakeOverConfirm(); break;
+                        case Key.Escape: RequestStop(); break;
+                    }
+                    return true;
                 }
-                return true;
-            }
 
             case InputEventJoypadButton { ButtonIndex: JoyButton.RightStick }:
                 return false;
@@ -1574,26 +1574,26 @@ public static class ReplayPlayer
                 return mouse.Pressed && !IsOverMap() && !ReplayPlaybackBar.IsUnderMouse();
 
             case InputEventKey key:
-            {
-                if (key.Keycode is Key.Shift or Key.F5 || key.PhysicalKeycode is Key.Shift or Key.F5) return false;
-                var k = key.Keycode != Key.None ? key.Keycode : key.PhysicalKeycode;
-                if (k is Key.Enter or Key.KpEnter)
                 {
-                    if (key.Pressed && !key.Echo) ReplayMapFloorPicker.TryChooseFocused();
+                    if (key.Keycode is Key.Shift or Key.F5 || key.PhysicalKeycode is Key.Shift or Key.F5) return false;
+                    var k = key.Keycode != Key.None ? key.Keycode : key.PhysicalKeycode;
+                    if (k is Key.Enter or Key.KpEnter)
+                    {
+                        if (key.Pressed && !key.Echo) ReplayMapFloorPicker.TryChooseFocused();
+                        return true;
+                    }
+                    if (k is Key.Up or Key.Down or Key.Left or Key.Right) return false;
+                    if (!key.Pressed || key.Echo) return true;
+                    switch (k)
+                    {
+                        case Key.M:
+                        case Key.Escape: ReplayMapFloorPicker.Close(); break;
+                        case Key.Pagedown: RequestAct(+1); break;
+                        case Key.Pageup: RequestAct(-1); break;
+                        case Key.H: ToggleControls(); break;
+                    }
                     return true;
                 }
-                if (k is Key.Up or Key.Down or Key.Left or Key.Right) return false;
-                if (!key.Pressed || key.Echo) return true;
-                switch (k)
-                {
-                    case Key.M:
-                    case Key.Escape: ReplayMapFloorPicker.Close(); break;
-                    case Key.Pagedown: RequestAct(+1); break;
-                    case Key.Pageup: RequestAct(-1); break;
-                    case Key.H: ToggleControls(); break;
-                }
-                return true;
-            }
 
             case InputEventJoypadButton { ButtonIndex: JoyButton.RightStick }:
                 return false;

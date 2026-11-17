@@ -250,29 +250,29 @@ public sealed class ReplayPlaybackPlan
                     break;
 
                 case ReplayFormat.EvAction:
-                {
-                    if (!GetBool(data, "player_driven")) break;
-                    string? kind = data.TryGetProperty("sem", out var sem) && sem.ValueKind == JsonValueKind.Object
-                        ? GetString(sem, "kind")
-                        : null;
-                    if (kind == "console_cmd") { skippedConsole++; break; }
-                    if (kind == null || !FedActionKinds.Contains(kind)) break;
-                    steps.Add(new PlaybackStep(entry.Seq, PlaybackStepKind.Input, kind, dataJson));
-                    break;
-                }
+                    {
+                        if (!GetBool(data, "player_driven")) break;
+                        string? kind = data.TryGetProperty("sem", out var sem) && sem.ValueKind == JsonValueKind.Object
+                            ? GetString(sem, "kind")
+                            : null;
+                        if (kind == "console_cmd") { skippedConsole++; break; }
+                        if (kind == null || !FedActionKinds.Contains(kind)) break;
+                        steps.Add(new PlaybackStep(entry.Seq, PlaybackStepKind.Input, kind, dataJson));
+                        break;
+                    }
 
                 case ReplayFormat.EvChoice:
                     steps.Add(new PlaybackStep(entry.Seq, PlaybackStepKind.Input, "choice", dataJson));
                     break;
 
                 case ReplayFormat.EvDecision:
-                {
-                    string? kind = GetString(data, "kind");
-                    if (kind == null || !FedDecisionKinds.Contains(kind)) break;
-                    if (GetBool(data, "auto")) break;
-                    steps.Add(new PlaybackStep(entry.Seq, PlaybackStepKind.Input, kind, dataJson));
-                    break;
-                }
+                    {
+                        string? kind = GetString(data, "kind");
+                        if (kind == null || !FedDecisionKinds.Contains(kind)) break;
+                        if (GetBool(data, "auto")) break;
+                        steps.Add(new PlaybackStep(entry.Seq, PlaybackStepKind.Input, kind, dataJson));
+                        break;
+                    }
 
                 case ReplayFormat.EvChecksum:
                     steps.Add(new PlaybackStep(entry.Seq, PlaybackStepKind.Checksum, "checksum", dataJson));

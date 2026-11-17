@@ -517,74 +517,74 @@ internal static class DecisionCapture
         switch (screen)
         {
             case NCardRewardSelectionScreen r:
-            {
-                var sel = new Selection { Screen = "card_reward", MinSelect = 0, MaxSelect = 1, CanSkip = true };
-                var cards = r._options;
-                for (int i = 0; i < cards.Count; i++)
-                    sel.Options.Add(CardOption(i, cards[i].Card));
-                var extra = r._extraOptions;
-                if (extra != null)
-                    for (int j = 0; j < extra.Count; j++)
-                        sel.Options.Add(new Option(
-                            new LegalOption("select", Index: cards.Count + j, Id: "alternative:" + extra[j].OptionId),
-                            new Dictionary<string, object?> { ["alternative"] = extra[j].OptionId }));
-                return sel;
-            }
+                {
+                    var sel = new Selection { Screen = "card_reward", MinSelect = 0, MaxSelect = 1, CanSkip = true };
+                    var cards = r._options;
+                    for (int i = 0; i < cards.Count; i++)
+                        sel.Options.Add(CardOption(i, cards[i].Card));
+                    var extra = r._extraOptions;
+                    if (extra != null)
+                        for (int j = 0; j < extra.Count; j++)
+                            sel.Options.Add(new Option(
+                                new LegalOption("select", Index: cards.Count + j, Id: "alternative:" + extra[j].OptionId),
+                                new Dictionary<string, object?> { ["alternative"] = extra[j].OptionId }));
+                    return sel;
+                }
             case NChooseACardSelectionScreen c:
-            {
-                var sel = new Selection { Screen = "choose_a_card", MinSelect = c._canSkip ? 0 : 1, MaxSelect = 1, CanSkip = c._canSkip };
-                for (int i = 0; i < c._cards.Count; i++) sel.Options.Add(CardOption(i, c._cards[i]));
-                return sel;
-            }
+                {
+                    var sel = new Selection { Screen = "choose_a_card", MinSelect = c._canSkip ? 0 : 1, MaxSelect = 1, CanSkip = c._canSkip };
+                    for (int i = 0; i < c._cards.Count; i++) sel.Options.Add(CardOption(i, c._cards[i]));
+                    return sel;
+                }
             case NCardGridSelectionScreen g:
-            {
-                var sel = new Selection { Screen = GridName(g) };
-                CardSelectorPrefs? prefs = g switch
                 {
-                    NSimpleCardSelectScreen s => s._prefs,
-                    NDeckCardSelectScreen s => s._prefs,
-                    NDeckUpgradeSelectScreen s => s._prefs,
-                    NDeckTransformSelectScreen s => s._prefs,
-                    NDeckEnchantSelectScreen s => s._prefs,
-                    NCombatPileCardSelectScreen s => s._prefs,
-                    _ => null,
-                };
-                if (prefs.HasValue)
-                {
-                    sel.MinSelect = prefs.Value.MinSelect;
-                    sel.MaxSelect = prefs.Value.MaxSelect;
-                    sel.CanSkip = prefs.Value.Cancelable;
+                    var sel = new Selection { Screen = GridName(g) };
+                    CardSelectorPrefs? prefs = g switch
+                    {
+                        NSimpleCardSelectScreen s => s._prefs,
+                        NDeckCardSelectScreen s => s._prefs,
+                        NDeckUpgradeSelectScreen s => s._prefs,
+                        NDeckTransformSelectScreen s => s._prefs,
+                        NDeckEnchantSelectScreen s => s._prefs,
+                        NCombatPileCardSelectScreen s => s._prefs,
+                        _ => null,
+                    };
+                    if (prefs.HasValue)
+                    {
+                        sel.MinSelect = prefs.Value.MinSelect;
+                        sel.MaxSelect = prefs.Value.MaxSelect;
+                        sel.CanSkip = prefs.Value.Cancelable;
+                    }
+                    IReadOnlyList<CardModel> offered = g._cards;
+                    bool combat = false;
+                    if (g is NCombatPileCardSelectScreen pileScreen)
+                    {
+                        // Created with an empty _cards that UpdatePileContents fills
+                        // later from the live pile; read what it will show directly:
+                        // the pile filtered by the screen's own filter.
+                        var filter = pileScreen._filter;
+                        offered = pileScreen._pile.Cards.Where(c => filter?.Invoke(c) ?? true).ToList();
+                        combat = true;
+                    }
+                    for (int i = 0; i < offered.Count; i++) sel.Options.Add(CardOption(i, offered[i], combat));
+                    return sel;
                 }
-                IReadOnlyList<CardModel> offered = g._cards;
-                bool combat = false;
-                if (g is NCombatPileCardSelectScreen pileScreen)
-                {
-                    // Created with an empty _cards that UpdatePileContents fills
-                    // later from the live pile; read what it will show directly:
-                    // the pile filtered by the screen's own filter.
-                    var filter = pileScreen._filter;
-                    offered = pileScreen._pile.Cards.Where(c => filter?.Invoke(c) ?? true).ToList();
-                    combat = true;
-                }
-                for (int i = 0; i < offered.Count; i++) sel.Options.Add(CardOption(i, offered[i], combat));
-                return sel;
-            }
             case NChooseABundleSelectionScreen b:
-            {
-                var sel = new Selection { Screen = "choose_a_bundle", MinSelect = 1, MaxSelect = 1 };
-                for (int i = 0; i < b._bundles.Count; i++)
-                    sel.Options.Add(new Option(
-                        new LegalOption("select", Index: i),
-                        new Dictionary<string, object?> { ["bundle"] = b._bundles[i].Select(c => (object?)CardInfo(c)).ToList() }));
-                return sel;
-            }
+                {
+                    var sel = new Selection { Screen = "choose_a_bundle", MinSelect = 1, MaxSelect = 1 };
+                    for (int i = 0; i < b._bundles.Count; i++)
+                        sel.Options.Add(new Option(
+                            new LegalOption("select", Index: i),
+                            new Dictionary<string, object?> { ["bundle"] = b._bundles[i].Select(c => (object?)CardInfo(c)).ToList() }));
+                    return sel;
+                }
             case NChooseARelicSelection rs:
-            {
-                var sel = new Selection { Screen = "choose_a_relic", MinSelect = 1, MaxSelect = 1 };
-                for (int i = 0; i < rs._relics.Count; i++)
-                    sel.Options.Add(new Option(new LegalOption("select", Index: i, Label: rs._relics[i].Id.ToString()), new(), rs._relics[i]));
-                return sel;
-            }
+                {
+                    var sel = new Selection { Screen = "choose_a_relic", MinSelect = 1, MaxSelect = 1 };
+                    for (int i = 0; i < rs._relics.Count; i++)
+                        sel.Options.Add(new Option(new LegalOption("select", Index: i, Label: rs._relics[i].Id.ToString()), new(), rs._relics[i]));
+                    return sel;
+                }
             default:
                 return null;
         }

@@ -1,7 +1,7 @@
 name: Workshop
 
-# The release suite starts this once it has published a release (fleet.json in
-# pipeline-templates, release.dispatch): the newest release's package goes to Steam
+# The release suite starts this, by its name released.yml, once it has published a
+# release (pipeline-templates suites/release.mjs): the newest release's package goes to Steam
 # Workshop item 3774710835 with the player-facing notes of the pull requests it holds.
 on:
   workflow_dispatch:

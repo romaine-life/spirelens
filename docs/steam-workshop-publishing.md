@@ -37,10 +37,10 @@ suite as the next `v0.5.N`; nobody bumps a version.
 1. Put the player-facing bullets in each feature pull request's `## Workshop notes` section.
 2. Merge it. The release suite builds the mod, writes the release's version into the
    packaged `SpireLens.json`, signs it and publishes the Forgejo release's `SpireLens-windows.zip`.
-3. The suite then starts [workshop.yml](../.forgejo/workflows/workshop.yml), which uploads
+3. The suite then starts [released.yml](../.forgejo/workflows/released.yml), which uploads
    that package to the Workshop.
 
-To retry a failed upload, dispatch `.forgejo/workflows/workshop.yml` on `main`: it
+To retry a failed upload, dispatch `.forgejo/workflows/released.yml` on `main`: it
 uploads the newest release again.
 
 ## Manual workspace publishing
@@ -72,7 +72,7 @@ line is the SDK's idle state, not an error.
 
 ## Automated releases
 
-[workshop.yml](../.forgejo/workflows/workshop.yml) publishes the newest release's
+[released.yml](../.forgejo/workflows/released.yml) publishes the newest release's
 package to Workshop item `3774710835`. The release suite starts it after each release
 (`release.dispatch` in pipeline-templates' `fleet.json`). It:
 

@@ -19,7 +19,7 @@ Use `pr-create romaine-life/spirelens --head <branch> --title <title> --body-fil
 GitHub PR commands in the historical dev-work document. GitHub is a push mirror.
 CI comes from pipeline-templates' suites (`dotnet`, `go` and `release`, set in its
 `fleet.json`): they check PRs, and a merge releases the signed package as the next
-`v0.5.N`; `.forgejo/workflows/workshop.yml` then uploads that release to the Workshop.
+`v0.5.N`; `.forgejo/workflows/released.yml` then uploads that release to the Workshop.
 
 ## Non-negotiables that are easy to get backwards
 

@@ -36,7 +36,7 @@ suite as the next `v0.5.N`; nobody bumps a version.
 
 1. Put the player-facing bullets in each feature pull request's `## Workshop notes` section.
 2. Merge it. The release suite builds the mod, writes the release's version into the
-   packaged `SpireLens.json`, signs it and publishes the Forgejo release's `SpireLens.zip`.
+   packaged `SpireLens.json`, signs it and publishes the Forgejo release's `SpireLens-windows.zip`.
 3. The suite then starts [workshop.yml](../.forgejo/workflows/workshop.yml), which uploads
    that package to the Workshop.
 
@@ -52,7 +52,7 @@ uploads the newest release again.
    $headers = @{Authorization = 'token ' + ($credential | Where-Object { $_ -like 'password=*' }).Substring(9)}
    $release = Invoke-RestMethod 'https://forgejo.romaine.life/api/v1/repos/romaine-life/spirelens/releases/latest' -Headers $headers
    $archive = Join-Path $env:TEMP 'SpireLens.zip'
-   Invoke-WebRequest -Uri ($release.assets | Where-Object name -eq 'SpireLens.zip').browser_download_url -Headers $headers -OutFile $archive
+   Invoke-WebRequest -Uri ($release.assets | Where-Object name -eq 'SpireLens-windows.zip').browser_download_url -Headers $headers -OutFile $archive
    Expand-Archive -LiteralPath $archive -DestinationPath 'D:\repos\spirelens-workshop\content\SpireLens' -Force
    Remove-Item -LiteralPath $archive
    Remove-Variable credential, headers

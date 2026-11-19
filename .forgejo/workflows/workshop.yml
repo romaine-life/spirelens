@@ -37,8 +37,8 @@ jobs:
           $ErrorActionPreference = "Stop"
           $headers = @{Authorization = "token $env:TOKEN"}
           $release = Invoke-RestMethod "$env:GITHUB_SERVER_URL/api/v1/repos/$env:GITHUB_REPOSITORY/releases/latest" -Headers $headers
-          $asset = $release.assets | Where-Object name -eq 'SpireLens.zip'
-          if (-not $asset) { throw "Release $($release.tag_name) has no SpireLens.zip." }
+          $asset = $release.assets | Where-Object name -eq 'SpireLens-windows.zip'
+          if (-not $asset) { throw "Release $($release.tag_name) has no SpireLens-windows.zip." }
           Invoke-WebRequest -Uri $asset.browser_download_url -Headers $headers -OutFile SpireLens.zip
           "tag=$($release.tag_name)" | Add-Content $env:GITHUB_OUTPUT
 

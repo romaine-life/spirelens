@@ -18,7 +18,6 @@ recur every cycle.
 |---|---|---|
 | `build.ps1` fails: *"X does not contain a definition for Y"* | game API drift | [Failure mode 1](#failure-mode-1-bridge--core-build-drift) |
 | Run passes, model JSON is correct, but **screenshots show a frozen/placeholder HUD** (e.g. `88/88` HP, `0/4` energy) | BaseLib too old for the new game build | [Failure mode 2](#failure-mode-2-baselib-version-desync-frozen-hud) |
-| `env-prep` aborts `baselib_too_old:found=<ver>:expected>=<floor>`, `baselib_missing_or_unversioned:expected>=<floor>` or `baselib_dependency_missing:<id>` | host BaseLib below the enforced floor, or installed without a mod it depends on | [Failure mode 2](#failure-mode-2-baselib-version-desync-frozen-hud) |
 | HUD stale only on **debug-loaded** combat saves, BaseLib is current | `CombatStateChanged` not raised on debug load | [Failure mode 3](#failure-mode-3-hud-desync-on-debug-loaded-saves) |
 
 **Golden rule:** after a game update, **look at the screenshots, not just the
@@ -30,12 +29,8 @@ while the rendered HUD lies. Pixels are the only signal that catches them.
 | Concern | Repo | Key paths |
 |---|---|---|
 | Bridge mod build + deploy | `romaine-life/spirelens-mcp` | `build.ps1`, `McpMod*.cs`, `mod_manifest.json` |
-| Core mod + verify-loop harness | `romaine-life/spirelens` | `.github/scripts/*.ps1` (`Sts2HostPaths.ps1`, `prepare-scenario.ps1`, `prepare-host.ps1`), `scripts/glimmung-native/*.sh` |
+| Core mod | `romaine-life/spirelens` | `Core/`, `Loader/`, `SpireLens.csproj` |
 | Third-party utility lib | `Alchyr/BaseLib-StS2` (vendored on host) | host `mods\BaseLib\` only |
-
-The harness scripts (`Sts2HostPaths.ps1`, `prepare-scenario.ps1`) live **only in
-`spirelens`** — a common mistake is pointing a harness invocation at the
-`spirelens-mcp` checkout and getting *"… is not recognized"*.
 
 ## Failure mode 1: bridge / core build drift
 
@@ -111,17 +106,6 @@ beta-compat update changed the fallback to the current input field.
 2. Deploy `BaseLib.dll` / `BaseLib.json` / `BaseLib.pck` into host
    `mods\BaseLib\` (game **closed**), back up the old ones.
 3. Confirm `BaseLib.json` reports the new version.
-4. **Bump the enforced floor** if needed: `BaseLibMinVersion` at the top of
-   `internal/host/probe.go`. `env-prep`'s `probe-mod-set` reads the
-   host's `BaseLib.json` over SSH and fails closed with
-   `baselib_too_old:found=<ver>:expected>=<floor>` below the floor (or
-   `baselib_missing_or_unversioned:found=<ver-or-empty>:manifest_exists=<bool>:expected>=<floor>`).
-   The step logs the checked mods directory, observed mods, manifest path, raw
-   BaseLib version, normalized BaseLib version, and any parse error before it
-   aborts, so the next run should show exactly what host state it evaluated.
-   The floor is the thing that stops this regressing silently. See
-   [docs/laptop-host-setup.md](./laptop-host-setup.md#baselib-version-floor--v318).
-
 ## Failure mode 3: HUD desync on debug-loaded saves
 
 **Symptom.** The HUD renders stale placeholders right after a scenario load,
@@ -170,17 +154,7 @@ displays are bound to the right entities).
    it fails to build.
 2. **Run the verify leg and inspect the before/after screenshots**, not just the
    model JSON — modes 2 and 3 only show in pixels.
-3. **If the HUD is frozen**, update BaseLib to the current compat release and
-   bump `BASELIB_MIN_VERSION` if the new build needs a newer BaseLib
+3. **If the HUD is frozen**, update BaseLib to the current compat release
    ([mode 2](#failure-mode-2-baselib-version-desync-frozen-hud)).
 4. **Update any pinned version references** (e.g. an expected `sts2.dll` product
    version, if pinned anywhere) so they don't false-alarm.
-5. **Watch the next live `env-prep` output** for `baselib_version=` and a clean
-   `probe-mod-set` — that confirms the host is on a floor-compliant BaseLib.
-
-## See also
-
-- [docs/laptop-host-setup.md](./laptop-host-setup.md) — host prerequisites, mods
-  policy, and the enforced BaseLib version floor.
-- [docs/glimmung-workflow.md](./glimmung-workflow.md) — the registered phase
-  shape for the verify loop.

@@ -15,8 +15,8 @@ Normal implementation and handoff steps are still expected: the agent may build
 and deploy the mod, hot-reload SpireLens, commit, and push. This preference
 overrides only the automatic test/live-verification parts of repo skills or
 workflows, not their build/deploy/reload flow. Explicitly assigned verification
-tasks (for example, a Glimmung verification phase) still count as an explicit
-request and should follow their own validation contract.
+tasks still count as an explicit request and should follow their own validation
+contract.
 
 Build, deploy, and reload are **agent-owned, not user-owned**. Never hand the
 user an F5 press, a rebuild, or a redeploy as a chore, and never offer one as
@@ -49,7 +49,7 @@ give the user precautionary restart chores to cover agent uncertainty.
 
 ## Mod Policy
 
-The Slay the Spire 2 install (`D:\SteamLibrary\steamapps\common\Slay the Spire 2\mods\` on the Glimmung laptop host; other machines differ, so check the running `SlayTheSpire2.exe` path or the profile CLAUDE.md) runs **only** the user's own mods plus their required prereqs. No third-party mods.
+The Slay the Spire 2 install (`D:\SteamLibrary\steamapps\common\Slay the Spire 2\mods\` on the gaming laptop; other machines differ, so check the running `SlayTheSpire2.exe` path or the profile CLAUDE.md) runs **only** the user's own mods plus their required prereqs. No third-party mods.
 
 Allowed entries:
 
@@ -115,59 +115,6 @@ When inspecting `mods/`, treat any non-(SpireLens|SpirePad|BaseLib|SpireLensMcp)
   - prefer empirical results over intent text
   - be explicit when attribution is heuristic, pooled, contributor-ledger based, or case-specific
 
-## Run execution model
-
-Runs are dispatched by `romaine-life/glimmung` against this repo's
-registered workflow. Each phase runs as a Glimmung-managed `k8s_job` in the
-cluster, but the load-bearing work (Claude invocation, build, deploy, scenario
-prep, verification) executes on this gaming laptop because the warm Slay the
-Spire 2 install and the SpireLensMcp bridge only exist here.
-
-The cluster-side phase pods open a per-run SSH session to this host over an
-ephemeral Tailscale tailnet:
-
-- The SSH user certificate is signed by Glimmung's CA per-run (10-minute TTL,
-  `KeyId=glimmung-lease:<project>/<lease_id>`).
-- The Tailscale auth key is minted per-run via Glimmung's federation flow
-  against `auth.romaine.life`; the resulting tailnet node is `ephemeral` and
-  dies when the orchestrator pod disconnects.
-
-The harness is a single Go binary, `cmd/glimmung-spirelens`, built on the
-`github.com/romaine-life/glimmung/harness` run-harness SDK. It has two faces:
-the **pod face** (`glimmung-spirelens pod <slug>`) runs on the cluster-side k8s
-job pods — `main()` builds a `harness/step.Registry` and calls `step.Main`,
-which dispatches `GLIMMUNG_STEP_SLUG`; and the **host face**
-(`glimmung-spirelens <subcmd>`) is the same binary cross-compiled for Windows
-and run on this laptop over ssh by the pod (replacing the retired pwsh-over-ssh
-here-docs). The pod reaches the laptop through the SDK's `harness/remotehost`
-venue (mint ssh cert + tailscale authkey, userspace `tailscaled`, `tailscale nc`
-ssh proxy). `git_ref` controls the harness end to end: the pod cross-compiles
-the host `.exe` from its own checkout and scps it per run, and the `.mcp.json`
-template is embedded in the binary. The retired `scripts/glimmung-native/*.sh`
-and `.github/scripts/*.ps1` are gone; a Go reintroduction guard
-(`internal/migrationguard`) fails if they return.
-
-There is no GitHub Actions self-hosted runner on this host, and no GitHub
-Actions workflow file drives these runs. Sign-in remains manual (no
-AutoAdminLogon) — if
-the laptop is asleep or pre-logon, the orchestrator's `env-prep` phase aborts
-with `host_unavailable` and the run requeues until next manual sign-in.
-
-See `romaine-life/glimmung/docs/remote-host-execution.md` for the orchestrator-side
-protocol and `docs/glimmung-workflow.md` here for the registered phase shape.
-
-In the verification phase, the unit-test gate is harness-owned and deterministic
-(an observed-outcomes-over-claimed-intent application of the attribution
-principle above). The host face's `run-phase` runs `dotnet test` on
-`Tests/SpireLens.Core.Tests` with a `trx` logger before the verification agent
-starts and reads the observed exit code + TRX via the SDK's
-`harness/evidence.ObservedUnitTestResult`; `passed` is
-`exit_code == 0 && failed == 0`. A failing observed result aborts with
-`unit_tests_failed` (carrying the real failing test names) without invoking the
-agent; a passing result is stamped into `verification.json` authoritatively. The
-verification agent does live-MCP + screenshot evidence only — it does not run or
-judge unit tests, and its narration cannot move the unit-test verdict.
-
 ## Useful Commands
 
 - Deploy Core to the live game (the build's post-build target copies
@@ -200,7 +147,7 @@ judge unit tests, and its narration cannot move the unit-test verdict.
   Before pushing, also build against it:
   `dotnet build Core\SpireLens.Core.csproj -c Debug -p:SkipModsDeploy=true -p:Sts2DataDir=/nonexistent`.
   The root build installs the BaseLib pinned in `SpireLens.csproj` into
-  `mods\BaseLib\`; keep that pin current (see docs/laptop-host-setup.md).
+  `mods\BaseLib\`; keep that pin current.
 - The game itself is agent-operated, like build and deploy:
   - Launch it with `Start-Process "steam://rungameid/2868840"`; don't ask the
     user to start it.

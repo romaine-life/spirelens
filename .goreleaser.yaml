@@ -1,0 +1,23 @@
+# The program this repository releases beside the mod: pipeline-templates' release suite
+# runs `goreleaser build` on this file (PIPT-31) and keeps version numbering, upload,
+# home-sync and pins itself; the ldflags stamp the VERSION, GITHUB_REPOSITORY and
+# GITHUB_SERVER_URL it sets. The mod's own package (SpireLens-windows.zip) is the dotnet
+# part's; this exe is a separate asset and never goes to the Workshop.
+version: 2
+
+project_name: spirelens-db
+
+builds:
+  - id: spirelens-db
+    main: ./cmd/spirelens-db
+    binary: spirelens-db-windows-amd64
+    targets: [windows_amd64_v1]
+    no_unique_dist_dir: true
+    env: [CGO_ENABLED=0]
+    flags: [-p=4, -trimpath]
+    ldflags: >-
+      -s -w
+      {{ if isEnvSet "VERSION" }}-X main.version={{ .Env.VERSION }}{{ end }}
+      {{ if isEnvSet "GITHUB_REPOSITORY" }}-X main.buildRepo={{ .Env.GITHUB_REPOSITORY }}{{ end }}
+      {{ if isEnvSet "GITHUB_SERVER_URL" }}-X main.buildServer={{ .Env.GITHUB_SERVER_URL }}{{ end }}
+      -X main.buildTime={{ .Now.UTC.Format "2006-01-02T15:04:05.000Z" }}

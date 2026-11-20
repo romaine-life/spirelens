@@ -156,9 +156,9 @@ When inspecting `mods/`, treat any non-(SpireLens|SpirePad|BaseLib|SpireLensMcp)
     mid-run. If it isn't running, don't ask anything; just proceed.
   - See the game: `GET http://localhost:15526/api/v1/screenshot` returns the
     Godot viewport as `png_base64`, whichever monitor the window is on.
-- Run database tool (Go, `cmd/spirelens-db`): install with
-  `scripts/install-spirelens-db.ps1`; run browser and playlists with
-  `"$env:APPDATA\SlayTheSpire2\SpireLens\tools\spirelens-db.exe" serve`
+- Run database tool (Go, `cmd/spirelens-db`): released with the mod and
+  installed on PATH by home-sync (docs/run-database.md); run browser and
+  playlists with `spirelens-db serve`
   (http://127.0.0.1:8737). Stop `serve` when done; don't leave it running.
 - Build/tests:
   - `dotnet test D:\repos\SpireLens\Tests\SpireLens.Core.Tests\SpireLens.Core.Tests.csproj -c Debug`

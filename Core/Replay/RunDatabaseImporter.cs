@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -12,10 +13,10 @@ namespace SpireLens.Core.Replay;
 /// every run end. SQLite never loads into this hot-reloaded assembly; this
 /// only launches the external tool and never waits for it.
 ///
-/// The tool is optional. It lives at
-/// <c>user://SpireLens/tools/spirelens-db.exe</c> and is installed by
-/// <c>scripts/install-spirelens-db.ps1</c>; Workshop users will not have it,
-/// so a missing exe is logged once at debug level and skipped. The tool holds
+/// The tool is optional. The release publishes it as its own asset, never in
+/// the Workshop package, and home-sync installs it on the user's PCs with its
+/// folder on the user's PATH; Workshop users will not have it, so a missing
+/// exe is logged once at debug level and skipped. The tool holds
 /// an exclusive lock while ingesting, so a second launch while one is running
 /// exits on its own. Ingest is incremental, so a launch that finds nothing new
 /// costs well under a second.
@@ -43,10 +44,27 @@ public static class RunDatabaseImporter
     private static CancellationTokenSource _cts = new();
     private static bool _missingLogged;
 
-    internal static Func<string> ToolPathProvider = () =>
-        Godot.ProjectSettings.GlobalizePath("user://SpireLens/tools/spirelens-db.exe");
+    private const string ToolName = "spirelens-db.exe";
 
-    public static string ToolPath => ToolPathProvider();
+    // The game inherits Steam's environment, which predates an install home-sync made
+    // while Steam was running, so the user's PATH is also read fresh from the registry.
+    private static string? FindTool()
+    {
+        var process = Environment.GetEnvironmentVariable("PATH") ?? "";
+        var user = Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.User) ?? "";
+        foreach (var entry in process.Split(Path.PathSeparator).Concat(Environment.ExpandEnvironmentVariables(user).Split(Path.PathSeparator)))
+        {
+            var dir = entry.Trim().Trim('"');
+            if (dir.Length == 0) continue;
+            try
+            {
+                var candidate = Path.Combine(dir, ToolName);
+                if (File.Exists(candidate)) return candidate;
+            }
+            catch (ArgumentException) { }
+        }
+        return null;
+    }
 
     private static bool IsDisabled()
     {
@@ -114,18 +132,19 @@ public static class RunDatabaseImporter
     {
         try
         {
-            string exe = ToolPath;
-            if (!File.Exists(exe))
+            string? exe = FindTool();
+            if (exe == null)
             {
                 if (!_missingLogged)
                 {
                     _missingLogged = true;
-                    CoreMain.LogDebug($"Run database import skipped: {exe} is not installed.");
+                    CoreMain.LogDebug($"Run database import skipped: {ToolName} is not on PATH.");
                 }
                 return;
             }
 
-            string dir = Path.GetDirectoryName(exe)!;
+            // Beside the database and spirelens-db.json, in the mod's user folder.
+            string dir = Godot.ProjectSettings.GlobalizePath("user://SpireLens");
             var psi = new ProcessStartInfo
             {
                 FileName = exe,

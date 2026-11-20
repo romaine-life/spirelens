@@ -9,6 +9,7 @@
 //	spirelens-db export-decisions --out file.jsonl [--db path] [--drop-hidden] [--include-abandoned] [--finished-only] [--kinds a,b]
 //	spirelens-db backup [--db path] [--backup-to dir] [--no-db-snapshot] [--log file]
 //	spirelens-db serve [--addr 127.0.0.1:8737] [--db path] [--game-dir dir] [--no-ingest]
+//	spirelens-db version
 package main
 
 import (
@@ -43,6 +44,9 @@ func main() {
 		err = runServe(ctx, os.Args[2:])
 	case "backup":
 		err = runBackup(ctx, os.Args[2:])
+	case "version", "--version":
+		printVersion(os.Stdout)
+		return
 	case "-h", "--help", "help":
 		usage(os.Stdout)
 		return
@@ -66,6 +70,7 @@ commands:
   export-decisions   write canonical decision records as JSONL training data
   serve              local web page to filter runs and build replay playlists (localhost only)
   backup             copy recordings, stat records and a daily database snapshot to the NAS
+  version            print the release this build is
 
 defaults (from %%APPDATA%%):
   --db              %s

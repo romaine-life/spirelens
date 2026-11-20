@@ -51,12 +51,16 @@ Made by the user on 2026-10-14:
 The user approved this on 2026-10-14: SpireLens keeps the database current
 by itself.
 
-- **Where the tool lives:** `%APPDATA%\SlayTheSpire2\SpireLens\tools\spirelens-db.exe`
-  (`user://SpireLens/tools/`). It is optional. Workshop users will not have
-  it, and SpireLens works the same without it.
+- **Where the tool lives:** on the user's PATH, where home-sync installs
+  it (see "Installing and updating the tool"). SpireLens looks through the
+  game's PATH and the user's PATH as the registry holds it now, so an install
+  made while Steam was running is found without restarting Steam. It is
+  optional. Workshop users will not have it, and SpireLens works the same
+  without it.
 - **When SpireLens starts it:** `Core/Replay/RunDatabaseImporter.cs` starts
-  `spirelens-db ingest --quiet --log tools\last-ingest.log` with default
-  paths:
+  `spirelens-db ingest --quiet --log last-ingest.log` in
+  `%APPDATA%\SlayTheSpire2\SpireLens\` (`user://SpireLens/`, beside the
+  database) with default paths:
   - **On every Core load** (game start and each hot reload). This picks up
     runs that ended while the tool was missing, or before a crash.
   - **After every run end.** The run-end path is `ReplayRecorder.OnRunEnded`,
@@ -87,34 +91,28 @@ by itself.
 - **Backup:** after the import, still holding the lock, the same process
   backs up to the NAS ("Backup to the NAS"). An unreachable NAS adds one
   line to the log and nothing else.
-- **Seeing what happened:** `tools\last-ingest.log` holds the last
+- **Seeing what happened:** `last-ingest.log`, beside the database, holds the last
   background run's import summary, backup line and warnings.
 - **Turning it off:** set `SPIRELENS_DISABLE_AUTO_IMPORT=1`. It is read at
   each launch.
 
 ### Installing and updating the tool
 
-```
-pwsh scripts/install-spirelens-db.ps1            # build and install
-pwsh scripts/install-spirelens-db.ps1 -Ingest    # ...then run one ingest
-```
+A merge releases it: pipeline-templates' release suite builds
+`cmd/spirelens-db` from `.goreleaser.yaml` and publishes
+`spirelens-db-windows-amd64.exe` as its own release asset, beside the mod's
+`SpireLens-windows.zip` and never inside it, so it never reaches the
+Workshop. home-sync then installs it on every home PC as `spirelens-db.exe`,
+on the user's PATH (the `spirelens-db` tool in shell-config-profile-home's
+`machine/state.json`). `spirelens-db version` names the release a PC has.
 
-Re-run the script after **any change to `cmd/spirelens-db` or
-`internal/rundb`**. The game keeps launching whatever exe is installed. The
-script builds to a temporary name, then renames the old exe aside before
-moving the new one in. Windows allows renaming a running exe but not
-overwriting one, so this works even while an import is running. A newer tool
-migrates the database on its first run. An older tool refuses a database
-with a newer schema, and that error lands in `last-ingest.log`.
-
-Without the script, the same install is:
-`go build -o "$env:APPDATA\SlayTheSpire2\SpireLens\tools\spirelens-db.exe" ./cmd/spirelens-db`
-(this fails if an import is running at that moment).
+The game keeps launching whatever exe is installed. A newer tool migrates the
+database on its first run. An older tool refuses a database with a newer
+schema, and that error lands in `last-ingest.log`.
 
 ## Commands
 
-Build it with `go build -o spirelens-db.exe ./cmd/spirelens-db`, or run it
-with `go run ./cmd/spirelens-db <command>`.
+From a checkout, run it with `go run ./cmd/spirelens-db <command>`.
 
 ```
 spirelens-db ingest [--db path] [--replays dir] [--history dir]... [--no-history]

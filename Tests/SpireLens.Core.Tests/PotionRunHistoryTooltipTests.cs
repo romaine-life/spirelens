@@ -332,21 +332,36 @@ public class PotionRunHistoryTooltipTests
     [Fact]
     public void ExplosiveAmpouleDamagePatch_TargetsFinalMultiTargetDamageCommand()
     {
-        var target = typeof(CreatureCmd).GetMethod(
-            nameof(CreatureCmd.Damage),
-            BindingFlags.Public | BindingFlags.Static,
-            binder: null,
-            types:
-            [
-                typeof(PlayerChoiceContext),
-                typeof(IEnumerable<Creature>),
-                typeof(decimal),
-                typeof(ValueProp),
-                typeof(Creature),
-                typeof(CardModel),
-                typeof(CardPlay),
-            ],
-            modifiers: null);
+        // The overload every multi-target damage call ends in differs by build
+        // (DamageTargetData on v0.113+, the creature list before); the patch
+        // targets whichever CreatureDamageFunnel resolves. Plain reflection here:
+        // the funnel's Harmony lookups don't initialize in the test host.
+        var target = typeof(CreatureCmd).GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .Where(m => m.Name == nameof(CreatureCmd.Damage))
+            .FirstOrDefault(m =>
+            {
+                var p = m.GetParameters();
+                if (p.Length < 2) return false;
+                var targets = p[1].ParameterType;
+                return targets.IsGenericType
+                    && targets.GetGenericTypeDefinition() == typeof(IEnumerable<>)
+                    && targets.GetGenericArguments()[0].Name == "DamageTargetData";
+            })
+            ?? typeof(CreatureCmd).GetMethod(
+                nameof(CreatureCmd.Damage),
+                BindingFlags.Public | BindingFlags.Static,
+                binder: null,
+                types:
+                [
+                    typeof(PlayerChoiceContext),
+                    typeof(IEnumerable<Creature>),
+                    typeof(decimal),
+                    typeof(ValueProp),
+                    typeof(Creature),
+                    typeof(CardModel),
+                    typeof(CardPlay),
+                ],
+                modifiers: null);
 
         Assert.NotNull(target);
         Assert.Equal(

@@ -37,19 +37,26 @@ public class MembershipCardStatsTests
     [Fact]
     public void Patch_TargetsBothPurchaseWrappersAndThePurchaseHook()
     {
-        var sharedWrapper = typeof(MerchantEntry).GetMethod(
-            nameof(MerchantEntry.OnTryPurchaseWrapper),
-            [typeof(MerchantInventory), typeof(bool)]);
-        var removalWrapper = typeof(MerchantCardRemovalEntry).GetMethod(
-            nameof(MerchantCardRemovalEntry.OnTryPurchaseWrapper),
-            [typeof(MerchantInventory), typeof(bool), typeof(bool)]);
+        // v0.113+ buys through OnTryPurchaseUnsynchronized; earlier builds through
+        // OnTryPurchaseWrapper, with card removal's own overload. Named by string,
+        // since each build has only one of them (MerchantPurchaseApi resolves the same).
+        const BindingFlags declared = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly;
+        Type[] shared = [typeof(MerchantInventory), typeof(bool)];
+        var unsynchronized = typeof(MerchantEntry).GetMethod("OnTryPurchaseUnsynchronized", declared, null, shared, null);
+        var sharedWrapper = unsynchronized
+            ?? typeof(MerchantEntry).GetMethod("OnTryPurchaseWrapper", declared, null, shared, null);
         var purchased = typeof(Hook).GetMethod(nameof(Hook.AfterItemPurchased));
 
         Assert.NotNull(sharedWrapper);
-        Assert.NotNull(removalWrapper);
         Assert.NotNull(purchased);
         Assert.Equal(typeof(Task<bool>), sharedWrapper!.ReturnType);
-        Assert.Equal(typeof(Task<bool>), removalWrapper!.ReturnType);
+        if (unsynchronized == null)
+        {
+            var removalWrapper = typeof(MerchantCardRemovalEntry).GetMethod(
+                "OnTryPurchaseWrapper", declared, null, [typeof(MerchantInventory), typeof(bool), typeof(bool)], null);
+            Assert.NotNull(removalWrapper);
+            Assert.Equal(typeof(Task<bool>), removalWrapper!.ReturnType);
+        }
         Assert.Equal(typeof(Task), purchased!.ReturnType);
     }
 

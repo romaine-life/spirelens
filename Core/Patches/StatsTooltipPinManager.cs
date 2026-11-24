@@ -1148,8 +1148,7 @@ internal static class StatsTooltipPinManager
             case NPotionHolder holder:
                 var potionTipSet = NHoverTipSet.CreateAndShow(
                     target,
-                    nativeHoverTips,
-                    HoverTipAlignment.Center);
+                    nativeHoverTips);
                 if (potionTipSet != null)
                     AlignPotionTipSet(holder, potionTipSet);
                 break;
@@ -1238,13 +1237,24 @@ internal static class StatsTooltipPinManager
         NPotionHolder holder,
         NHoverTipSet tipSet)
     {
-        tipSet.SetGlobalPosition(
-            holder.GlobalPosition
+        var below = holder.GlobalPosition
             + Vector2.Down
             * holder.Size.Y
-            * Mathf.Max(1.5f, holder.Scale.Y));
-        tipSet.SetAlignment(holder, HoverTipAlignment.Center);
+            * Mathf.Max(1.5f, holder.Scale.Y);
+        // The v0.113.1 beta hangs potion tips with SetAlignmentBelow and dropped
+        // HoverTipAlignment.Center; stable has only Center. Use whichever this build has.
+        if (SetAlignmentBelow != null)
+        {
+            SetAlignmentBelow.Invoke(tipSet, new object[] { below });
+            return;
+        }
+        tipSet.SetGlobalPosition(below);
+        if (Enum.TryParse("Center", out HoverTipAlignment center))
+            tipSet.SetAlignment(holder, center);
     }
+
+    private static readonly System.Reflection.MethodInfo? SetAlignmentBelow =
+        typeof(NHoverTipSet).GetMethod("SetAlignmentBelow", new[] { typeof(Vector2) });
 
     private static Node GetPinOwnerParent(Control target)
     {

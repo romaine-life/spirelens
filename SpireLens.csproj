@@ -187,4 +187,25 @@
         <Copy SourceFiles="@(_SpireLensCoreAssembly)" DestinationFolder="$(PublishDir)" />
         <WriteLinesToFile File="$(PublishDir)$(AssemblyName).json" Lines="$([MSBuild]::Escape($(_SpireLensManifest)))" Overwrite="true" />
     </Target>
+
+    <!-- The BaseLib that SpireLens pins, laid out as the game's mods\BaseLib\ folder beside the
+         mod's own. The release suite publishes each folder of its output as a signed ZIP, so
+         every release carries BaseLib-windows.zip at exactly this pin, and home-sync installs
+         it beside SpireLens (SPIRELENS-103). The Workshop package stays SpireLens-windows.zip. -->
+    <Target Name="PublishBaseLibFolder" AfterTargets="PublishModFolder">
+        <PropertyGroup>
+            <_BaseLibPublishDir>$([System.IO.Path]::GetFullPath('$(PublishDir)../BaseLib/'))</_BaseLibPublishDir>
+        </PropertyGroup>
+        <DownloadFile SourceUrl="$(BaseLibReleaseUrl)/BaseLibCompatibilityHelper.dll" DestinationFolder="$(BaseLibHelperDir)" SkipUnchangedFiles="true" />
+        <DownloadFile SourceUrl="$(BaseLibReleaseUrl)/BaseLibCompatibilityHelper.json" DestinationFolder="$(BaseLibHelperDir)" SkipUnchangedFiles="true" />
+        <ItemGroup>
+            <_BaseLibPublished Include="$(TargetDir)BaseLib.dll" />
+            <_BaseLibPublished Include="$(PkgAlchyr_Sts2_BaseLib)\Content\BaseLib.json" />
+            <_BaseLibPublished Include="$(PkgAlchyr_Sts2_BaseLib)\Content\BaseLib.pck" />
+            <_BaseLibPublished Include="$(BaseLibHelperDir)BaseLibCompatibilityHelper.dll" />
+            <_BaseLibPublished Include="$(BaseLibHelperDir)BaseLibCompatibilityHelper.json" />
+        </ItemGroup>
+        <Error Condition="!Exists('%(_BaseLibPublished.FullPath)')" Text="BaseLib's mod folder is missing %(_BaseLibPublished.Filename)%(_BaseLibPublished.Extension)." />
+        <Copy SourceFiles="@(_BaseLibPublished)" DestinationFolder="$(_BaseLibPublishDir)" />
+    </Target>
 </Project>

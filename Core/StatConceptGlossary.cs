@@ -17,7 +17,18 @@ internal enum StatConceptDisplayType
 
 internal sealed record StatConceptResource(
     string Path,
-    decimal Scale);
+    decimal Scale,
+    IReadOnlyList<string> FallbackPaths)
+{
+    /// <summary>
+    /// Path, or the first fallback this game build has: game updates move assets
+    /// (v0.113.1 moved the map outlines out of compressed.sprites/map/).
+    /// </summary>
+    public string ResolvedPath =>
+        ResourceLoader.Exists(Path)
+            ? Path
+            : FallbackPaths.FirstOrDefault(path => ResourceLoader.Exists(path)) ?? Path;
+}
 
 internal sealed record StatConceptDisplay(
     StatConceptDisplayType Type,
@@ -370,7 +381,7 @@ internal static class StatConceptGlossary
         {
             foreach (var resource in concept.Display.Resources)
             {
-                var image = LoadGameResourceImage(resource.Path);
+                var image = LoadGameResourceImage(resource.ResolvedPath);
                 loaded.Add((image, resource.Scale));
             }
 
@@ -431,7 +442,7 @@ internal static class StatConceptGlossary
         {
             foreach (var resource in concept.Display.Resources)
             {
-                var image = LoadGameResourceImage(resource.Path);
+                var image = LoadGameResourceImage(resource.ResolvedPath);
                 loaded.Add((image, resource.Scale));
             }
 
@@ -742,12 +753,12 @@ internal static class StatConceptGlossary
                 .Where(concept =>
                     concept.Display.Type == StatConceptDisplayType.GameResourceGroup)
                 .SelectMany(concept =>
-                    concept.Display.Resources.Select(resource => resource.Path)))
+                    concept.Display.Resources.Select(resource => resource.ResolvedPath)))
             .Concat(Concepts
                 .Where(concept =>
                     concept.Display.Type == StatConceptDisplayType.GameResourceOverlay)
                 .SelectMany(concept =>
-                    concept.Display.Resources.Select(resource => resource.Path)))
+                    concept.Display.Resources.Select(resource => resource.ResolvedPath)))
             .Concat(Concepts
                 .Where(concept =>
                     concept.Display.Type == StatConceptDisplayType.GameResourceBadge)
@@ -1156,13 +1167,34 @@ internal static class StatConceptGlossary
     {
         var context = $"{id}.display.resources[{index}]";
         RequireObject(element, $"Stat concept '{context}'");
-        RequireOnlyProperties(element, context, "path", "scale");
+        RequireOnlyProperties(element, context, "path", "scale", "fallbackPaths");
 
         var path = RequireString(element, "path", context);
-        if (!path.StartsWith("res://", StringComparison.Ordinal))
+        var fallbackPaths = new List<string>();
+        if (element.TryGetProperty("fallbackPaths", out var fallbacks))
         {
-            throw new InvalidOperationException(
-                $"Stat concept '{id}' game resource must use a res:// path.");
+            if (fallbacks.ValueKind != JsonValueKind.Array)
+            {
+                throw new InvalidOperationException(
+                    $"Stat concept '{context}.fallbackPaths' must be an array.");
+            }
+            foreach (var fallback in fallbacks.EnumerateArray())
+            {
+                if (fallback.ValueKind != JsonValueKind.String)
+                {
+                    throw new InvalidOperationException(
+                        $"Stat concept '{context}.fallbackPaths' must hold strings.");
+                }
+                fallbackPaths.Add(fallback.GetString()!);
+            }
+        }
+        foreach (var candidate in fallbackPaths.Prepend(path))
+        {
+            if (!candidate.StartsWith("res://", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"Stat concept '{id}' game resource must use a res:// path.");
+            }
         }
 
         var scaleElement = RequireProperty(element, "scale", context);
@@ -1174,7 +1206,7 @@ internal static class StatConceptGlossary
                 $"Stat concept '{context}.scale' must be between 0.25 and 1.");
         }
 
-        return new StatConceptResource(path, scale);
+        return new StatConceptResource(path, scale, fallbackPaths);
     }
 
     private static void RequireObject(JsonElement element, string context)

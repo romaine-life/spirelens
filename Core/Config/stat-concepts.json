@@ -233,6 +233,9 @@
         "resources": [
           {
             "path": "res://images/atlases/compressed.sprites/map/map_elite_outline.tres",
+            "fallbackPaths": [
+              "res://images/atlases/compressed_atlas.sprites/map_elite_outline.tres"
+            ],
             "scale": 1
           },
           {

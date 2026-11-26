@@ -3,7 +3,7 @@ module github.com/romaine-life/spirelens
 go 1.26.1
 
 require (
-	github.com/romaine-life/logline v0.1.4
+	github.com/romaine-life/logline v0.1.5
 	golang.org/x/sys v0.47.0
 	modernc.org/sqlite v1.59.0
 )

@@ -19,6 +19,8 @@ recur every cycle.
 | `build.ps1` fails: *"X does not contain a definition for Y"* | game API drift | [Failure mode 1](#failure-mode-1-bridge--core-build-drift) |
 | Run passes, model JSON is correct, but **screenshots show a frozen/placeholder HUD** (e.g. `88/88` HP, `0/4` energy) | BaseLib too old for the new game build | [Failure mode 2](#failure-mode-2-baselib-version-desync-frozen-hud) |
 | HUD stale only on **debug-loaded** combat saves, BaseLib is current | `CombatStateChanged` not raised on debug load | [Failure mode 3](#failure-mode-3-hud-desync-on-debug-loaded-saves) |
+| Build is clean but a stat stops recording; `godot.log` shows `TargetMethod() returned an unexpected result: null` | a runtime-bound patch's target was renamed | [Failure mode 4](#failure-mode-4-runtime-bound-patch-drift) |
+| "Error loading mod" badge in the corner | old-form manifest `dependencies`, not a crash | [Failure mode 4](#failure-mode-4-runtime-bound-patch-drift) |
 
 **Golden rule:** after a game update, **look at the screenshots, not just the
 model JSON.** Modes 2 and 3 leave `get_game_state` / the model perfectly correct
@@ -126,6 +128,35 @@ post-load refresh succeeds — but keep it as an explicit repaint for robustness
 and as a diagnostic (its per-creature report is a quick way to see whether the
 displays are bound to the right entities).
 
+## Failure mode 4: runtime-bound patch drift
+
+**Symptom.** The core mod builds cleanly, yet a relic or power stat stops
+recording. `godot.log` has `Patch install failed for <class>` with a
+`HarmonyException`: `TargetMethod() returned an unexpected result: null`, and
+`Patch install: N classes patched` comes up short.
+
+**Cause.** `[HarmonyPatch(typeof(X), nameof(X.Y))]` patches are compile-checked
+against `sts2.dll`, but most relic and power patches under `Core/Patches/` find
+their target at load time through `AccessTools.TypeByName` +
+`AccessTools.Method` in `TargetMethod()`, so a renamed hook only fails in the
+running game. `CoreMain` installs patch classes one at a time, so one dead
+target costs that patch, not the mod.
+
+**Diagnose.** List every runtime-bound patch
+(`git grep -nE 'TypeByName|AccessTools\.Method|TargetMethod' Core/`) and check
+each target still exists: `ilspycmd "<Sts2DataDir>\sts2.dll" -t MegaCrit.Sts2.Core.Models.Relics.<Relic>`.
+
+> **2026-05 example (v0.106.1).** The relic end-of-turn hook `BeforeTurnEnd`
+> became `BeforeSideTurnEnd` (alongside `BeforeSideTurnEndVeryEarly`); per-side
+> turn hooks have been gaining `Side`.
+
+**The "Error loading mod" badge is not this.** The game raises it
+(`MOD_ERROR.MIGRATION_REQUIRED`, in `ModManifest`) when a manifest's
+`dependencies` is the old bare string array (`["BaseLib"]`); the current form is
+objects (`[{ "id": "BaseLib", "min_version": "3.4.0" }]`), as in `SpireLens.json`,
+which also declares `min_game_version`. BaseLib's own `[BaseLib] HarmonyException`
+lines are caught by its `TryPatchAll` and don't raise the badge.
+
 ## Deploy mechanics gotchas
 
 - **Close the game before replacing any mod DLL.** STS2 holds an exclusive lock
@@ -152,9 +183,12 @@ displays are bound to the right entities).
 1. **Rebuild the bridge** against the new `sts2.dll`; fix any build drift
    ([mode 1](#failure-mode-1-bridge--core-build-drift)). Same for the core mod if
    it fails to build.
-2. **Run the verify leg and inspect the before/after screenshots**, not just the
+2. **Check every runtime-bound patch target** in the new `sts2.dll`
+   ([mode 4](#failure-mode-4-runtime-bound-patch-drift)); a clean build doesn't
+   cover them.
+3. **Run the verify leg and inspect the before/after screenshots**, not just the
    model JSON — modes 2 and 3 only show in pixels.
-3. **If the HUD is frozen**, update BaseLib to the current compat release
+4. **If the HUD is frozen**, update BaseLib to the current compat release
    ([mode 2](#failure-mode-2-baselib-version-desync-frozen-hud)).
-4. **Update any pinned version references** (e.g. an expected `sts2.dll` product
+5. **Update any pinned version references** (e.g. an expected `sts2.dll` product
    version, if pinned anywhere) so they don't false-alarm.

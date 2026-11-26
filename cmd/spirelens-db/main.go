@@ -97,19 +97,19 @@ func runIngest(ctx context.Context, args []string) (retErr error) {
 	noHistory := fs.Bool("no-history", false, "skip the game's run history files")
 	force := fs.Bool("force", false, "re-ingest every source even if unchanged")
 	quiet := fs.Bool("quiet", false, "do not print per-file warnings")
-	logPath := fs.String("log", "", "write all output to this file (overwritten) instead of the console; used by SpireLens's background import")
+	logPath := fs.String("log", "", "append the import's events to this log file, in the estate's log line; used by SpireLens's background import")
 	noBackup := fs.Bool("no-backup", false, "do not back up to the NAS after ingesting")
 	var backupTo optString
 	fs.Var(&backupTo, "backup-to", `backup destination (default: backup_to in spirelens-db.json, else `+rundb.DefaultBackupTo+`; "" disables)`)
 	fs.Parse(args)
 
-	if *logPath != "" {
-		finish, err := redirectToLog(*logPath, "ingest")
-		if err != nil {
-			return err
-		}
-		defer func() { finish(retErr) }()
+	log, finish, err := openLog(*logPath, "ingest")
+	if err != nil {
+		return err
 	}
+	defer func() { finish(retErr) }()
+	// A panic is logged before finish could call it finished; then it still ends the program.
+	defer log.Panic()
 
 	historyDirs := []string(history)
 	if len(historyDirs) == 0 && !*noHistory {
@@ -131,6 +131,7 @@ func runIngest(ctx context.Context, args []string) (retErr error) {
 	}
 	if !locked {
 		fmt.Println("another spirelens-db ingest is running; nothing to do")
+		log.Info("ingest skipped", "reason", "another ingest is running")
 		return nil
 	}
 	defer release()
@@ -149,9 +150,7 @@ func runIngest(ctx context.Context, args []string) (retErr error) {
 		Force:            *force,
 		Warn: func(format string, a ...any) {
 			warnings++
-			if !*quiet {
-				fmt.Fprintf(os.Stderr, "warning: "+format+"\n", a...)
-			}
+			warning(log, *quiet, format, a...)
 		},
 	}
 	fmt.Printf("database: %s\n", *dbPath)
@@ -170,9 +169,12 @@ func runIngest(ctx context.Context, args []string) (retErr error) {
 		r    rundb.SourceReport
 	}{{"recordings", report.Recordings}, {"history", report.History}, {"spirelens", report.SpireLens}} {
 		fmt.Fprintf(tw, "%s\t%d\t%d\t%d\t%d\t%s\n", s.name, s.r.Seen, s.r.Ingested, s.r.Unchanged, s.r.Failed, formatNotes(s.r.Notes))
+		log.Info("source ingested", "source", s.name, "seen", s.r.Seen, "ingested", s.r.Ingested,
+			"unchanged", s.r.Unchanged, "failed", s.r.Failed, "notes", formatNotes(s.r.Notes))
 	}
 	tw.Flush()
 	fmt.Printf("\nruns: %d   warnings: %d   elapsed: %s\n", report.Runs, warnings, report.Elapsed.Round(1e6))
+	log.Info("ingest summary", "runs", report.Runs, "warnings", warnings, "took", report.Elapsed.Round(1e6))
 
 	counts, err := rundb.TableCounts(ctx, db)
 	if err != nil {
@@ -194,7 +196,7 @@ func runIngest(ctx context.Context, args []string) (retErr error) {
 		return nil
 	}
 	fmt.Println()
-	return backupWith(ctx, db, *dbPath, backupTo.ptr(), *replays, *spirelensRuns, true, *quiet)
+	return backupWith(ctx, log, db, *dbPath, backupTo.ptr(), *replays, *spirelensRuns, true, *quiet)
 }
 
 func formatNotes(notes map[string]int) string {

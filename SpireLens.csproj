@@ -17,6 +17,13 @@
         <BaseLibHelperDir>$(MSBuildProjectDirectory)/obj/baselib-release/$(BaseLibVersion)/</BaseLibHelperDir>
         <!-- The release's version (prefix.N), which the CI suites' release build sets. -->
         <SpireLensReleaseVersion>$(InformationalVersion)</SpireLensReleaseVersion>
+        <!-- logline, the estate's one log line (AHT-204), which the Loader writes its diag log
+             with. The estate has no NuGet feed, so its C# source is compiled in from
+             romaine-life/logline at this commit (v0.1.4), fetched into obj/ by FetchLogline.
+             Moving to a newer logline is moving this pin; no take-up PR does it. -->
+        <LoglineCommit>f70b79296762016b3400e3069dd96ea64770d4a0</LoglineCommit>
+        <LoglineUrl>https://forgejo.romaine.life/romaine-life/logline.git</LoglineUrl>
+        <LoglineSource>$(MSBuildProjectDirectory)\obj\logline\$(LoglineCommit)</LoglineSource>
     </PropertyGroup>
 
     <PropertyGroup>
@@ -96,6 +103,23 @@
         <Error
                 Text=" Slay the Spire 2 data not found at path '$(Sts2DataDir)' and reference stubs not found at '$(Sts2LibDir)'"
                 Condition="('$(Sts2DataDir)' == '' or !Exists('$(Sts2DataDir)')) and !Exists('$(Sts2LibDir)/sts2.dll')" />
+    </Target>
+
+    <!-- logline's C# source at LoglineCommit, compiled into the Loader only: SpireLens.dll
+         stays one assembly, and the hot-reloaded Core is untouched. git fetches exactly that
+         commit, so a moved tag or a rebuilt archive can't change what is built. -->
+    <Target Name="FetchLogline" BeforeTargets="CoreCompile">
+        <PropertyGroup>
+            <_LoglineFetched>false</_LoglineFetched>
+            <_LoglineFetched Condition="Exists('$(LoglineSource)\dotnet\Logline\Logger.cs')">true</_LoglineFetched>
+        </PropertyGroup>
+        <RemoveDir Condition="!$(_LoglineFetched)" Directories="$(LoglineSource)" />
+        <Exec Condition="!$(_LoglineFetched)" EnvironmentVariables="GIT_TERMINAL_PROMPT=0"
+              Command="git init -q &quot;$(LoglineSource)&quot; &amp;&amp; git -C &quot;$(LoglineSource)&quot; fetch -q --depth 1 $(LoglineUrl) $(LoglineCommit) &amp;&amp; git -C &quot;$(LoglineSource)&quot; -c advice.detachedHead=false checkout -q FETCH_HEAD" />
+        <Error Condition="!Exists('$(LoglineSource)\dotnet\Logline\Logger.cs')" Text="Could not fetch logline $(LoglineCommit) from $(LoglineUrl)." />
+        <ItemGroup>
+            <Compile Include="$(LoglineSource)\dotnet\Logline\*.cs" />
+        </ItemGroup>
     </Target>
 
     <Target Name="GenerateSpireLensBuildInfo" BeforeTargets="CoreCompile">

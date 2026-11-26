@@ -155,7 +155,7 @@ public static class RunDatabaseImporter
             psi.ArgumentList.Add("ingest");
             psi.ArgumentList.Add("--quiet");
             psi.ArgumentList.Add("--log");
-            psi.ArgumentList.Add(Path.Combine(dir, "last-ingest.log"));
+            psi.ArgumentList.Add(Path.Combine(dir, "spirelens-db.log"));
 
             // Not disposed here: the Exited callback may still read it, and
             // one handle per run end is left to the finalizer.

@@ -58,7 +58,7 @@ by itself.
   optional. Workshop users will not have it, and SpireLens works the same
   without it.
 - **When SpireLens starts it:** `Core/Replay/RunDatabaseImporter.cs` starts
-  `spirelens-db ingest --quiet --log last-ingest.log` in
+  `spirelens-db ingest --quiet --log spirelens-db.log` in
   `%APPDATA%\SlayTheSpire2\SpireLens\` (`user://SpireLens/`, beside the
   database) with default paths:
   - **On every Core load** (game start and each hot reload). This picks up
@@ -91,8 +91,10 @@ by itself.
 - **Backup:** after the import, still holding the lock, the same process
   backs up to the NAS ("Backup to the NAS"). An unreachable NAS adds one
   line to the log and nothing else.
-- **Seeing what happened:** `last-ingest.log`, beside the database, holds the last
-  background run's import summary, backup line and warnings.
+- **Seeing what happened:** `spirelens-db.log`, beside the database, holds every
+  background run's import and backup as timed log lines, appended (see `--log`
+  under Commands). It ships to the NAS's log pile as `spirelens-db`, so
+  `log-search --app spirelens-db` finds a run on any PC.
 - **Turning it off:** set `SPIRELENS_DISABLE_AUTO_IMPORT=1`. It is read at
   each launch.
 
@@ -108,7 +110,7 @@ on the user's PATH (the `spirelens-db` tool in shell-config-profile-home's
 
 The game keeps launching whatever exe is installed. A newer tool migrates the
 database on its first run. An older tool refuses a database with a newer
-schema, and that error lands in `last-ingest.log`.
+schema, and that error lands in `spirelens-db.log`.
 
 ## Commands
 
@@ -154,8 +156,13 @@ re-read on the next ingest because its fingerprint will have changed.
 - `--force` re-imports everything.
 - Only one ingest runs at a time (see "Automatic import"). A second one
   prints a line and exits 0.
-- `--log file` sends all output to that file (overwritten each time) instead
-  of the console. The background import uses it.
+- `--log file` appends the command's events to that file as the estate's
+  log line (AHT-204, at-home-tools `docs/app-logs.md`): `ingest started`, a
+  `source ingested` line per source with its counts, `ingest summary`, the
+  backup's line (`backup ok`, `backup unreachable`, ...), and `ingest finished`
+  or `ingest failed error=...`, each with its time; past 1 MiB the file moves to
+  `.old`. Error and warning text is masked with logline's `Redact`. The console
+  keeps its report. The background import uses it.
 
 It never aborts on bad input. A malformed or unreadable file is skipped with
 a warning, and is counted under `failed` in the summary. Torn lines, which

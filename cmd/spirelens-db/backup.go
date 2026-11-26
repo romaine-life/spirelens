@@ -5,10 +5,12 @@ import (
 	"database/sql"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
 
+	"github.com/romaine-life/logline"
 	"github.com/romaine-life/spirelens/internal/rundb"
 )
 
@@ -28,28 +30,38 @@ func (o *optString) ptr() *string {
 	return &o.v
 }
 
-// redirectToLog sends stdout/stderr to path (overwritten). The returned
-// finish records the command's outcome in the file and closes it: main
-// prints errors to stderr only after the command returns, when the file is
-// already closed.
-func redirectToLog(path, command string) (func(err error), error) {
+// openLog is --log's file: the command's events in the estate's log line
+// (AHT-204, at-home-tools docs/app-logs.md), appended and moved to .old past
+// 1 MiB, so every background run's import and backup stay searchable. With no
+// --log, the events go nowhere and the console keeps its human report. finish
+// records how the command ended.
+func openLog(path, command string) (*logline.Logger, func(err error), error) {
+	if path == "" {
+		return logline.New(io.Discard), func(error) {}, nil
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	f, err := os.Create(path)
-	if err != nil {
-		return nil, err
-	}
-	os.Stdout, os.Stderr = f, f
-	fmt.Printf("spirelens-db %s started %s\n", command, time.Now().Format(time.RFC3339))
-	return func(err error) {
+	log := logline.OpenFile(path)
+	log.Info(command + " started")
+	return log, func(err error) {
 		if err != nil {
-			fmt.Fprintln(f, "spirelens-db:", err)
+			log.Error(command+" failed", "error", logline.Redact(err.Error()))
 		} else {
-			fmt.Fprintln(f, "done")
+			log.Info(command + " finished")
 		}
-		f.Close()
 	}, nil
+}
+
+// warning is one of ingest's or backup's warnings, on the console and in the
+// log; --quiet leaves both out. Its text names files and their errors.
+func warning(log *logline.Logger, quiet bool, format string, a ...any) {
+	if quiet {
+		return
+	}
+	text := fmt.Sprintf(format, a...)
+	fmt.Fprintln(os.Stderr, "warning: "+text)
+	log.Warn("warning", "detail", logline.Redact(text))
 }
 
 func runBackup(ctx context.Context, args []string) (retErr error) {
@@ -61,16 +73,16 @@ func runBackup(ctx context.Context, args []string) (retErr error) {
 	fs.Var(&backupTo, "backup-to", `backup destination (default: backup_to in spirelens-db.json, else `+rundb.DefaultBackupTo+`; "" disables)`)
 	noSnapshot := fs.Bool("no-db-snapshot", false, "skip the daily database snapshot")
 	quiet := fs.Bool("quiet", false, "do not print per-file warnings")
-	logPath := fs.String("log", "", "write all output to this file (overwritten)")
+	logPath := fs.String("log", "", "append the backup's events to this log file, in the estate's log line")
 	fs.Parse(args)
 
-	if *logPath != "" {
-		finish, err := redirectToLog(*logPath, "backup")
-		if err != nil {
-			return err
-		}
-		defer func() { finish(retErr) }()
+	log, finish, err := openLog(*logPath, "backup")
+	if err != nil {
+		return err
 	}
+	defer func() { finish(retErr) }()
+	// A panic is logged before finish could call it finished; then it still ends the program.
+	defer log.Panic()
 
 	// Same lock as ingest: a backup never overlaps an ingest (or its backup).
 	release, locked, err := rundb.AcquireIngestLock(*dbPath)
@@ -79,6 +91,7 @@ func runBackup(ctx context.Context, args []string) (retErr error) {
 	}
 	if !locked {
 		fmt.Println("an ingest or backup is running; nothing to do")
+		log.Info("backup skipped", "reason", "an ingest or backup is running")
 		return nil
 	}
 	defer release()
@@ -92,15 +105,16 @@ func runBackup(ctx context.Context, args []string) (retErr error) {
 			defer db.Close()
 		}
 	}
-	return backupWith(ctx, db, *dbPath, backupTo.ptr(), *replays, *spirelensRuns, db != nil, *quiet)
+	return backupWith(ctx, log, db, *dbPath, backupTo.ptr(), *replays, *spirelensRuns, db != nil, *quiet)
 }
 
 // backupWith resolves the destination and runs one backup, printing a
 // one-line summary. Unreachable and disabled are not errors.
-func backupWith(ctx context.Context, db *sql.DB, dbPath string, flagDest *string, replays, spirelensRuns string, snapshot, quiet bool) error {
+func backupWith(ctx context.Context, log *logline.Logger, db *sql.DB, dbPath string, flagDest *string, replays, spirelensRuns string, snapshot, quiet bool) error {
 	cfg, err := rundb.LoadConfig(dbPath)
 	if err != nil {
 		fmt.Printf("warning: %v (using defaults)\n", err)
+		log.Warn("config unreadable; using defaults", "error", logline.Redact(err.Error()))
 	}
 	opts := rundb.BackupOptions{
 		Dest:             rundb.ResolveBackupTo(flagDest, cfg),
@@ -108,9 +122,7 @@ func backupWith(ctx context.Context, db *sql.DB, dbPath string, flagDest *string
 		SpireLensRunsDir: spirelensRuns,
 		DBPath:           dbPath,
 		Warn: func(format string, a ...any) {
-			if !quiet {
-				fmt.Printf("warning: "+format+"\n", a...)
-			}
+			warning(log, quiet, format, a...)
 		},
 	}
 	if snapshot {
@@ -118,5 +130,14 @@ func backupWith(ctx context.Context, db *sql.DB, dbPath string, flagDest *string
 	}
 	report := rundb.Backup(ctx, opts)
 	fmt.Println(rundb.FormatBackupReport(report))
+	level := logline.Info
+	switch report.Status {
+	case "partial", "unreachable", "failed":
+		level = logline.Warn
+	}
+	log.Log(level, "backup "+report.Status, "dest", report.Dest,
+		"copied", report.FilesCopied, "checked", report.FilesChecked, "failed", report.FilesFailed,
+		"bytes", report.BytesCopied, "took", (time.Duration(report.DurationMs) * time.Millisecond).Round(100*time.Millisecond),
+		"snapshot", report.DBSnapshot, "shrunk_kept", report.ShrunkKept, "message", logline.Redact(report.Message))
 	return nil
 }

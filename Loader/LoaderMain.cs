@@ -12,6 +12,8 @@ using MegaCrit.Sts2.Core.Logging;
 using MegaCrit.Sts2.Core.Modding;
 // Godot also has a type called Logger — explicit alias disambiguates.
 using Logger = MegaCrit.Sts2.Core.Logging.Logger;
+using Logline = RomaineLife.Logline;
+using LogLine = RomaineLife.Logline.LogLine;
 
 namespace SpireLens.Loader;
 
@@ -56,12 +58,12 @@ public partial class LoaderMain : Node
 
     public static Logger Logger { get; } = new($"{ModId}.Loader", LogType.Generic);
 
-    // File-based diag log — survives hard crashes since File.AppendAllText flushes.
-    private static readonly string _diagLog = Path.Combine(Path.GetTempPath(), "spirelens-loader-diag.log");
-    private static void D(string msg)
-    {
-        try { File.AppendAllText(_diagLog, $"{DateTime.UtcNow:o} {msg}\n"); } catch { }
-    }
+    // The Loader's own log, in the estate's log line (AHT-204, at-home-tools docs/app-logs.md),
+    // kept where it always was. logline opens and closes the file for each line, so it
+    // survives a hard crash, moves it to .old past 1 MiB, and never throws. Exception text
+    // comes from outside the Loader, so it is masked with LogLine.Redact.
+    private static readonly Logline.Logger Diag =
+        Logline.Logger.OpenFile(Path.Combine(Path.GetTempPath(), "spirelens-loader-diag.log"));
 
     private static AssemblyLoadContext? _currentContext;
     private static Assembly? _currentAssembly;
@@ -72,9 +74,9 @@ public partial class LoaderMain : Node
     /// <summary>Mod entry point — called once on game startup.</summary>
     public static void Initialize()
     {
-        D("Initialize entry");
+        Diag.Info("initialize started");
         Logger.Info($"Loader.Initialize starting (pid={System.Environment.ProcessId})");
-        D("after first Logger.Info");
+        Diag.Info("game logger answered");
 
         // Wire up dependency resolution BEFORE any code that needs Mono.Cecil
         // is JITted. The NuGet dependency DLLs (Mono.Cecil, its companions)
@@ -87,10 +89,10 @@ public partial class LoaderMain : Node
             if (myCtx != null)
             {
                 myCtx.Resolving += ResolveSiblingAssembly;
-                D("Resolving handler wired on our ALC");
+                Diag.Info("resolver wired");
             }
         }
-        catch (Exception e) { D($"resolver wire failed: {e.Message}"); }
+        catch (Exception e) { Diag.Error("resolver wire failed", ("error", LogLine.Redact(e.Message))); }
 
         try
         {
@@ -98,21 +100,21 @@ public partial class LoaderMain : Node
             ModConfigRegistry.Register(SpireLensReplaysConfig.RegistryId, new SpireLensReplaysConfig());
             SpireLensReplaysConfig.InstallTitle(new Harmony($"{ModId}.Loader"));
             RuntimeOptionsBridge.Initialize();
-            D("config registry initialized");
+            Diag.Info("config registered");
         }
         catch (Exception e)
         {
-            D($"config bootstrap threw: {e.GetType().Name}: {e.Message}");
+            Diag.Error("config bootstrap threw", ("type", e.GetType().Name), ("error", LogLine.Redact(e.Message)));
             Logger.Error($"Config bootstrap threw: {e}");
         }
 
-        try { D("about to LoadCore"); LoadCore(); D("LoadCore returned"); }
-        catch (Exception e) { D($"LoadCore threw: {e.GetType().Name}: {e.Message}"); Logger.Error($"LoadCore threw: {e}"); }
+        try { Diag.Info("core load starting"); LoadCore(); Diag.Info("core load returned"); }
+        catch (Exception e) { Diag.Error("core load threw", ("type", e.GetType().Name), ("error", LogLine.Redact(e.Message))); Logger.Error($"LoadCore threw: {e}"); }
 
-        try { D("about to AttachInputListener"); AttachInputListener(); D("AttachInputListener returned"); }
-        catch (Exception e) { D($"AttachInputListener threw: {e.GetType().Name}: {e.Message}"); Logger.Error($"AttachInputListener threw: {e}"); }
+        try { Diag.Info("input listener attaching"); AttachInputListener(); Diag.Info("input listener attached"); }
+        catch (Exception e) { Diag.Error("input listener threw", ("type", e.GetType().Name), ("error", LogLine.Redact(e.Message))); Logger.Error($"AttachInputListener threw: {e}"); }
 
-        D("Initialize exit");
+        Diag.Info("initialize finished");
         Logger.Info("Loader.Initialize complete — F5 to reload");
     }
 
@@ -124,16 +126,16 @@ public partial class LoaderMain : Node
     /// </summary>
     public static void LoadCore()
     {
-        D("LoadCore: entry");
+        Diag.Info("core load entered");
         if (_currentContext != null)
         {
             Logger.Warn("LoadCore called while a Core is already loaded; call UnloadCore first");
             return;
         }
 
-        D("LoadCore: getting assembly location");
+        Diag.Info("core load finding loader");
         var loaderDllPath = typeof(LoaderMain).Assembly.Location;
-        D($"LoadCore: loader path='{loaderDllPath}'");
+        Diag.Info("core load found loader", ("path", loaderDllPath));
         var loaderDir = Path.GetDirectoryName(loaderDllPath);
         if (string.IsNullOrEmpty(loaderDir))
         {
@@ -181,10 +183,10 @@ public partial class LoaderMain : Node
         if (godotContext == null)
         {
             Logger.Error("Could not get Godot ALC from our own assembly");
-            D("LoadCore: godotContext null");
+            Diag.Error("core load found no Godot context");
             return;
         }
-        D($"LoadCore: using Godot ALC: {godotContext.Name ?? "(unnamed)"}");
+        Diag.Info("core load using Godot context", ("context", godotContext.Name ?? "(unnamed)"));
 
         // LoadFromAssemblyPath dedupes by assembly IDENTITY (name+version), so
         // a second call with the same manifest returns the cached assembly —
@@ -222,16 +224,16 @@ public partial class LoaderMain : Node
                 asm.Write(outStream);
                 renamedBytes = outStream.ToArray();
             }
-            D($"LoadCore: renamed manifest to SpireLens.Core.{n}");
+            Diag.Info("core manifest renamed", ("name", $"SpireLens.Core.{n}"));
             using (var ms = new MemoryStream(renamedBytes))
             {
                 loadedAssembly = godotContext.LoadFromStream(ms);
             }
-            D($"LoadCore: loaded assembly: {loadedAssembly.FullName}");
+            Diag.Info("core assembly loaded", ("assembly", loadedAssembly.FullName));
         }
         catch (Exception e)
         {
-            D($"LoadCore: load threw: {e.GetType().Name}: {e.Message}");
+            Diag.Error("core assembly load threw", ("type", e.GetType().Name), ("error", LogLine.Redact(e.Message)));
             Logger.Error($"Failed to load Core from {tempPath}: {e}");
             // Don't touch _currentContext/_currentAssembly — leave them null
             // so the next F5 retries cleanly.
@@ -257,21 +259,21 @@ public partial class LoaderMain : Node
             return;
         }
 
-        D("LoadCore: about to Invoke CoreMain.Initialize");
+        Diag.Info("core initialize starting");
         try
         {
             initMethod.Invoke(null, null);
-            D("LoadCore: Invoke returned normally");
+            Diag.Info("core initialized", ("load", n));
             Logger.Info($"Core loaded (load #{n}, temp={Path.GetFileName(tempPath)})");
         }
         catch (TargetInvocationException tie)
         {
-            D($"LoadCore: Invoke TIE: {tie.InnerException?.GetType().Name}: {tie.InnerException?.Message}");
+            Diag.Error("core initialize threw", ("type", tie.InnerException?.GetType().Name), ("error", LogLine.Redact(tie.InnerException?.Message ?? "")));
             Logger.Error($"Core.Initialize threw: {tie.InnerException}");
         }
         catch (Exception e)
         {
-            D($"LoadCore: Invoke threw: {e.GetType().Name}: {e.Message}");
+            Diag.Error("core initialize invoke failed", ("type", e.GetType().Name), ("error", LogLine.Redact(e.Message)));
             Logger.Error($"Core.Initialize.Invoke failed: {e}");
         }
     }
@@ -338,11 +340,11 @@ public partial class LoaderMain : Node
             var path = Path.Combine(loaderDir, name.Name + ".dll");
             if (File.Exists(path))
             {
-                D($"resolver: loading sibling {name.Name}");
+                Diag.Info("resolver loading sibling", ("assembly", name.Name));
                 return ctx.LoadFromAssemblyPath(path);
             }
         }
-        catch (Exception e) { D($"resolver threw for {name.Name}: {e.Message}"); }
+        catch (Exception e) { Diag.Error("resolver threw", ("assembly", name.Name), ("error", LogLine.Redact(e.Message))); }
         return null;
     }
 

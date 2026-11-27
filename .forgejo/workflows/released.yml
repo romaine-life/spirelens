@@ -17,6 +17,7 @@ jobs:
   workshop:
     if: github.ref == 'refs/heads/main'
     runs-on: windows-latest
+    enable-openid-connect: true
     timeout-minutes: 25
     defaults:
       run:
@@ -28,11 +29,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      # The job's own token can't download release assets, so the dispatch token does.
+      # The job's own token can't download release assets, so a short-lived read token from
+      # the job's identity does (pipeline-templates actions/forgejo-token).
+      - id: forgejo-read
+        uses: romaine-life/pipeline-templates/actions/forgejo-token@main
       - name: Download the newest release
         id: release
         env:
-          TOKEN: ${{ secrets.PIPELINE_DISPATCH_TOKEN }}
+          TOKEN: ${{ steps.forgejo-read.outputs.token }}
         run: |
           $ErrorActionPreference = "Stop"
           $headers = @{Authorization = "token $env:TOKEN"}
